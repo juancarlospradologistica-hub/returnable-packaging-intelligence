@@ -224,7 +224,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 
 Marcar con `[x]` al cerrar.
 
-- [ ] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
+- [x] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
 - [ ] **Semana 2** · Generador sintético completo, primer dataset Parquet de 18 meses, notebook de sanity check con validación visual.
 - [ ] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
 - [ ] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
@@ -238,6 +238,38 @@ Marcar con `[x]` al cerrar.
 ## 6. Worklog
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
+
+### 2026-09-16 · Sesión 02
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - Setup local completado: Git 2.55, uv 0.12.15, Python 3.11.16 en Windows.
+  - Repo returnable-packaging-intelligence creado público en GitHub y clonado en C:\proyectos.
+  - PROYECTO.md pegado; charter reescrito en voz neutral (fuera "reclutadores" y "portafolio" del texto público).
+  - Estructura src/ layout con carpetas para tests, notebooks, docs, data.
+  - pyproject.toml con dependencias Capa 1 (Polars, DuckDB, Pandera, Faker, NumPy, Pydantic, PyArrow) y Capa 2 (Ruff, Pytest, Jupyter, ipykernel, dbt-duckdb). uv.lock versionado.
+  - .gitignore ampliado con data generada, DuckDB, dbt target, Power BI, IDE.
+  - README v0 público con problema, approach, stack con trade-offs, diagrama Mermaid del flujo, disclaimer de datos sintéticos.
+  - src/rpi/schema.py con las 22 columnas MB51 en Pandera (16 core + 6 opcionales), tipos, longitudes SAP, enum de Bwart y Meins, nullable explícito por columna.
+  - Correccion: el conteo inicial de PROYECTO.md decia 18 columnas cuando el core real son 16 (22 en total). Corregido en PROYECTO.md, README.md y schema.py en el mismo ciclo.
+- **Decisiones tomadas:** ninguna nueva (todo dentro del alcance de ADR-001 a ADR-006).
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Windows es case-insensitive pero Git es case-sensitive: PROYECTO.MD vs PROYECTO.md causo un git add que no capturaba nada. Fix: rename explicito.
+  - Ruff no rompe strings largos automaticamente; se usa concatenacion implicita entre parentesis.
+  - Un copy-paste largo puede duplicar parentesis o romper indentacion: correr `ruff check` antes de cada commit lo detecta al instante.
+- **Próximo paso:**
+  - Semana 2: generador sintético completo. Módulo src/rpi/generator.py con:
+    - Configuracion Pydantic de parametros (14 plantas, mix por tipo, merma 2%, ciclo log-normal 25 dias, lag Cpudt/Budat 92/6/2).
+    - Emision de movimientos por bwart con reglas realistas.
+    - Persistencia a data/raw/mb51_*.parquet.
+    - Validacion final contra MB51Schema antes de escribir.
+  - Notebook notebooks/00_sanity_check.ipynb con:
+    - Carga del dataset.
+    - Conteo por bwart, planta, mes.
+    - Histograma del ciclo 601→602.
+    - Distribucion del lag Cpudt vs Budat.
+    - Tasa de no-retorno global y por cluster.
 
 ### 2026-09-16 · Sesión 01
 
@@ -255,7 +287,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - Crear repo `returnable-packaging-intelligence` en GitHub (público).
   - Clonar localmente en `C:\proyectos\returnable-packaging-intelligence`.
   - Pegar este PROYECTO.md.
-  - Recibir scaffold de semana 1 (estructura de carpetas, `pyproject.toml`, README v0, primer módulo del generador).
+  - Preparar scaffold de semana 1 (estructura de carpetas, `pyproject.toml`, README v0, primer módulo del generador).
 
 ---
 
