@@ -216,3 +216,54 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# ============================================
+# Returnable Packaging Intelligence
+# ============================================
+
+# Datos generados (regenerables con el generador sintetico)
+data/raw/*.parquet
+data/raw/*.csv
+data/processed/*.parquet
+data/processed/*.csv
+data/**/*.duckdb
+data/**/*.db
+
+# DuckDB local
+*.duckdb
+*.duckdb.wal
+
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Power BI (binarios pesados; usar LFS si se decide versionar)
+*.pbix
+*.pbit
+
+# uv
+.python-version
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Ruff cache
+.ruff_cache/
+
+# Pytest / coverage extra
+.pytest_cache/
+htmlcov/
+.coverage.*
