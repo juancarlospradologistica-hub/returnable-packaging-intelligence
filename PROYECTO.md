@@ -25,13 +25,13 @@ Para la vista pública ver `README.md`.
 
 ### Propósito
 
-Portafolio técnico y ejecutivo para posicionar al autor como consultor SAP MM/EWM + analítica de Returnable Packaging Logistics (RPL), con proyección a AMS remoto.
+Análisis de rotación, ciclo y pérdidas de contenedores retornables en flota multi-planta usando datos MB51 sintéticos. El objetivo es aterrizar en KPIs accionables para un equipo de gobernanza de Returnable Packaging Logistics (RPL): cuánto se pierde en USD, dónde, qué rutas cliente están rotas, qué SKUs se descontrolan primero.
 
-### Público objetivo
+### Audiencia
 
-- Reclutadores técnicos: SAP AMS, Data Quality, Supply Chain Analytics.
-- Reclutadores en LinkedIn buscando perfiles SAP MM/EWM con dominio real.
-- Comunidad open source SAP + data engineering.
+- Equipos de gobernanza de Returnable Packaging Logistics (RPL) en industria automotriz.
+- Analistas de master data SAP MM que quieran ver cómo se aterriza MB51 en un pipeline analítico moderno.
+- Ingenieros de datos que trabajen con datasets tipo ERP y busquen ejemplos de dbt + Polars + DuckDB.
 
 ### Alcance IN — Rebanada 1
 
@@ -43,12 +43,12 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 - Rebanada 3: Forecast de necesidad de packaging vs plan de producción MRP.
 - Rebanada 4: Cuello de botella del ciclo lavado / reparación.
 
-### Éxito medible
+### Criterios de completitud
 
-- Repo público en GitHub con documentación completa y CI verde.
-- Al menos 1 post de LinkedIn con >500 impresiones citando el proyecto.
-- Mencionable en entrevistas AMS con narrativa clara y numérica.
-- Al menos 3 reclutadores hacen referencia al repo en un proceso.
+- Repo público con documentación completa y CI verde.
+- Pipeline reproducible: `uv sync` + comando único para regenerar dataset y correr todo el stack analítico.
+- Notebook narrativo que traduzca KPIs técnicos en cifras de negocio en USD.
+- Diagramas Mermaid del dominio y del flujo de datos.
 
 ### Restricciones
 
