@@ -46,7 +46,7 @@ Elegí este stack apuntando a un pipeline analítico reproducible sin depender d
 | DataFrames | Polars | 5-10x más rápido que Pandas a 10M filas. Sintaxis moderna. |
 | Warehouse local | DuckDB | Motor OLAP embebido. Cero infraestructura. |
 | Modelado analítico | dbt-duckdb | Linaje, tests y docs auto-generados. |
-| Validación de schemas | Pandera | Contrato explícito sobre las 18 columnas MB51. |
+| Validación de schemas | Pandera | Contrato explícito sobre las 22 columnas MB51. |
 | Generación sintética | NumPy + Faker | Distribuciones realistas por parámetro. |
 | Persistencia | Parquet | Columnar comprimido, interoperable. |
 | Package manager | uv | Setup en segundos. Reemplaza pip + venv + poetry. |
@@ -82,7 +82,7 @@ uv run python -c "import polars, duckdb; print(polars.__version__, duckdb.__vers
 
 ## Estado actual
 
-Semana 1 del roadmap. Scaffold del proyecto, schema Pandera de las 18 columnas MB51, dependencias declaradas.
+Semana 1 del roadmap. Scaffold del proyecto, schema Pandera de las 22 columnas MB51, dependencias declaradas.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

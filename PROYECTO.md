@@ -180,7 +180,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 
 ## 4. Diccionario de datos (MB51 sintético)
 
-### Columnas core (12)
+### Columnas core (16)
 
 | Campo | Descripción | Uso analítico |
 |-------|-------------|---------------|
@@ -224,7 +224,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 
 Marcar con `[x]` al cerrar.
 
-- [ ] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 18 columnas.
+- [ ] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
 - [ ] **Semana 2** · Generador sintético completo, primer dataset Parquet de 18 meses, notebook de sanity check con validación visual.
 - [ ] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
 - [ ] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
@@ -246,7 +246,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - Definido proyecto: rebanada 1 (rotación y pérdidas de RPL).
   - Definido stack completo por capas (esencial, diferenciador, opcional).
   - Definidos parámetros del generador sintético (14 plantas, 1,200 Matnr, mix por tipo, merma 2%, ciclo 25 días).
-  - Definido diccionario de datos con 12 columnas core + 6 opcionales MB51.
+  - Definido diccionario de datos con 16 columnas core + 6 opcionales MB51 (22 en total).
   - Definido sistema de docs: PROYECTO.md único con 7 secciones + README.md público separado.
   - Confirmado entorno: Windows + Git + VS Code + PowerShell.
 - **Decisiones tomadas:** ADR-001 a ADR-006.
