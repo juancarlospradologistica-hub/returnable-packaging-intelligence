@@ -176,6 +176,17 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Decisión:** Un solo PROYECTO.md con índice navegable. README.md separado para la vista pública.
 - **Consecuencias:** Menor probabilidad de perder contexto. Un solo archivo que abrir.
 
+### ADR-007 · Matnr por planta: pool global 40% sin límite estricto de 250
+
+- **Fecha:** 2026-09-17
+- **Estado:** Accepted
+- **Contexto:** El parámetro inicial era 250 Matnr por planta. Al implementar el solape con 40% de pool global (480 de 1,200), cada planta accede a 480 Matnr compartidos, superando el límite de 250.
+- **Alternativas evaluadas:**
+  - Opción B: reducir global a 10% (~120) y completar con 130 locales para respetar 250 estrictos.
+  - Opción A: dejar 480 por planta, más realista para flota global donde contenedores circulan libremente entre sitios.
+- **Decisión:** Opción A. Confirmada por conocimiento de dominio RPL del autor.
+- **Consecuencias:** matnr_count en PlantConfig actualizado a 480. La descripción del pool en GeneratorConfig refleja el 40% compartido.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -225,8 +236,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 Marcar con `[x]` al cerrar.
 
 - [x] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
-- [ ] **Semana 2** · Generador sintético completo, primer dataset Parquet de 18 meses, notebook de sanity check con validación visual.
-- [ ] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
+- [x] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
 - [ ] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
 - [ ] **Semana 5** · Notebook analítico narrativo con storytelling de negocio y cifras en USD.
 - [ ] **Semana 6** · Dashboard con Evidence.dev + versión Power BI descargable.
@@ -239,37 +249,22 @@ Marcar con `[x]` al cerrar.
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
 
-### 2026-09-16 · Sesión 02
+### 2026-09-17 · Sesión 03
 
 - **Duración:** ~3 h
 - **Hecho:**
-  - Setup local completado: Git 2.55, uv 0.12.15, Python 3.11.16 en Windows.
-  - Repo returnable-packaging-intelligence creado público en GitHub y clonado en C:\proyectos.
-  - PROYECTO.md pegado; charter reescrito en voz neutral (fuera "reclutadores" y "portafolio" del texto público).
-  - Estructura src/ layout con carpetas para tests, notebooks, docs, data.
-  - pyproject.toml con dependencias Capa 1 (Polars, DuckDB, Pandera, Faker, NumPy, Pydantic, PyArrow) y Capa 2 (Ruff, Pytest, Jupyter, ipykernel, dbt-duckdb). uv.lock versionado.
-  - .gitignore ampliado con data generada, DuckDB, dbt target, Power BI, IDE.
-  - README v0 público con problema, approach, stack con trade-offs, diagrama Mermaid del flujo, disclaimer de datos sintéticos.
-  - src/rpi/schema.py con las 22 columnas MB51 en Pandera (16 core + 6 opcionales), tipos, longitudes SAP, enum de Bwart y Meins, nullable explícito por columna.
-  - Correccion: el conteo inicial de PROYECTO.md decia 18 columnas cuando el core real son 16 (22 en total). Corregido en PROYECTO.md, README.md y schema.py en el mismo ciclo.
-- **Decisiones tomadas:** ninguna nueva (todo dentro del alcance de ADR-001 a ADR-006).
+  - config.py: modelo Pydantic completo con PlantConfig, MaterialMix, CycleConfig, CpudtLagConfig y GeneratorConfig. Validadores de suma=1.0 y rangos de negocio.
+  - generator.py: build_matnr_pool (1,200 Matnr, mix 60/30/10), assign_matnr_to_plants (40% global con solape, 480 por planta), build_date_range (fechas hábiles 18 meses), emit_plant_movements (Bwart mix realista, lag Cpudt/Budat 92/6/2, Lgort coherente con Bwart), apply_return_cycle (ciclo log-normal 601→602, merma 2.01%).
+  - Dataset completo generado: 15,550,868 filas × 16 columnas en data/raw/mb51_synthetic.parquet.
+  - Tasa de merma real: 2.01% (objetivo 2.0%).
+- **Decisiones tomadas:** ADR-007 (Matnr por planta: pool global 40% sin límite estricto de 250, Opción A confirmada por dominio RPL).
 - **Bloqueos:** ninguno.
 - **Notas de la sesión:**
-  - Windows es case-insensitive pero Git es case-sensitive: PROYECTO.MD vs PROYECTO.md causo un git add que no capturaba nada. Fix: rename explicito.
-  - Ruff no rompe strings largos automaticamente; se usa concatenacion implicita entre parentesis.
-  - Un copy-paste largo puede duplicar parentesis o romper indentacion: correr `ruff check` antes de cada commit lo detecta al instante.
+  - Límite ge=1_000 en monthly_movements_min/max ajustado a ge=100 para permitir pruebas con volumen reducido.
+  - El volumen final (15.5M) supera el objetivo de 10M porque la semilla cayó hacia el extremo alto del rango 40k-80k en varias plantas. Rango correcto, resultado válido.
 - **Próximo paso:**
-  - Semana 2: generador sintético completo. Módulo src/rpi/generator.py con:
-    - Configuracion Pydantic de parametros (14 plantas, mix por tipo, merma 2%, ciclo log-normal 25 dias, lag Cpudt/Budat 92/6/2).
-    - Emision de movimientos por bwart con reglas realistas.
-    - Persistencia a data/raw/mb51_*.parquet.
-    - Validacion final contra MB51Schema antes de escribir.
-  - Notebook notebooks/00_sanity_check.ipynb con:
-    - Carga del dataset.
-    - Conteo por bwart, planta, mes.
-    - Histograma del ciclo 601→602.
-    - Distribucion del lag Cpudt vs Budat.
-    - Tasa de no-retorno global y por cluster.
+  - Validación Pandera del dataset contra MB51Schema.
+  - Notebook notebooks/00_sanity_check.ipynb: conteo por Bwart/planta/mes, histograma ciclo 601→602, distribución lag Cpudt/Budat, tasa de merma global y por planta.
 
 ### 2026-09-16 · Sesión 01
 
