@@ -6,19 +6,19 @@ Todos los valores reflejan los parámetros definidos en PROYECTO.md §4.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class Country(str, Enum):
+class Country(StrEnum):
     MX = "MX"
     US = "US"
     NI = "NI"
 
 
-class MaterialType(str, Enum):
+class MaterialType(StrEnum):
     KLT = "KLT"
     RACK = "RACK"
     CARTON = "CARTON"
@@ -38,7 +38,7 @@ class PlantConfig(BaseModel):
     monthly_movements_max: int = Field(default=80_000, ge=100)
 
     @model_validator(mode="after")
-    def max_mayor_que_min(self) -> "PlantConfig":
+    def max_mayor_que_min(self) -> PlantConfig:
         if self.monthly_movements_max <= self.monthly_movements_min:
             raise ValueError(
                 "monthly_movements_max debe ser mayor que monthly_movements_min"
@@ -57,7 +57,7 @@ class MaterialMix(BaseModel):
     carton: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.10
 
     @model_validator(mode="after")
-    def suma_uno(self) -> "MaterialMix":
+    def suma_uno(self) -> MaterialMix:
         total = round(self.klt + self.rack + self.carton, 10)
         if total != 1.0:
             raise ValueError(
@@ -92,7 +92,7 @@ class CpudtLagConfig(BaseModel):
     over_48h: Annotated[float, Field(ge=0.0, le=1.0)] = 0.02
 
     @model_validator(mode="after")
-    def suma_uno(self) -> "CpudtLagConfig":
+    def suma_uno(self) -> CpudtLagConfig:
         total = round(self.same_day + self.one_to_two_days + self.over_48h, 10)
         if total != 1.0:
             raise ValueError(
@@ -117,6 +117,14 @@ def _default_plants() -> list[PlantConfig]:
     return plants
 
 
+class MaterialCost(BaseModel):
+    """Costo unitario en USD por tipo de material."""
+
+    klt: float = Field(default=25.0, gt=0, description="KLT plástico")
+    rack: float = Field(default=180.0, gt=0, description="Rack metálico")
+    carton: float = Field(default=8.0, gt=0, description="Cartón + tarima madera")
+
+
 class GeneratorConfig(BaseModel):
     """
     Configuración completa del generador sintético MB51.
@@ -126,24 +134,25 @@ class GeneratorConfig(BaseModel):
     plants: list[PlantConfig] = Field(default_factory=_default_plants)
     horizon_months: int = Field(default=18, ge=1, le=60)
     global_matnr_pool: int = Field(
-    default=1_200,
-    ge=100,
-    description=(
-        "Total de Matnr únicos en el universo. "
-        "El 40% circula en todas las plantas (~480 Matnr compartidos)."
-    ),
-)
+        default=1_200,
+        ge=100,
+        description=(
+            "Total de Matnr únicos en el universo. "
+            "El 40% circula en todas las plantas (~480 Matnr compartidos)."
+        ),
+    )
     material_mix: MaterialMix = Field(default_factory=MaterialMix)
     loss_rate: float = Field(default=0.02, ge=0.0, le=0.5)
     cycle: CycleConfig = Field(default_factory=CycleConfig)
     cpudt_lag: CpudtLagConfig = Field(default_factory=CpudtLagConfig)
+    cost: MaterialCost = Field(default_factory=MaterialCost)
     random_seed: int | None = Field(
         default=42,
         description="Semilla para reproducibilidad. None = no fijar.",
     )
 
     @model_validator(mode="after")
-    def plantas_no_vacias(self) -> "GeneratorConfig":
+    def plantas_no_vacias(self) -> GeneratorConfig:
         if not self.plants:
             raise ValueError("La lista de plantas no puede estar vacía.")
         return self

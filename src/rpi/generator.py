@@ -12,9 +12,9 @@ from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
-from faker import Faker
 
-from rpi.config import Country, GeneratorConfig, MaterialType
+from rpi.config import GeneratorConfig, MaterialType
+
 # ---------------------------------------------------------------------------
 # Utilidades de nomenclatura
 # ---------------------------------------------------------------------------
@@ -35,23 +35,21 @@ def build_matnr_pool(
     cfg: GeneratorConfig,
     rng: np.random.Generator,
 ) -> dict[str, dict]:
-    """
-    Genera el universo global de Matnr y sus atributos estáticos.
-
-    Retorna un dict keyed por Matnr con:
-        - matnr: str
-        - maktx: str  (descripción legible)
-        - material_type: MaterialType
-    """
+    """Genera el universo global de Matnr y sus atributos estáticos."""
     pool_size = cfg.global_matnr_pool
     mix = cfg.material_mix
 
-    # Cuántos materiales por tipo según el mix definido en PROYECTO.md §4
     n_klt = round(pool_size * mix.klt)
     n_rack = round(pool_size * mix.rack)
-    n_carton = pool_size - n_klt - n_rack  # el resto para cuadrar exacto
+    n_carton = pool_size - n_klt - n_rack
 
     records: dict[str, dict] = {}
+
+    cost_map = {
+        MaterialType.KLT: cfg.cost.klt,
+        MaterialType.RACK: cfg.cost.rack,
+        MaterialType.CARTON: cfg.cost.carton,
+    }
 
     for mat_type, count in [
         (MaterialType.KLT, n_klt),
@@ -65,6 +63,7 @@ def build_matnr_pool(
                 "matnr": matnr,
                 "maktx": _maktx(mat_type, i),
                 "material_type": mat_type,
+                "costo_usd": cost_map[mat_type],
             }
 
     return records
@@ -78,6 +77,8 @@ def _maktx(mat_type: MaterialType, idx: int) -> str:
         MaterialType.CARTON: "Caja Carton",
     }
     return f"{labels[mat_type]} {idx:05d}"
+
+
 # ---------------------------------------------------------------------------
 # Asignación de Matnr por planta con solape controlado
 # ---------------------------------------------------------------------------
@@ -94,13 +95,10 @@ def assign_matnr_to_plants(
     Estrategia:
     - 40% del pool son Matnr globales: todas las plantas los tienen.
     - 60% restante se reparte aleatoriamente hasta completar matnr_count.
-
-    Retorna dict: werks → lista de Matnr asignados.
     """
     all_matnr = list(pool.keys())
     total = len(all_matnr)
 
-    # Matnr que circulan en todas las plantas (solape garantizado)
     n_global = round(total * 0.40)
     global_matnr = list(rng.choice(all_matnr, size=n_global, replace=False))
     local_pool = [m for m in all_matnr if m not in set(global_matnr)]
@@ -123,6 +121,7 @@ def assign_matnr_to_plants(
 
     return assignment
 
+
 # ---------------------------------------------------------------------------
 # Generación del horizonte de fechas
 # ---------------------------------------------------------------------------
@@ -132,42 +131,41 @@ def build_date_range(
     cfg: GeneratorConfig,
     reference_date: date | None = None,
 ) -> list[date]:
-    """
-    Genera la lista de fechas hábiles del horizonte de 18 meses.
-    reference_date: último día del horizonte. Default: hoy.
-    """
+    """Genera la lista de fechas hábiles del horizonte de 18 meses."""
     end = reference_date or date.today()
     start = end - timedelta(days=cfg.horizon_months * 30)
 
     dates = []
     current = start
     while current <= end:
-        # Excluye sábados (5) y domingos (6)
         if current.weekday() < 5:
             dates.append(current)
         current += timedelta(days=1)
 
     return dates
+
+
 # ---------------------------------------------------------------------------
 # Pesos de Bwart (mix realista según PROYECTO.md §4)
 # ---------------------------------------------------------------------------
 
-# Bwart y su peso relativo de aparición en el dataset
 _BWART_WEIGHTS: dict[str, float] = {
-    "501": 0.18,  # Recepción sin PO (retorno de cliente)
-    "502": 0.10,  # Devolución de recepción sin PO
-    "601": 0.22,  # Salida a cliente
-    "602": 0.20,  # Retorno de cliente
-    "311": 0.12,  # Traslado entre almacenes
-    "411": 0.08,  # Traslado inverso
-    "101": 0.04,  # Recepción con PO
-    "102": 0.02,  # Devolución de recepción con PO
-    "261": 0.03,  # Consumo a orden
-    "309": 0.01,  # Diferencia de inventario (esporádico)
+    "501": 0.18,
+    "502": 0.10,
+    "601": 0.22,
+    "602": 0.20,
+    "311": 0.12,
+    "411": 0.08,
+    "101": 0.04,
+    "102": 0.02,
+    "261": 0.03,
+    "309": 0.01,
 }
 
 _BWART_LIST = list(_BWART_WEIGHTS.keys())
 _BWART_PROBS = [_BWART_WEIGHTS[b] for b in _BWART_LIST]
+
+
 # ---------------------------------------------------------------------------
 # Emisión de movimientos por planta
 # ---------------------------------------------------------------------------
@@ -182,19 +180,14 @@ def emit_plant_movements(
     rng: np.random.Generator,
     n_movements: int,
 ) -> list[dict]:
-    """
-    Genera n_movements registros MB51 para una planta.
-    Cada registro sigue el schema de las 22 columnas definido en PROYECTO.md §4.
-    """
+    """Genera n_movements registros MB51 para una planta."""
     rows = []
 
-    # Vectores base generados de una vez para velocidad
     chosen_dates = rng.choice(dates, size=n_movements)
     chosen_matnrs = rng.choice(plant_matnrs, size=n_movements)
     chosen_bwarts = rng.choice(_BWART_LIST, size=n_movements, p=_BWART_PROBS)
     quantities = rng.integers(1, 50, size=n_movements)
 
-    # Lag Cpudt vs Budat
     lag_probs = [
         cfg.cpudt_lag.same_day,
         cfg.cpudt_lag.one_to_two_days,
@@ -209,7 +202,6 @@ def emit_plant_movements(
         menge = int(quantities[i])
         mat_info = pool[matnr]
 
-        # Cpudt según lag definido en config
         lag_cat = int(lag_category[i])
         if lag_cat == 0:
             cpudt = budat
@@ -218,7 +210,6 @@ def emit_plant_movements(
         else:
             cpudt = budat + timedelta(days=int(rng.integers(3, 10)))
 
-        # Documento material sintético
         mblnr = f"50{rng.integers(10_000_000, 99_999_999)}"
 
         row = {
@@ -238,6 +229,7 @@ def emit_plant_movements(
             "Lifnr": _pick_lifnr(bwart, rng),
             "Kunnr": _pick_kunnr(bwart, rng),
             "Xblnr": f"REF-{rng.integers(100_000, 999_999)}",
+            "Costo_usd": mat_info["costo_usd"],
         }
         rows.append(row)
 
@@ -265,6 +257,80 @@ def _pick_kunnr(bwart: str, rng: np.random.Generator) -> str | None:
     if bwart in ("601", "602"):
         return f"CUST-{rng.integers(1000, 9999)}"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Ciclo 601 → 602 con merma
+# ---------------------------------------------------------------------------
+
+
+def _lognormal_cycle_days(
+    cfg: GeneratorConfig,
+    rng: np.random.Generator,
+    n: int,
+) -> np.ndarray:
+    """
+    Genera n duraciones de ciclo en días siguiendo distribución log-normal.
+    Media ~25 días, cola hasta ~90 días, techo en cap_days.
+    """
+    mu = math.log(cfg.cycle.mean_days) - 0.5 * cfg.cycle.sigma ** 2
+    raw = rng.lognormal(mean=mu, sigma=cfg.cycle.sigma, size=n)
+    clipped = np.clip(raw, 1, cfg.cycle.cap_days)
+    return np.round(clipped).astype(int)
+
+
+def apply_return_cycle(
+    df: pl.DataFrame,
+    cfg: GeneratorConfig,
+    rng: np.random.Generator,
+) -> pl.DataFrame:
+    """
+    Post-proceso que reemplaza los 602 generados aleatoriamente
+    por retornos reales vinculados a cada 601.
+
+    - 98% de los 601 generan un 602 con ciclo log-normal (media 25 días).
+    - 2% no generan 602 (merma / flota fantasma).
+    """
+    df_601 = df.filter(pl.col("Bwart") == "601")
+    df_rest = df.filter(pl.col("Bwart") != "601")
+    df_rest = df_rest.filter(pl.col("Bwart") != "602")
+
+    n_601 = len(df_601)
+    loss_rate = cfg.loss_rate
+
+    returns_mask = rng.random(n_601) >= loss_rate
+    n_returns = int(returns_mask.sum())
+
+    cycle_days = _lognormal_cycle_days(cfg, rng, n_returns)
+
+    df_601_returns = df_601.filter(pl.Series("mask", returns_mask))
+
+    budats_601 = df_601_returns["Budat"].to_list()
+    new_budats = [
+        d + timedelta(days=int(c))
+        for d, c in zip(budats_601, cycle_days, strict=False)
+    ]
+
+    df_602 = df_601_returns.with_columns([
+        pl.lit("602").alias("Bwart"),
+        pl.Series("Budat", new_budats).cast(pl.Date),
+        pl.Series("Cpudt", new_budats).cast(pl.Date),
+        pl.col("Menge") * -1,
+    ])
+
+    loss_mask = ~returns_mask
+    df_601_loss = df_601.filter(pl.Series("mask", loss_mask))
+    df_601_loss = df_601_loss.with_columns(
+        pl.lit("MERMA-NO-RETORNO").alias("Xblnr")
+    )
+    df_601_ok = df_601.filter(pl.Series("mask", returns_mask))
+
+    df_final = pl.concat([df_rest, df_601_ok, df_601_loss, df_602])
+    df_final = df_final.sort(["Werks", "Budat"])
+
+    return df_final
+
+
 # ---------------------------------------------------------------------------
 # Orquestador principal
 # ---------------------------------------------------------------------------
@@ -277,7 +343,6 @@ def generate(
 ) -> pl.DataFrame:
     """
     Genera el dataset MB51 completo y lo escribe en Parquet.
-
     Retorna el DataFrame completo para validación inmediata.
     """
     import os
@@ -296,10 +361,9 @@ def generate(
     assignment = assign_matnr_to_plants(cfg, pool, rng)
     dates = build_date_range(cfg, reference_date)
 
-    all_rows: list[dict] = []
+    plant_dfs: list[pl.DataFrame] = []
 
     for plant in cfg.plants:
-        # Volumen mensual aleatorio dentro del rango de la planta
         monthly = int(
             rng.integers(
                 plant.monthly_movements_min,
@@ -319,110 +383,24 @@ def generate(
             rng=rng,
             n_movements=total_movements,
         )
-        all_rows.extend(rows)
 
-    print(f"Total filas: {len(all_rows):,} — convirtiendo a Polars...")
+        df_plant = pl.DataFrame(rows).with_columns([
+            pl.col("Budat").cast(pl.Date),
+            pl.col("Cpudt").cast(pl.Date),
+            pl.col("Mjahr").cast(pl.Int64),
+            pl.col("Menge").cast(pl.Int64),
+            pl.col("Costo_usd").cast(pl.Float64),
+        ])
+        plant_dfs.append(df_plant)
 
-    df = pl.DataFrame(all_rows)
+    print(f"Concatenando {len(plant_dfs)} plantas...")
+    df = pl.concat(plant_dfs)
+    print(f"Total filas: {df.shape[0]:,} — aplicando ciclo 601 → 602...")
 
-    # Tipos correctos
-    df = df.with_columns([
-        pl.col("Budat").cast(pl.Date),
-        pl.col("Cpudt").cast(pl.Date),
-        pl.col("Mjahr").cast(pl.Int64),
-        pl.col("Menge").cast(pl.Int64),
-    ])
-
-        # Ciclo 601 → 602 con merma (2% no-retorno)
-    print("Aplicando ciclo 601 → 602 y merma...")
     df = apply_return_cycle(df, cfg, rng)
 
-    # Escribir Parquet
-    output_path = f"{output_dir}/mb51_synthetic.parquet"
+    output_path = f"{output_dir}/mb51_synthetic_v1.parquet"
     df.write_parquet(output_path)
     print(f"Parquet escrito: {output_path} ({df.shape[0]:,} filas, {df.shape[1]} columnas)")
 
     return df
-# ---------------------------------------------------------------------------
-# Ciclo 601 → 602 con merma
-# ---------------------------------------------------------------------------
-
-
-def _lognormal_cycle_days(
-    cfg: GeneratorConfig,
-    rng: np.random.Generator,
-    n: int,
-) -> np.ndarray:
-    """
-    Genera n duraciones de ciclo en días siguiendo distribución log-normal.
-    Media ~25 días, cola hasta ~90 días, techo en cap_days.
-    """
-    # Parámetros log-normal para media=25 días con sigma definido en config
-    mu = math.log(cfg.cycle.mean_days) - 0.5 * cfg.cycle.sigma ** 2
-    raw = rng.lognormal(mean=mu, sigma=cfg.cycle.sigma, size=n)
-    clipped = np.clip(raw, 1, cfg.cycle.cap_days)
-    return np.round(clipped).astype(int)
-
-
-def apply_return_cycle(
-    df: pl.DataFrame,
-    cfg: GeneratorConfig,
-    rng: np.random.Generator,
-) -> pl.DataFrame:
-    """
-    Post-proceso que reemplaza los movimientos 602 generados aleatoriamente
-    por retornos reales vinculados a cada 601.
-
-    - 98% de los 601 generan un 602 con ciclo log-normal (media 25 días).
-    - 2% no generan 602 (merma / flota fantasma).
-
-    Retorna el DataFrame con los 602 corregidos y los 601 huérfanos marcados.
-    """
-    # Separar 601 del resto
-    df_601 = df.filter(pl.col("Bwart") == "601")
-    df_rest = df.filter(pl.col("Bwart") != "601")
-
-    # Eliminar los 602 generados aleatoriamente — los vamos a reconstruir
-    df_rest = df_rest.filter(pl.col("Bwart") != "602")
-
-    n_601 = len(df_601)
-    loss_rate = cfg.loss_rate
-
-    # Máscara de retorno: True = genera 602, False = merma
-    returns_mask = rng.random(n_601) >= loss_rate
-    n_returns = int(returns_mask.sum())
-
-    # Ciclos en días para los que sí retornan
-    cycle_days = _lognormal_cycle_days(cfg, rng, n_returns)
-
-    # Construir los 602 como copia de sus 601 padre
-    df_601_returns = df_601.filter(
-        pl.Series("mask", returns_mask)
-    )
-
-    budats_601 = df_601_returns["Budat"].to_list()
-    new_budats = [
-        d + timedelta(days=int(c))
-        for d, c in zip(budats_601, cycle_days)
-    ]
-
-    df_602 = df_601_returns.with_columns([
-        pl.lit("602").alias("Bwart"),
-        pl.Series("Budat", new_budats).cast(pl.Date),
-        pl.Series("Cpudt", new_budats).cast(pl.Date),
-        pl.col("Menge") * -1,  # retorno invierte cantidad
-    ])
-
-    # Marcar 601 huérfanos (merma) en Sgtxt via Xblnr
-    loss_mask = ~returns_mask
-    df_601_loss = df_601.filter(pl.Series("mask", loss_mask))
-    df_601_loss = df_601_loss.with_columns(
-        pl.lit("MERMA-NO-RETORNO").alias("Xblnr")
-    )
-    df_601_ok = df_601.filter(pl.Series("mask", returns_mask))
-
-    # Reunir todo
-    df_final = pl.concat([df_rest, df_601_ok, df_601_loss, df_602])
-    df_final = df_final.sort(["Werks", "Budat"])
-
-    return df_final
