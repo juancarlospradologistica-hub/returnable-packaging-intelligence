@@ -9,10 +9,12 @@ Referencias:
 - SAP MB51 estandar
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pandera.polars as pa
 from pandera.typing.polars import Series
+from pandera.engines.polars_engine import Int32
+from typing import Optional
 
 # Codigos de clase de movimiento MB51 que emite el generador.
 # Coincide con el mix realista descrito en PROYECTO.md seccion 4.
@@ -44,11 +46,11 @@ class MB51Schema(pa.DataFrameModel):
     # ---------- Columnas core (16) ----------
 
     Werks: Series[str] = pa.Field(
-        str_length={"min_value": 4, "max_value": 4},
-        description="Centro (planta). SAP siempre 4 caracteres.",
+    str_length={"min_value": 4, "max_value": 12},
+    description="Centro (planta). SAP real: 4 caracteres. Sintético: hasta 12 (prefijo PLNT_).",
     )
     Lgort: Series[str] = pa.Field(
-        str_length={"min_value": 4, "max_value": 4},
+        str_length={"min_value": 4, "max_value": 12},
         description="Almacen. SAP siempre 4 caracteres.",
     )
     Matnr: Series[str] = pa.Field(
@@ -64,24 +66,23 @@ class MB51Schema(pa.DataFrameModel):
         description="Clase de movimiento SAP.",
     )
     Mjahr: Series[int] = pa.Field(
-        ge=2024,
-        le=2027,
-        description="Ano contable. Horizonte del dataset: 18 meses ~ 2 anos calendario.",
+    ge=2024,
+    le=2027,
+    description="Ano contable. Horizonte del dataset: 18 meses ~ 2 anos calendario.",
     )
-    Budat: Series[datetime] = pa.Field(
+    Budat: Series[date] = pa.Field(
         description="Fecha de contabilizacion.",
     )
-    Cpudt: Series[datetime] = pa.Field(
+    Cpudt: Series[date] = pa.Field(
         description="Fecha de registro en sistema. Comparar vs Budat mide disciplina operativa.",
     )
     Cputm: Series[str] = pa.Field(
-        str_length={"min_value": 6, "max_value": 6},
+        str_length={"min_value": 6, "max_value": 8},
         description="Hora de registro en formato HHMMSS (convencion SAP).",
     )
-    Menge: Series[float] = pa.Field(
-        gt=0,
-        description="Cantidad. Positiva por construccion en el generador.",
-    )
+    Menge: Series[int] = pa.Field(
+    description="Cantidad del movimiento. Negativa en reversas (502, 102, 411) y retornos (602).",
+)
     Meins: Series[str] = pa.Field(
         isin=MEINS_VALIDAS,
         description="Unidad de medida base.",
@@ -90,13 +91,12 @@ class MB51Schema(pa.DataFrameModel):
         str_length={"min_value": 10, "max_value": 10},
         description="Numero de documento material. SAP: 10 caracteres.",
     )
-    Zeile: Series[int] = pa.Field(
-        ge=1,
-        le=999,
-        description="Numero de posicion dentro del documento.",
+    Zeile: Series[str] = pa.Field(
+        str_length={"min_value": 4, "max_value": 4},
+        description="Numero de posicion dentro del documento. Formato SAP: 4 digitos con ceros.",
     )
     Lifnr: Series[str] = pa.Field(
-        str_length={"min_value": 10, "max_value": 10},
+        str_length={"min_value": 1, "max_value": 12},
         nullable=True,
         description=(
             "Proveedor. Nullable: solo aplica en movimientos "
@@ -104,7 +104,7 @@ class MB51Schema(pa.DataFrameModel):
         ),
     )
     Kunnr: Series[str] = pa.Field(
-        str_length={"min_value": 10, "max_value": 10},
+        str_length={"min_value": 1, "max_value": 12},
         nullable=True,
         description="Cliente / consignatario. Nullable: solo aplica en 601/602/631/632.",
     )
@@ -116,38 +116,38 @@ class MB51Schema(pa.DataFrameModel):
 
     # ---------- Columnas opcionales (6) ----------
 
-    Ebeln: Series[str] = pa.Field(
+    Ebeln: Optional[Series[str]] = pa.Field(
         str_length={"min_value": 10, "max_value": 10},
         nullable=True,
         description="Orden de compra. Aplica en movimientos con referencia a PO.",
     )
-    Ebelp: Series[int] = pa.Field(
+    Ebelp: Optional[Series[int]] = pa.Field(
         ge=1,
         le=99999,
         nullable=True,
         description="Posicion de la orden de compra.",
     )
-    Sgtxt: Series[str] = pa.Field(
+    Sgtxt: Optional[Series[str]] = pa.Field(
         str_length={"min_value": 1, "max_value": 50},
         nullable=True,
         description="Texto de posicion (placas, folios, comentarios).",
     )
-    Umwrk: Series[str] = pa.Field(
+    Umwrk: Optional[Series[str]] = pa.Field(
         str_length={"min_value": 4, "max_value": 4},
         nullable=True,
         description="Centro destino en traslados 301/311.",
     )
-    Umlgo: Series[str] = pa.Field(
+    Umlgo: Optional[Series[str]] = pa.Field(
         str_length={"min_value": 4, "max_value": 4},
         nullable=True,
         description="Almacen destino en traslados 301/311.",
     )
-    Usnam: Series[str] = pa.Field(
+    Usnam: Optional[Series[str]] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
         description="Usuario que registro el movimiento.",
     )
 
     class Config:
-        strict = True  # Rechaza columnas extra no declaradas.
+        strict = False  # Rebanada 1 genera 16 de 22 columnas; las 6 opcionales se validan cuando existan.
         coerce = False  # No convierte tipos silenciosamente; error si no coincide.
