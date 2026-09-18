@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: raw_mb51
+        description: >
+          Movimientos de material MB51 sintéticos. Fuente única de verdad para
+          todo el pipeline de rotación y pérdidas RPL.
+        columns:
+          - name: mblnr
+            description: Documento material SAP.
+          - name: bwart
+            description: Clase de movimiento (501, 601, 602, 311, etc.).
+          - name: budat
+            description: Fecha de contabilización.

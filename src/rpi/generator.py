@@ -329,7 +329,7 @@ def generate(
     df = df.with_columns([
         pl.col("Budat").cast(pl.Date),
         pl.col("Cpudt").cast(pl.Date),
-        pl.col("Mjahr").cast(pl.Int32),
+        pl.col("Mjahr").cast(pl.Int64),
         pl.col("Menge").cast(pl.Int64),
     ])
 

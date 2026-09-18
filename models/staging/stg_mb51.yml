@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: stg_mb51
+    description: >
+      Vista limpia sobre raw_mb51. Un registro = un movimiento de material MB51.
+      Solo Bwart relevantes para el análisis RPL.
+
+    columns:
+      - name: doc_material
+        tests:
+          - not_null
+
+      - name: posicion
+        tests:
+          - not_null
+
+      - name: planta
+        tests:
+          - not_null
+
+      - name: mov_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['501','502','601','602','311','411','101','102','261','309']
+
+      - name: fecha_contab
+        tests:
+          - not_null
+
+      - name: cantidad
+        tests:
+          - not_null
