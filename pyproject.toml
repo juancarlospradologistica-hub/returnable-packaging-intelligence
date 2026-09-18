@@ -17,6 +17,7 @@ dependencies = [
     "faker>=30.0",
     "pandera>=0.20",
     "pydantic>=2.0",
+    "matplotlib>=3.11.2",
 ]
 
 [dependency-groups]
