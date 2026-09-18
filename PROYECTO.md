@@ -236,7 +236,8 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 Marcar con `[x]` al cerrar.
 
 - [x] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
-- [x] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
+- [x] **Semana 2** · Generador sintético completo, primer dataset Parquet de 18 meses, notebook de sanity check con validación visual.
+- [ ] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
 - [ ] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
 - [ ] **Semana 5** · Notebook analítico narrativo con storytelling de negocio y cifras en USD.
 - [ ] **Semana 6** · Dashboard con Evidence.dev + versión Power BI descargable.
@@ -265,6 +266,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Próximo paso:**
   - Validación Pandera del dataset contra MB51Schema.
   - Notebook notebooks/00_sanity_check.ipynb: conteo por Bwart/planta/mes, histograma ciclo 601→602, distribución lag Cpudt/Budat, tasa de merma global y por planta.
+  - **Actualización al cierre:**
+  - Validación Pandera OK contra MB51Schema (strict=False para 16 de 22 columnas).
+  - Notebook 00_sanity_check.ipynb: shape, Bwart mix, ciclo 601→602 (media 24.9 días, P99 85.8), merma 2.0% uniforme en 14 plantas, lag Cpudt/Budat ~92% mismo día.
+  - Ajustes en schema.py: Optional en 6 columnas opcionales, tipos corregidos (Budat/Cpudt → date, Menge → int sin gt=0, Zeile → str, Lifnr/Kunnr → str_length 1-12, Cputm → str_length 6-8).
+  - 5 commits en esta sesión. Total acumulado: ~16 commits en main.
 
 ### 2026-09-16 · Sesión 01
 
