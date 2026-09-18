@@ -20,6 +20,8 @@ cleaned as (
         lifnr                                           as proveedor,
         kunnr                                           as cliente,
         xblnr                                           as ref_externa,
+        xblnr                                           as ref_externa,
+        costo_usd                                       as costo_usd,
         datediff('day', cast(budat as date), cast(cpudt as date)) as lag_dias,
         datediff('day', cast(budat as date), cast(cpudt as date)) > 2 as flag_tardio
 
