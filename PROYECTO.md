@@ -187,6 +187,18 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Decisión:** Opción A. Confirmada por conocimiento de dominio RPL del autor.
 - **Consecuencias:** matnr_count en PlantConfig actualizado a 480. La descripción del pool en GeneratorConfig refleja el 40% compartido.
 
+### ADR-008 · Marimo en lugar de Evidence.dev para dashboard
+
+- **Fecha:** 2026-09-18
+- **Estado:** Accepted
+- **Contexto:** Evidence.dev migró a Evidence Studio, modelo cloud con CLI propietario. El flujo asume cuenta en su plataforma y conexión GitHub desde su UI. Incompatible con el requisito de pipeline 100% local reproducible.
+- **Alternativas evaluadas:**
+  - Evidence.dev: descartado por migración a modelo cloud.
+  - Streamlit: conocido por reclutadores, pero requiere proceso corriendo; no genera artefacto estático.
+  - Marimo: notebooks reactivos en Python, sin Node, sin cloud, exporta a HTML estático o corre como app local.
+- **Decisión:** Marimo como capa de dashboard.
+- **Consecuencias:** Sin dependencias Node. El dashboard corre con `uv run marimo run` dentro del mismo entorno uv del proyecto.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -238,9 +250,9 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 1** · Scaffold del repo, `pyproject.toml`, README v0, PROYECTO.md, schema Pandera de las 22 columnas.
 - [x] **Semana 2** · Generador sintético completo, primer dataset Parquet de 18 meses, notebook de sanity check con validación visual.
 - [x] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
-- [ ] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
-- [ ] **Semana 5** · Notebook analítico narrativo con storytelling de negocio y cifras en USD.
-- [ ] **Semana 6** · Dashboard con Evidence.dev + versión Power BI descargable.
+- [x] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
+- [x] **Semana 5** · Notebook analítico narrativo con storytelling de negocio y cifras en USD.
+- [x] **Semana 6** · Dashboard con Evidence.dev + versión Power BI descargable.
 - [ ] **Semana 7** · CI con GitHub Actions, tests automáticos, badges en README.
 - [ ] **Semana 8** · Pulido README, generación de diagramas finales, LinkedIn post de lanzamiento.
 
@@ -249,6 +261,57 @@ Marcar con `[x]` al cerrar.
 ## 6. Worklog
 
 Bitácora cronológica. Entrada más reciente al principio.
+
+### 2026-09-18 · Sesión 07
+
+- **Duración:** ~2 h
+- **Hecho:**
+  - Intento fallido con Evidence.dev: paquete `create-evidence-app` eliminado de npm; nuevo CLI migró a modelo cloud (Evidence Studio).
+  - Decisión de reemplazar Evidence.dev por Marimo (ADR-007).
+  - `uv add marimo` agregado al entorno del proyecto.
+  - `notebooks/02_dashboard.py` creado con 5 secciones: imports + conexión DuckDB read-only, KPIs globales con `mo.stat`, tabla rutas rotas, tabla rotación mensual, tabla ciclo promedio por planta.
+  - Headers narrativos Markdown entre secciones.
+  - Dashboard corriendo en `localhost:2718` con datos reales de los marts.
+  - Commit y push: `semana 6: dashboard Marimo con KPIs, rutas rotas y ciclo de retorno`.
+- **Decisiones tomadas:** ADR-007 (Marimo sobre Evidence.dev).
+- **Bloqueos:** ninguno.
+- **Próximo paso:** Semana 7 — CI con GitHub Actions, tests automáticos, badges en README.
+
+### 2026-09-18 · Sesión 06
+
+- **Duración:** ~2 h
+- **Hecho:**
+  - Creado `notebooks/01_analisis_perdidas.ipynb` completo.
+  - Instalado matplotlib via `uv add matplotlib`.
+  - Creado directorio `docs/img/` para guardar gráficos.
+  - 6 secciones: headline USD, tendencia mensual, pareto plantas, top materiales, rutas rotas, resumen ejecutivo.
+  - 3 gráficos guardados: `perdidas_mensual.png`, `pareto_plantas.png`, `top15_materiales.png`, `scatter_rutas_rotas.png`.
+  - Detectado y corregido: `tasa_merma_pct` en `mart_rutas_rotas` almacenado como % entero, no decimal.
+  - Detectado: distribución de pérdidas entre plantas muy uniforme (refleja generador sintético con merma sin varianza por planta).
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** ninguno.
+- **Próximo paso:** Semana 6 — dashboard con Evidence.dev + versión Power BI descargable.
+
+### 2026-09-18 · Sesión 05
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - MaterialCost en config.py: clase Pydantic con KLT $25, Rack $180, Cartón $8.
+  - StrEnum aplicado a Country y MaterialType (Ruff UP042).
+  - costo_usd propagado en build_matnr_pool y emit_plant_movements.
+  - generate() refactorizado a list[pl.DataFrame] por planta — resuelve OOM.
+  - generate() movida al final del archivo (orden de definición correcto).
+  - Dataset regenerado: 15,550,868 filas × 17 columnas.
+  - DuckDB reingestado. stg_mb51.sql actualizado con costo_usd.
+  - models/intermediate/int_ciclo_retorno.sql: left join 601→602 con ventana 120 días, flag es_merma.
+  - models/marts/mart_rotacion_planta.sql: rotación mensual por planta con ciclo p50/p90.
+  - models/marts/mart_perdidas_usd.sql: pérdidas en USD por material/planta/mes.
+  - models/marts/mart_rutas_rotas.sql: rutas con tasa_merma > 5% o ciclo > 45 días.
+  - dbt run: PASS=5 WARN=0 ERROR=0.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** ninguno.
+- **Próximo paso:**
+  - Semana 5: notebook analítico narrativo con storytelling de negocio y cifras en USD.
 
 ### 2026-09-17 · Sesión 03
 
@@ -334,5 +397,7 @@ Bitácora cronológica. Entrada más reciente al principio.
 - **CI/CD** — Continuous Integration / Continuous Delivery.
 
 ---
+
+
 
 *Fin del documento. Actualizar el Worklog en cada sesión.*
