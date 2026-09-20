@@ -2,7 +2,7 @@ import duckdb
 import polars as pl
 
 from rpi.db import ingest
-from rpi.schema import MB51Schema, BWART_VALIDOS
+from rpi.schema import BWART_VALIDOS, MB51Schema
 
 
 def test_schema_valida_df_ci(df_ci: pl.DataFrame) -> None:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from rpi.config import Country, GeneratorConfig, PlantConfig
+from rpi.config import Country, GeneratorConfig
 from rpi.generator import generate
 
 
