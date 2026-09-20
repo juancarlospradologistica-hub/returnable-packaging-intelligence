@@ -11,7 +11,27 @@ sources:
         columns:
           - name: mblnr
             description: Documento material SAP.
+            tests:
+              - not_null
           - name: bwart
             description: Clase de movimiento (501, 601, 602, 311, etc.).
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ['501','502','601','602','311','411','101','102','261','309']
           - name: budat
             description: Fecha de contabilización.
+            tests:
+              - not_null
+          - name: werks
+            description: Centro / planta.
+            tests:
+              - not_null
+          - name: matnr
+            description: Código de material.
+            tests:
+              - not_null
+          - name: menge
+            description: Cantidad del movimiento.
+            tests:
+              - not_null

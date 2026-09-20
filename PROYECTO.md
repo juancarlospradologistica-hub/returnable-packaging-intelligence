@@ -107,13 +107,13 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Estado:** Accepted
 - **Contexto:** El dataset objetivo son ~10M filas de movimientos MB51 sintéticos. Pandas empieza a sufrir a partir de 5M en joins y groupbys.
 - **Alternativas evaluadas:**
-  - Pandas: familiar, estándar en cursos IBM, pero lento a este volumen.
+  - Pandas: familiar y ampliamente usado, pero lento a este volumen en joins y groupbys.
   - Polars: sintaxis moderna, 5-10x más rápido.
   - Dask: distribuido, overkill para un laptop.
 - **Decisión:** Polars como default para todo el pipeline.
 - **Consecuencias:**
   - Curva de aprendizaje inicial de la sintaxis de Polars.
-  - README destaca "we use Polars" como diferenciador frente a proyectos.
+  - El README documenta la decisión con contexto y alternativas descartadas.
 
 ### ADR-002 · DuckDB como warehouse local
 
