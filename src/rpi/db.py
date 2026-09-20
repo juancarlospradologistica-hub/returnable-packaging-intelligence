@@ -1,7 +1,8 @@
 """Ingesta de archivos Parquet MB51 a DuckDB."""
 
-import duckdb
 from pathlib import Path
+
+import duckdb
 
 RAW_DIR = Path("data/raw")
 DB_PATH = Path("data/rpi.duckdb")

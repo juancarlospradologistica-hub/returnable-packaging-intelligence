@@ -9,12 +9,10 @@ Referencias:
 - SAP MB51 estandar
 """
 
-from datetime import date, datetime
+from datetime import date
 
 import pandera.polars as pa
 from pandera.typing.polars import Series
-from pandera.engines.polars_engine import Int32
-from typing import Optional
 
 # Codigos de clase de movimiento MB51 que emite el generador.
 # Coincide con el mix realista descrito en PROYECTO.md seccion 4.
@@ -116,38 +114,39 @@ class MB51Schema(pa.DataFrameModel):
 
     # ---------- Columnas opcionales (6) ----------
 
-    Ebeln: Optional[Series[str]] = pa.Field(
+    Ebeln: Series[str] | None = pa.Field(
         str_length={"min_value": 10, "max_value": 10},
         nullable=True,
         description="Orden de compra. Aplica en movimientos con referencia a PO.",
     )
-    Ebelp: Optional[Series[int]] = pa.Field(
+    Ebelp: Series[int] | None = pa.Field(
         ge=1,
         le=99999,
         nullable=True,
         description="Posicion de la orden de compra.",
     )
-    Sgtxt: Optional[Series[str]] = pa.Field(
+    Sgtxt: Series[str] | None = pa.Field(
         str_length={"min_value": 1, "max_value": 50},
         nullable=True,
         description="Texto de posicion (placas, folios, comentarios).",
     )
-    Umwrk: Optional[Series[str]] = pa.Field(
+    Umwrk: Series[str] | None = pa.Field(
         str_length={"min_value": 4, "max_value": 4},
         nullable=True,
         description="Centro destino en traslados 301/311.",
     )
-    Umlgo: Optional[Series[str]] = pa.Field(
+    Umlgo: Series[str] | None = pa.Field(
         str_length={"min_value": 4, "max_value": 4},
         nullable=True,
         description="Almacen destino en traslados 301/311.",
     )
-    Usnam: Optional[Series[str]] = pa.Field(
+    Usnam: Series[str] | None = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
         description="Usuario que registro el movimiento.",
     )
 
     class Config:
-        strict = False  # Rebanada 1 genera 16 de 22 columnas; las 6 opcionales se validan cuando existan.
+        # Rebanada 1 genera 16 de 22 columnas; las 6 opcionales se validan cuando existan.
+        strict = False
         coerce = False  # No convierte tipos silenciosamente; error si no coincide.

@@ -1,10 +1,10 @@
-import pytest
-import polars as pl
 from pathlib import Path
 
-from rpi.config import GeneratorConfig, PlantConfig, Country
-from rpi.generator import generate
+import polars as pl
+import pytest
 
+from rpi.config import Country, GeneratorConfig, PlantConfig
+from rpi.generator import generate
 
 PARQUET_PATH = Path("data/raw/mb51_synthetic_v1.parquet")
 
