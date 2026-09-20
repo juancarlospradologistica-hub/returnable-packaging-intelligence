@@ -1,0 +1,7 @@
+rpi:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "data/rpi.duckdb"
+      threads: 4

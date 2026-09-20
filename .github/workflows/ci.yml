@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.15"
+
+      - name: instalar dependencias
+        run: uv sync --frozen
+
+      - name: lint
+        run: uv run ruff check src/ tests/
+
+      - name: generar dataset CI
+        run: |
+          uv run python - <<'EOF'
+          from rpi.config import GeneratorConfig, PlantConfig, Country
+          from rpi.generator import generate
+
+          cfg = GeneratorConfig(
+              plants=[
+                  PlantConfig(werks="PLNT_MX01", country=Country.MX),
+                  PlantConfig(werks="PLNT_MX02", country=Country.MX),
+              ],
+              horizon_months=3,
+              global_matnr_pool=100,
+              random_seed=42,
+          )
+          generate(cfg=cfg, output_dir="data/raw")
+          EOF
+
+      - name: ingestar a DuckDB
+        run: uv run python -c "from rpi.db import ingest; ingest()"
+        continue-on-error: true
+
+      - name: correr dbt
+        run: uv run dbt run --profiles-dir .
+
+      - name: tests con cobertura
+        run: |
+          uv run pytest tests/ \
+            --cov=src/rpi \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+
+      - name: subir reporte de cobertura
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
