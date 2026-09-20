@@ -33,15 +33,15 @@ Análisis de rotación, ciclo y pérdidas de contenedores retornables en flota m
 - Analistas de master data SAP MM que quieran ver cómo se aterriza MB51 en un pipeline analítico moderno.
 - Ingenieros de datos que trabajen con datasets tipo ERP y busquen ejemplos de dbt + Polars + DuckDB.
 
-### Alcance IN — Rebanada 1
+### Alcance IN — Fase 1
 
 Rotación y pérdidas de contenedores retornables en flota multi-planta usando dataset MB51 sintético (18 meses, 14 plantas, ~1,200 Matnr).
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Rebanada 2: TCO retornable vs desechable (metal vs cartón + tarima madera).
-- Rebanada 3: Forecast de necesidad de packaging vs plan de producción MRP.
-- Rebanada 4: Cuello de botella del ciclo lavado / reparación.
+- Fase 2: TCO retornable vs desechable (metal vs cartón + tarima madera).
+- Fase 3: Forecast de necesidad de packaging vs plan de producción MRP.
+- Fase 4: Cuello de botella del ciclo lavado / reparación.
 
 ### Criterios de completitud
 
@@ -89,7 +89,7 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 
 ### Descartado explícitamente
 
-- **Airflow** — overkill para portafolio.
+- **Airflow** — overkill para este scope.
 - **Postgres / MySQL** — DuckDB los reemplaza en este scope.
 - **Snowflake / BigQuery / Databricks** — no necesarios; portables vía dbt profiles.
 - **Pandas** — reemplazado por Polars en todo el pipeline.
@@ -108,12 +108,12 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Contexto:** El dataset objetivo son ~10M filas de movimientos MB51 sintéticos. Pandas empieza a sufrir a partir de 5M en joins y groupbys.
 - **Alternativas evaluadas:**
   - Pandas: familiar, estándar en cursos IBM, pero lento a este volumen.
-  - Polars: sintaxis moderna, 5-10x más rápido, señal de nivel senior.
+  - Polars: sintaxis moderna, 5-10x más rápido.
   - Dask: distribuido, overkill para un laptop.
 - **Decisión:** Polars como default para todo el pipeline.
 - **Consecuencias:**
   - Curva de aprendizaje inicial de la sintaxis de Polars.
-  - README destaca "we use Polars" como diferenciador frente a proyectos IBM/Coursera.
+  - README destaca "we use Polars" como diferenciador frente a proyectos.
 
 ### ADR-002 · DuckDB como warehouse local
 
@@ -131,13 +131,13 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 
 - **Fecha:** 2026-09-16
 - **Estado:** Accepted
-- **Contexto:** Las vacantes de SAP AMS / Data Quality piden dbt de forma recurrente.
+- **Contexto:** dbt es estándar en pipelines analíticos modernos de forma recurrente.
 - **Alternativas evaluadas:**
   - SQL puro en scripts: no escala, no hay linaje.
   - dbt-core con adaptador Postgres: implica servicio Postgres.
   - dbt-duckdb: mismo dbt, sin servicio.
 - **Decisión:** dbt-duckdb como capa de modelado.
-- **Consecuencias:** Señal fuerte para reclutadores. Documentación y linaje auto-generados.
+- **Consecuencias:** Documentación y linaje auto-generados.
 
 ### ADR-004 · Data 100% sintética, sin data de empleador
 
@@ -151,7 +151,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Decisión:** Generador sintético parametrizado, disclaimer explícito en README.
 - **Consecuencias:** Blindaje profesional. Se puede publicar el generador como package reutilizable.
 
-### ADR-005 · Rebanada 1 primero (rotación y pérdidas)
+### ADR-005 · Fase 1 primero (rotación y pérdidas)
 
 - **Fecha:** 2026-09-16
 - **Estado:** Accepted
@@ -161,7 +161,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - TCO retornable vs desechable: bueno pero requiere datos financieros.
   - Rotación y pérdidas: universal, output en USD, datos SAP puros.
   - Forecast vs MRP: potente pero exige más integración.
-- **Decisión:** Rebanada 1 primero. Otras rebanadas quedan documentadas como roadmap.
+- **Decisión:** Fase 1 primero. Otras Fases quedan documentadas como roadmap.
 - **Consecuencias:** Un entregable terminado > cinco a medias.
 
 ### ADR-006 · PROYECTO.md único como cerebro interno
@@ -273,7 +273,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - Dashboard Marimo con manejo de estado vacío: mo.stop con callout si falta DuckDB o marts.
   - Fix diagrama Mermaid en README: eliminados br en nodos, bloque cerrado correctamente.
   - Fix CI: imports fuera de lugar en test_schema.py y PlantConfig no usado en __main__.py. Ruff --fix aplicado. CI verde.
-  - Fix código: comentario "Rebanada 1" en schema.py, xblnr duplicado en stg_mb51.sql, sintaxis accepted_values en stg_mb51.yml.
+  - Fix código: comentario "Fase 1" en schema.py, xblnr duplicado en stg_mb51.sql, sintaxis accepted_values en stg_mb51.yml.
   - Todos los commits pusheados a main.
 - **Decisiones tomadas:** ninguna nueva.
 - **Bloqueos:** ninguno.
