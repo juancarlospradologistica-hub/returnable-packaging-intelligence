@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: mart_rutas_rotas
+    description: >
+      Rutas planta-cliente con tasa de merma > 5% o ciclo promedio > 45 días.
+      Ordenadas por pérdida acumulada descendente.
+    columns:
+      - name: planta
+        description: Centro / planta.
+        tests:
+          - not_null
+      - name: cliente
+        description: Cliente / consignatario.
+        tests:
+          - not_null
+      - name: salidas
+        description: Total de movimientos 601 en la ruta.
+        tests:
+          - not_null
+      - name: mermas
+        description: Movimientos 601 sin retorno en ventana de 120 días.
+        tests:
+          - not_null
+      - name: tasa_merma_pct
+        description: Porcentaje de merma sobre total de salidas.
+        tests:
+          - not_null
+      - name: ciclo_promedio_dias
+        description: Promedio de días entre 601 y 602 en la ruta.
+        tests:
+          - not_null
+      - name: perdida_acum_usd
+        description: Suma en USD de unidades no retornadas en la ruta.
+        tests:
+          - not_null
