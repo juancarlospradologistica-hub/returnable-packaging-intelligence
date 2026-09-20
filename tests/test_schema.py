@@ -1,6 +1,8 @@
+import duckdb
 import polars as pl
 
-from rpi.schema import MB51Schema
+from rpi.db import ingest
+from rpi.schema import MB51Schema, BWART_VALIDOS
 
 
 def test_schema_valida_df_ci(df_ci: pl.DataFrame) -> None:
@@ -20,7 +22,6 @@ def test_columnas_core_presentes(df_ci: pl.DataFrame) -> None:
 
 
 def test_bwart_solo_valores_validos(df_ci: pl.DataFrame) -> None:
-    from rpi.schema import BWART_VALIDOS
     valores_en_df = set(df_ci["Bwart"].unique().to_list())
     invalidos = valores_en_df - set(BWART_VALIDOS)
     assert not invalidos, f"Bwart con valores fuera del enum: {invalidos}"
@@ -30,20 +31,12 @@ def test_menge_no_cero(df_ci: pl.DataFrame) -> None:
     ceros = df_ci.filter(pl.col("Menge") == 0).shape[0]
     assert ceros == 0, f"{ceros} filas con Menge == 0 (inválido en MB51)"
 
-    import tempfile
-from pathlib import Path
-from rpi.db import ingest
-
 
 def test_ingest_crea_tabla_con_filas(df_ci, tmp_path):
     """ingest() crea raw_mb51 en DuckDB con filas y columnas esperadas."""
-    import duckdb
-
-    # Guardar el dataset CI como parquet temporal
     parquet_path = tmp_path / "mb51_ci.parquet"
     df_ci.write_parquet(str(parquet_path))
 
-    # Ingestar a un DuckDB temporal
     db_path = tmp_path / "test.duckdb"
     ingest(db_path=db_path, raw_dir=tmp_path)
 
