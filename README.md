@@ -1,4 +1,5 @@
 # returnable-packaging-intelligence
+
 ![CI](https://github.com/juancarlospradologistica-hub/returnable-packaging-intelligence/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -35,7 +36,7 @@ flowchart LR
     C --> D[dbt staging<br/>+ tests]
     D --> E[dbt marts<br/>KPIs rotación<br/>y pérdidas]
     E --> F[Notebook<br/>narrativo]
-    E --> G[Dashboard<br/>Evidence.dev]
+    E --> G[Dashboard<br/>Marimo]
 ```
 
 El generador produce los movimientos MB51 con reglas realistas: mix por tipo de empaque, ciclo log-normal 601→602 con cola larga, tasa de no-retorno del 2% distribuida entre rutas, lag Cpudt/Budat con distribución 92/6/2. Los parámetros están documentados en `PROYECTO.md` sección 4.
@@ -65,27 +66,92 @@ Explícitamente descartado: Pandas, Airflow, Postgres, Snowflake. Ver ADRs para 
 - [uv](https://github.com/astral-sh/uv) instalado.
 - Git.
 
-## Setup local
+## Reproducir el pipeline completo
 
 Clonar y levantar el entorno:
 
 ```bash
 git clone https://github.com/juancarlospradologistica-hub/returnable-packaging-intelligence.git
 cd returnable-packaging-intelligence
-uv sync --all-extras
+uv sync
 ```
 
-Verificar que Polars y DuckDB cargan:
+Generar el dataset sintético (18 meses, 14 plantas, ~10M movimientos):
 
 ```bash
-uv run python -c "import polars, duckdb; print(polars.__version__, duckdb.__version__)"
+uv run python -c "
+from rpi.generator import generate
+generate()
+"
+```
+
+Ingestar a DuckDB:
+
+```bash
+uv run python -c "from rpi.db import ingest; ingest()"
+```
+
+Correr los modelos dbt:
+
+```bash
+uv run dbt run --profiles-dir .
+```
+
+Correr los tests:
+
+```bash
+uv run pytest tests/ -v
+```
+
+Abrir el dashboard:
+
+```bash
+uv run marimo run notebooks/02_dashboard.py
 ```
 
 ## Estructura del repo
 
-## Estado actual
+```
+returnable-packaging-intelligence/
+├── .github/workflows/
+│   └── ci.yml                  # lint + generador CI + dbt + pytest en cada push
+├── data/
+│   └── raw/                    # Parquet generado (excluido de Git)
+├── docs/
+│   └── img/                    # Imágenes para notebooks
+├── models/
+│   ├── staging/
+│   │   ├── sources.yml
+│   │   └── stg_mb51.sql
+│   ├── intermediate/
+│   │   └── int_ciclo_retorno.sql
+│   └── marts/
+│       ├── mart_perdidas_usd.sql
+│       ├── mart_rotacion_planta.sql
+│       └── mart_rutas_rotas.sql
+├── notebooks/
+│   ├── 00_sanity_check.ipynb
+│   ├── 01_analisis_perdidas.ipynb
+│   └── 02_dashboard.py         # Dashboard Marimo
+├── src/rpi/
+│   ├── config.py               # Parámetros del generador (Pydantic)
+│   ├── db.py                   # Ingesta Parquet → DuckDB
+│   ├── generator.py            # Generador sintético MB51
+│   └── schema.py               # Schema Pandera 22 columnas
+├── tests/
+│   ├── conftest.py
+│   ├── test_generator.py
+│   └── test_schema.py
+├── dbt_project.yml
+├── profiles.yml                # DuckDB con rutas relativas para CI
+├── pyproject.toml
+└── README.md
+```
 
-Semana 1 del roadmap. Scaffold del proyecto, schema Pandera de las 22 columnas MB51, dependencias declaradas.
+
+## Estado
+
+Pipeline completo funcionando de punta a punta: generador sintético → DuckDB → dbt marts → dashboard Marimo con KPIs de rotación, pérdidas en USD, rutas rotas y ciclo de retorno 601→602.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
