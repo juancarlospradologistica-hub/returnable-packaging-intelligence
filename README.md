@@ -31,12 +31,12 @@ Batch, no streaming. Pipeline reproducible corrido localmente sin infraestructur
 
 ```mermaid
 flowchart LR
-    A[Generador<br/>sintético] -->|Parquet| B[data/raw]
-    B --> C[DuckDB<br/>ingesta]
-    C --> D[dbt staging<br/>+ tests]
-    D --> E[dbt marts<br/>KPIs rotación<br/>y pérdidas]
-    E --> F[Notebook<br/>narrativo]
-    E --> G[Dashboard<br/>Marimo]
+    A[Generador sintetico] -->|Parquet| B[data/raw]
+    B --> C[DuckDB ingesta]
+    C --> D[dbt staging + tests]
+    D --> E[dbt marts KPIs]
+    E --> F[Notebook narrativo]
+    E --> G[Dashboard Marimo]
 
 Grafo de linaje generado por dbt:
 
