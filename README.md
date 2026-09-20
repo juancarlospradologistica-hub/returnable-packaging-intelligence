@@ -37,7 +37,10 @@ flowchart LR
     D --> E[dbt marts<br/>KPIs rotación<br/>y pérdidas]
     E --> F[Notebook<br/>narrativo]
     E --> G[Dashboard<br/>Marimo]
-```
+
+Grafo de linaje generado por dbt:
+
+![dbt lineage](docs/img/dbt_lineage.png)
 
 El generador produce los movimientos MB51 con reglas realistas: mix por tipo de empaque, ciclo log-normal 601→602 con cola larga, tasa de no-retorno del 2% distribuida entre rutas, lag Cpudt/Budat con distribución 92/6/2. Los parámetros están documentados en `PROYECTO.md` sección 4.
 
