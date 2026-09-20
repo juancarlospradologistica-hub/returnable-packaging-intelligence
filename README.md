@@ -37,6 +37,7 @@ flowchart LR
     D --> E[dbt marts KPIs]
     E --> F[Notebook narrativo]
     E --> G[Dashboard Marimo]
+```
 
 Grafo de linaje generado por dbt:
 
