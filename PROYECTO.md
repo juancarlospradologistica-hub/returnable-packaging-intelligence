@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-09-16
+**Última actualización:** 2026-09-20
 
 ---
 
@@ -194,7 +194,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Contexto:** Evidence.dev migró a Evidence Studio, modelo cloud con CLI propietario. El flujo asume cuenta en su plataforma y conexión GitHub desde su UI. Incompatible con el requisito de pipeline 100% local reproducible.
 - **Alternativas evaluadas:**
   - Evidence.dev: descartado por migración a modelo cloud.
-  - Streamlit: conocido por reclutadores, pero requiere proceso corriendo; no genera artefacto estático.
+  - Streamlit: ampliamente conocido, pero requiere proceso corriendo; no genera artefacto estático.
   - Marimo: notebooks reactivos en Python, sin Node, sin cloud, exporta a HTML estático o corre como app local.
 - **Decisión:** Marimo como capa de dashboard.
 - **Consecuencias:** Sin dependencias Node. El dashboard corre con `uv run marimo run` dentro del mismo entorno uv del proyecto.

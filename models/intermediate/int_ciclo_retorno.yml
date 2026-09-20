@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: int_ciclo_retorno
+    description: >
+      Ciclo 601→602 por movimiento. Left join entre salidas y retornos.
+      Filas sin retorno tienen fecha_retorno null y es_merma = true.
+    columns:
+      - name: planta
+        tests:
+          - not_null
+      - name: material
+        tests:
+          - not_null
+      - name: cliente
+        tests:
+          - not_null
+      - name: fecha_salida
+        tests:
+          - not_null
+      - name: doc_salida
+        tests:
+          - not_null
+      - name: es_merma
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
