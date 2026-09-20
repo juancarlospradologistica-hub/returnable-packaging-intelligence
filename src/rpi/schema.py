@@ -147,6 +147,6 @@ class MB51Schema(pa.DataFrameModel):
     )
 
     class Config:
-        # Rebanada 1 genera 16 de 22 columnas; las 6 opcionales se validan cuando existan.
+        # El pipeline actual genera 16 de 22 columnas; las 6 opcionales se validan cuando existan.
         strict = False
         coerce = False  # No convierte tipos silenciosamente; error si no coincide.

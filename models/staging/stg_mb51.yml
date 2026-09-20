@@ -23,7 +23,6 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
                 values: ['501','502','601','602','311','411','101','102','261','309']
 
       - name: fecha_contab
