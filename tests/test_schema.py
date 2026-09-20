@@ -1,6 +1,4 @@
 import polars as pl
-import pandera.polars as pa
-import pytest
 
 from rpi.schema import MB51Schema
 
