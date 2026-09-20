@@ -9,21 +9,53 @@ def _():
     import duckdb
     import polars as pl
     import marimo as mo
+    from pathlib import Path
 
-    con = duckdb.connect('data/rpi.duckdb', read_only=True)
+    DB_PATH = Path("data/rpi.duckdb")
+
+    if not DB_PATH.exists():
+        mo.stop(
+            True,
+            mo.callout(
+                mo.md(
+                    "**Base de datos no encontrada.**\n\n"
+                    "Corre el pipeline completo antes de abrir el dashboard:\n\n"
+                    "```bash\n"
+                    "uv run python -m rpi\n"
+                    "uv run python -c \"from rpi.db import ingest; ingest()\"\n"
+                    "uv run dbt run --profiles-dir .\n"
+                    "```"
+                ),
+                kind="warn",
+            ),
+        )
+
+    con = duckdb.connect(str(DB_PATH), read_only=True)
     return con, mo
 
 
 @app.cell
 def _(con, mo):
-    kpis = con.execute("""
-        SELECT
-            ROUND(SUM(perdida_usd), 0)    AS perdida_total_usd,
-            COUNT(DISTINCT planta)         AS plantas,
-            COUNT(DISTINCT material)       AS materiales_con_merma,
-            ROUND(AVG(tasa_merma_pct), 2)  AS tasa_merma_promedio
-        FROM mart_perdidas_usd
-    """).pl()
+    try:
+        kpis = con.execute("""
+            SELECT
+                ROUND(SUM(perdida_usd), 0)    AS perdida_total_usd,
+                COUNT(DISTINCT planta)         AS plantas,
+                COUNT(DISTINCT material)       AS materiales_con_merma,
+                ROUND(AVG(tasa_merma_pct), 2)  AS tasa_merma_promedio
+            FROM mart_perdidas_usd
+        """).pl()
+    except Exception:
+        mo.stop(
+            True,
+            mo.callout(
+                mo.md(
+                    "**Marts no encontrados.**\n\n"
+                    "Corre `uv run dbt run --profiles-dir .` para generarlos."
+                ),
+                kind="warn",
+            ),
+        )
 
     mo.stat(
         label="Pérdida total USD",
