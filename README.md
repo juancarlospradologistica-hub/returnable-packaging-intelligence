@@ -10,7 +10,9 @@ El objetivo es aterrizar en KPIs accionables para un equipo de gobernanza de RPL
 
 ## Disclaimer
 
-Todos los datos de este repositorio son **sintéticos**. Se generan por código a partir de reglas de negocio publicadas en `PROYECTO.md`. No provienen de ningún sistema SAP productivo, ni de datos anonimizados de ningún empleador pasado o presente. El generador vive en `src/rpi/` y es 100% reproducible con `uv sync` + un comando.
+Todos los datos de este repositorio son **sintéticos**. Se generan por código a partir de reglas de negocio publicadas en `PROYECTO.md`. No provienen de ningún sistema SAP productivo, ni de datos anonimizados de ningún empleador pasado o presente. El generador vive en `src/rpi/` y es 100% reproducible con `uv sync` + un comando. 
+
+El período del dataset cubre 18 meses hacia atrás desde la fecha de generación. Los movimientos de retorno (Bwart 602) pueden extenderse algunos meses más allá de esa ventana, dado que el ciclo 601→602 es log-normal con cola de hasta 180 días.
 
 ## Problema
 
