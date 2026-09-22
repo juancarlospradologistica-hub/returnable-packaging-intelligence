@@ -45,6 +45,19 @@ Grafo de linaje generado por dbt:
 
 ![dbt lineage](docs/img/dbt_lineage.png)
 
+Ciclo de vida de un contenedor retornable en la red:
+
+```mermaid
+stateDiagram-v2
+    [*] --> EnPlanta : Recepción (501/101)
+    EnPlanta --> EnTransito : Traslado entre plantas (311)
+    EnPlanta --> EnCliente : Salida a cliente (601)
+    EnCliente --> EnPlanta : Retorno (602) — ciclo cerrado
+    EnCliente --> Merma : Sin retorno en 120 días — flota fantasma
+    EnTransito --> EnPlanta : Llegada al destino
+    Merma --> [*] : Pérdida contable en USD
+```
+
 El generador produce los movimientos MB51 con reglas realistas: mix por tipo de empaque, ciclo log-normal 601→602 con cola larga, tasa de no-retorno del 2% distribuida entre rutas, lag Cpudt/Budat con distribución 92/6/2. Los parámetros están documentados en `PROYECTO.md` sección 4.
 
 ## Stack
