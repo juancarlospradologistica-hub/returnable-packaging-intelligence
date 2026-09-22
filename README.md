@@ -96,6 +96,7 @@ Ingestar a DuckDB:
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
 ```
+> Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
 Correr los modelos dbt:
 
