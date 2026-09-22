@@ -252,7 +252,7 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 3** · Ingesta a DuckDB, capa dbt staging con tests.
 - [x] **Semana 4** · Modelos dbt intermediate + marts para KPIs de rotación y pérdidas.
 - [x] **Semana 5** · Notebook analítico narrativo con storytelling de negocio y cifras en USD.
-- [x] **Semana 6** · Dashboard con Evidence.dev + versión Power BI descargable.
+- [x] **Semana 6** · Dashboard Marimo con KPIs, rutas rotas y ciclo de retorno. (Evidence.dev descartado por ADR-008; Power  BI movido a roadmap futuro.)
 - [x] **Semana 7** · CI con GitHub Actions, tests automáticos, badges en README.
 - [x] **Semana 8** · Pulido README, generación de diagramas finales.
 
