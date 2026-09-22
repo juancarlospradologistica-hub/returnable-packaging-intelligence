@@ -155,6 +155,25 @@ returnable-packaging-intelligence/
 └── README.md
 ```
 
+## Resultados
+
+Dataset sintético de 18 meses, 14 plantas (MX / US / NI), ~15.5 M movimientos MB51.
+
+| KPI | Valor |
+|-----|-------|
+| Pérdida acumulada | $4,822,074 USD |
+| Unidades sin retorno | 72,512 |
+| Costo promedio por unidad perdida | $66.50 USD |
+| Plantas analizadas | 14 |
+| Tipo de contenedor con mayor impacto | Rack metálico ($180 USD/unidad) |
+| Ruta con mayor pérdida acumulada | PLNT_MX01 → CUST-5144 |
+| Tasa de merma máxima por ruta | 35.29% |
+
+Cada punto porcentual de mejora en la tasa de retorno vale ~$48,000 USD anuales sobre esta flota.
+
+Los racks metálicos concentran el impacto financiero aunque los KLTs plásticos superan en volumen de pérdidas. Perder un rack equivale a perder 7 KLTs.
+
+El análisis completo está en `notebooks/01_analisis_perdidas.ipynb`.
 
 ## Estado
 
