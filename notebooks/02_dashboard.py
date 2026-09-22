@@ -56,11 +56,6 @@ def _(con, mo):
                 kind="warn",
             ),
         )
-
-    mo.stat(
-        label="Pérdida total USD",
-        value=f"${kpis['perdida_total_usd'][0]:,.0f}",
-    )
     return (kpis,)
 
 
