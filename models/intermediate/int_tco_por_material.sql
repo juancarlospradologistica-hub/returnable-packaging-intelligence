@@ -1,4 +1,4 @@
-﻿with ciclos as (
+with ciclos as (
     select * from {{ ref('int_ciclo_retorno') }}
     where es_merma = false
       and dias_ciclo is not null
@@ -18,13 +18,13 @@ tipo as (
 ),
 
 parametros as (
-    select 'KLT'    as tipo_material, 25.0  as costo_unitario_usd,
-           150      as vida_util_ciclos,    0.20 as mant_por_ciclo_usd,
-           4.50     as desechable_equiv_usd
+    select 'KLT'     as tipo_material, 25.0  as costo_unitario_usd,
+           150       as vida_util_ciclos,     0.20 as mant_por_ciclo_usd,
+           4.50      as desechable_equiv_usd
     union all
     select 'RACK',  180.0, 80, 2.50, 45.0
     union all
-    select 'CARTON', 8.0,   1, 0.0,  8.0
+    select 'CARTON',   8.0,  1, 0.0,  8.0
 ),
 
 tco_base as (

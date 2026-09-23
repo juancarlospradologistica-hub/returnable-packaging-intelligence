@@ -35,11 +35,14 @@ Análisis de rotación, ciclo y pérdidas de contenedores retornables en flota m
 
 ### Alcance IN — Fase 1
 
-Rotación y pérdidas de contenedores retornables en flota multi-planta usando dataset MB51 sintético (18 meses, 14 plantas, ~1,200 Matnr).
+Rotación y pérdidas de contenedores retornables en flota multi-planta usando dataset MB51 sintético (18 meses, 14 plantas, ~1,200 Matnr). Cerrado en semana 8.
+
+### Alcance IN — Fase 2
+
+TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. En curso.
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Fase 2: TCO retornable vs desechable (metal vs cartón + tarima madera).
 - Fase 3: Forecast de necesidad de packaging vs plan de producción MRP.
 - Fase 4: Cuello de botella del ciclo lavado / reparación.
 
@@ -199,6 +202,24 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Decisión:** Marimo como capa de dashboard.
 - **Consecuencias:** Sin dependencias Node. El dashboard corre con `uv run marimo run` dentro del mismo entorno uv del proyecto.
 
+### ADR-009 · Fase 2: TCO retornable vs desechable (extiende ADR-005)
+ **Fecha:** 2026-09-21
+ **Estado:** Accepted
+ **Contexto:** Fase 1 cerrada. El pipeline cubre rotación, pérdidas en USD y ciclo 601→602. La pregunta que queda sin respuesta es cuánto cuesta realmente operar con retornables frente a reemplazarlos con desechables: amortización, mantenimiento y pérdidas por merma consolidados en un solo número por ciclo.
+ **Alternativas evaluadas:**
+- Fase 3 (Forecast vs MRP): requiere simular un plan de producción creíble. La complejidad del sintético sube sin que el análisis de packaging gane claridad.
+- Fase 4 (ciclo lavado/reparación): el output es tiempo de inmovilización, no dinero. Extensión válida de Fase 1 pero no cierra el argumento financiero.
+- TCO: usa Costo_usd y mart_perdidas_usd que ya existen. Agrega vida útil y mantenimiento. El output es USD/ciclo y punto de equilibrio, que es lo que justifica o cuestiona la inversión en flota retornable.
+- Decisión: Fase 2 = TCO retornable vs desechable. Se agrega TcoConfig a config.py y dos modelos dbt nuevos: int_tco_por_material y mart_tco_comparativo.
+- Parámetros iniciales:
+KLT: vida útil 150 ciclos, mantenimiento $0.20/ciclo, desechable equivalente $4.50/unidad.
+Rack: vida útil 80 ciclos, mantenimiento $2.50/ciclo, sin equivalente desechable directo.
+Cartón: 1 ciclo, $8.00/unidad.
+- Consecuencias:
+TcoConfig se agrega a config.py sin modificar GeneratorConfig existente.
+Los marts de Fase 1 no se tocan; los nuevos se construyen sobre int_ciclo_retorno.
+El notebook 03_tco_analysis.ipynb cierra el argumento: en cuántos ciclos el retornable recupera su costo y cuánto vale cada punto de merma recuperado.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -255,12 +276,86 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 6** · Dashboard Marimo con KPIs, rutas rotas y ciclo de retorno. (Evidence.dev descartado por ADR-008; Power  BI movido a roadmap futuro.)
 - [x] **Semana 7** · CI con GitHub Actions, tests automáticos, badges en README.
 - [x] **Semana 8** · Pulido README, generación de diagramas finales.
+- [x] **Semana 9** . TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs dbt, tres tests nuevos en test_marts.py. CI verde.
+- [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
+- [ ] **Semana 11** . Dashboard Marimo actualizado con pestaña TCO. README con resultados Fase 2.
 
 ---
 
 ## 6. Worklog
 
+### 2026-09-25 · Sesión 26 — Semana 10
+
+- **Duración:** ~2 h
+- **Hecho:**
+  - Parámetro desechable equivalente Rack corregido a $45.00 en int_tco_por_material.sql (estaba null por hardcode en SQL, no leía TcoConfig).
+  - mart_tco_comparativo regenerado con números completos para los tres tipos.
+  - Notebook 03_tco_analysis.ipynb completo: headline $41M, ahorro por tipo, payback, costo de merma, sensibilidad a tasa de merma, resumen ejecutivo.
+  - Dos gráficos guardados en docs/img/: tco_ahorro_neto.png, tco_sensibilidad.png.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** ninguno.
+- **Próximo paso:** semana 11 — dashboard Marimo con pestaña TCO, README con resultados Fase 2.
+
+## 2026-09-24 · Sesión 25 — Semana 9
+
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
+
+ **Duración:** ~2 h
+ **Hecho:**
+- TcoConfig agregado a config.py con parámetros KLT/Rack/Cartón (vida útil, mantenimiento, desechable equivalente).
+- int_tco_por_material.sql: amortización por ciclo, costo retornable, ahorro vs desechable, ciclos de payback.
+- mart_tco_comparativo.sql: TCO agregado por tipo de material y planta, ahorro neto vs desechable considerando merma.
+- YMLs de documentación dbt para ambos modelos.
+- Tres tests de dominio en test_marts.py: costo retornable positivo, payback positivo, tipos válidos.
+- dbt run: PASS=7 WARN=0 ERROR=0. pytest: 17/17 passed.
+- 4 commits pusheados a main.
+- Decisiones tomadas: ninguna nueva.
+- Bloqueos: archivos SQL/YML creados con wrapper de PowerShell dentro — resuelto escribiendo directo con Set-Content.
+- Próximo paso: confirmar CI verde, luego notebook 03_tco_analysis.ipynb con storytelling TCO en USD.
+
+### 2026-09-23 · Sesión 25 — Arranque Fase 2
+
+  **Duración:** en curso
+  **Hecho:**
+- Revisión completa del repo (ZIP): código fuente, modelos dbt, tests, CI, README. Estado confirmado con Fase 1 funcionando de punta a punta.
+- Decisión de Fase 2: TCO retornable vs desechable. Descartadas Fase 3 (Forecast vs MRP) y Fase 4 (ciclo lavado/reparación) — razonamiento en ADR-009.
+- ADR-009 redactado y pegado en PROYECTO.md.
+- Código diseñado: TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs de documentación, tres  tests nuevos en test_marts.py.
+- Decisiones tomadas: ADR-009.
+- Bloqueos: ninguno.
+- Próximo paso: aplicar cambios en repo local, correr dbt + pytest, confirmar CI verde. Luego notebook 03_tco_analysis.ipynb.
+
+### 2026-09-22 · Sesión 24
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - README: sección Resultados con KPIs del dataset ($4,822,074 USD, 72,512 unidades, costo promedio $66.50 USD/unidad).
+  - tests/test_marts.py: 5 tests de dominio sobre marts dbt (perdida_usd positiva, tasa_merma en [0,100], ciclo positivo y dentro de rango, criterios de rutas rotas). 14/14 pytest passing.
+  - README: diagrama Mermaid stateDiagram-v2 del ciclo de vida de un contenedor retornable (EnPlanta → EnCliente → Retorno / Merma con códigos Bwart).
+  - 02_dashboard.py: sección KPIs globales con mo.hstack, gráfico de barras mensual de pérdidas USD con matplotlib inline.
+  - CI verde en todos los runs.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** ninguno.
+- **Próximo paso:** evaluar inicio de Fase 2 del proyecto.
+
+### 2026-09-21 · Sesión 23
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - Auditoría completa del repo: revisión de todos los archivos contra criterios del Charter.
+  - `Costo_usd` declarado en `schema.py` como campo del contrato MB51. 9/9 pytest passing.
+  - Sección 2 de PROYECTO.md actualizada: Marimo en Capa 3, Evidence.dev movido a descartados.
+  - Semana 6 del roadmap corregida: refleja entrega real con Marimo.
+  - README: nota sobre período del dataset y cola del ciclo 601→602.
+  - `mart_rotacion_planta.yml` creado con tests not_null en 4 columnas.
+  - README: nota sobre uso de `raw_dir` en `ingest()` con `--output` personalizado.
+  - `02_dashboard.py`: eliminado `mo.stat()` duplicado en primera celda.
+  - `01_analisis_perdidas.ipynb` ejecutado y commiteado con outputs.
+  - Gráficos regenerados commiteados: `scatter_rutas_rotas.png`, `top15_materiales.png`.
+  - CI verde en run #25. 54 commits totales.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** ninguno.
+- **Próximo paso:** evaluar inicio de Fase 2 del proyecto.
 
 ### 2026-09-20 · Sesión 22
 
