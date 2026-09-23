@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: mart_tco_comparativo
+    description: >
+      TCO agregado por tipo de material y planta. Responde cuanto vale
+      en USD operar con retornables versus reemplazar con desechables,
+      considerando la tasa de merma observada.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              values: [KLT, RACK, CARTON]
+      - name: ahorro_neto_usd
+        description: >
+          Ahorro total vs desechable menos perdidas por merma.
+          Positivo = retornable sigue siendo conveniente.
+          Negativo = la merma erosiono el beneficio.
