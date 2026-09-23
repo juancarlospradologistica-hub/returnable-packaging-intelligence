@@ -75,3 +75,30 @@ def test_rutas_rotas_tienen_merma_o_ciclo_largo(con):
         f"{sin_criterio} rutas en mart_rutas_rotas que no cumplen "
         "ningún criterio de clasificación"
     )
+
+def test_tco_costo_retornable_positivo(con):
+    """El costo por ciclo del retornable debe ser mayor que cero."""
+    invalidos = con.execute("""
+        SELECT COUNT(*) FROM mart_tco_comparativo
+        WHERE costo_retornable_por_ciclo_usd <= 0
+    """).fetchone()[0]
+    assert invalidos == 0, f"{invalidos} filas con costo_retornable_por_ciclo_usd <= 0"
+
+
+def test_tco_ciclos_payback_positivo(con):
+    """Donde exista payback calculado, debe ser un entero positivo."""
+    invalidos = con.execute("""
+        SELECT COUNT(*) FROM mart_tco_comparativo
+        WHERE ciclos_payback IS NOT NULL
+          AND ciclos_payback <= 0
+    """).fetchone()[0]
+    assert invalidos == 0, f"{invalidos} filas con ciclos_payback <= 0"
+
+
+def test_tco_tipos_validos(con):
+    """Solo KLT, RACK y CARTON deben aparecer en el mart TCO."""
+    invalidos = con.execute("""
+        SELECT COUNT(*) FROM mart_tco_comparativo
+        WHERE tipo_material NOT IN ('KLT', 'RACK', 'CARTON')
+    """).fetchone()[0]
+    assert invalidos == 0, f"{invalidos} filas con tipo_material invalido"
