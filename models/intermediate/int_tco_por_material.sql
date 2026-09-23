@@ -22,7 +22,7 @@ parametros as (
            150      as vida_util_ciclos,    0.20 as mant_por_ciclo_usd,
            4.50     as desechable_equiv_usd
     union all
-    select 'RACK',  180.0, 80, 2.50, null
+    select 'RACK',  180.0, 80, 2.50, 45.0
     union all
     select 'CARTON', 8.0,   1, 0.0,  8.0
 ),
