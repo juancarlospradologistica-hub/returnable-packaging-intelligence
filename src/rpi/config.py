@@ -125,6 +125,29 @@ class MaterialCost(BaseModel):
     carton: float = Field(default=8.0, gt=0, description="Cartón + tarima madera")
 
 
+class TcoConfig(BaseModel):
+    """
+    Parámetros de costo total de propiedad por tipo de contenedor.
+
+    vida_util_ciclos: número de ciclos 601→602 antes de dar de baja el contenedor.
+    costo_mant_por_ciclo: mantenimiento, limpieza y reparación menor por ciclo (USD).
+    desechable_equiv_usd: costo de la alternativa desechable por unidad (USD).
+        None = no aplica para esa categoría.
+    """
+
+    klt_vida_util_ciclos: int = Field(default=150, gt=0)
+    klt_mant_por_ciclo: float = Field(default=0.20, ge=0.0)
+    klt_desechable_equiv_usd: float | None = Field(default=4.50, gt=0.0)
+
+    rack_vida_util_ciclos: int = Field(default=80, gt=0)
+    rack_mant_por_ciclo: float = Field(default=2.50, ge=0.0)
+    rack_desechable_equiv_usd: float | None = Field(default=None)
+
+    carton_vida_util_ciclos: int = Field(default=1, gt=0)
+    carton_mant_por_ciclo: float = Field(default=0.0, ge=0.0)
+    carton_desechable_equiv_usd: float | None = Field(default=8.00, gt=0.0)
+
+
 class GeneratorConfig(BaseModel):
     """
     Configuración completa del generador sintético MB51.
@@ -146,6 +169,7 @@ class GeneratorConfig(BaseModel):
     cycle: CycleConfig = Field(default_factory=CycleConfig)
     cpudt_lag: CpudtLagConfig = Field(default_factory=CpudtLagConfig)
     cost: MaterialCost = Field(default_factory=MaterialCost)
+    tco: TcoConfig = Field(default_factory=TcoConfig)
     random_seed: int | None = Field(
         default=42,
         description="Semilla para reproducibilidad. None = no fijar.",
