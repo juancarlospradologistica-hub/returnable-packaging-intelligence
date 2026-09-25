@@ -1,50 +1,88 @@
+from datetime import timedelta
+
 import polars as pl
 import pytest
 
 from rpi.config import GeneratorConfig
+from rpi.generator import generate, reconciliation_dates
 
 
-def test_filas_dentro_de_rango(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
-    """
-    Con 2 plantas y 3 meses el volumen esperado es ~(40k * 3 * 2) filas brutas
-    más los 602 sintéticos. Rango holgado para no acoplar el test a los exactos.
-    """
-    n = df_ci.shape[0]
-    assert n > 5_000, f"Muy pocas filas: {n}"
-    assert n < 2_000_000, f"Volumen inesperadamente alto: {n}"
+def test_filas_dentro_de_rango(df_ci: pl.DataFrame) -> None:
+    n = df_ci.height
+    assert 50_000 < n < 300_000, f"Volumen fuera de rango: {n}"
 
 
 def test_plantas_en_df(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
-    plantas_esperadas = {p.werks for p in cfg_ci.plants}
-    plantas_en_df = set(df_ci["Werks"].unique().to_list())
-    assert plantas_esperadas == plantas_en_df
+    assert set(df_ci["Werks"].unique()) == {p.werks for p in cfg_ci.plants}
 
 
-def test_reproducibilidad(cfg_ci: GeneratorConfig) -> None:
-    """Misma seed produce el mismo número de filas."""
-    df1 = __import__("rpi.generator", fromlist=["generate"]).generate(
-        cfg=cfg_ci, output_dir="data/raw"
+def test_reproducibilidad(cfg_ci: GeneratorConfig, tmp_path) -> None:
+    """Misma seed, mismo dataset fila por fila."""
+    df1 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "a"))
+    df2 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "b"))
+    assert df1.equals(df2)
+
+
+def test_nada_despues_del_corte(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
+    assert df_ci["Budat"].max() <= cfg_ci.reference_date
+    assert df_ci["Cpudt"].max() <= cfg_ci.reference_date
+
+
+def test_llave_de_documento_unica(df_ci: pl.DataFrame) -> None:
+    dup = df_ci.select("Werks", "Mjahr", "Mblnr", "Zeile").is_duplicated().sum()
+    assert dup == 0, f"{dup} filas con llave de documento repetida"
+
+
+def test_mjahr_coincide_con_budat(df_ci: pl.DataFrame) -> None:
+    malos = df_ci.filter(pl.col("Mjahr") != pl.col("Budat").dt.year()).height
+    assert malos == 0
+
+
+def test_traslados_suman_cero(df_ci: pl.DataFrame) -> None:
+    no_cero = (
+        df_ci.filter(pl.col("Bwart").is_in(["309", "311", "411"]))
+        .group_by("Mblnr", "Mjahr")
+        .agg(pl.col("Menge").sum())
+        .filter(pl.col("Menge") != 0)
+        .height
     )
-    df2 = __import__("rpi.generator", fromlist=["generate"]).generate(
-        cfg=cfg_ci, output_dir="data/raw"
+    assert no_cero == 0, f"{no_cero} documentos de traslado que no suman cero"
+
+
+def test_carton_no_entra_al_ciclo(df_ci: pl.DataFrame) -> None:
+    ciclo = df_ci.filter(
+        pl.col("Matnr").str.starts_with("CTN") & pl.col("Bwart").is_in(["621", "622", "702"])
+    ).height
+    assert ciclo == 0
+
+
+def test_rack_dedicado_a_un_cliente(df_ci: pl.DataFrame) -> None:
+    max_clientes = (
+        df_ci.filter((pl.col("Bwart") == "621") & pl.col("Matnr").str.starts_with("RCK"))
+        .group_by("Werks", "Matnr")
+        .agg(pl.col("Kunnr").n_unique())
+        ["Kunnr"]
+        .max()
     )
-    assert df1.shape[0] == df2.shape[0]
+    assert max_clientes == 1
 
 
-def test_tasa_no_retorno(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
+def test_merma_en_rango(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
     """
-    La tasa de no-retorno observada debe estar dentro de ±2pp del parámetro.
-    Solo aplica si hay movimientos 601 y 602 en el dataset.
+    Merma reconocida (702) sobre salidas que ya pasaron por una conciliación
+    con 120 días de antigüedad. Debe caer entre la tasa baja y la alta de LossConfig.
     """
-    salidas = df_ci.filter(pl.col("Bwart") == "601").shape[0]
-    retornos = df_ci.filter(pl.col("Bwart") == "602").shape[0]
-
+    recon = reconciliation_dates(cfg_ci)
+    limite = recon[-1] - timedelta(days=120)
+    salidas = -df_ci.filter((pl.col("Bwart") == "621") & (pl.col("Budat") <= limite))[
+        "Menge"
+    ].sum()
+    perdidos = -df_ci.filter(pl.col("Bwart") == "702")["Menge"].sum()
     if salidas == 0:
-        pytest.skip("No hay movimientos 601 en el dataset CI")
+        pytest.skip("Sin salidas con antigüedad suficiente")
 
-    tasa_observada = 1.0 - (retornos / salidas)
-    tasa_esperada = cfg_ci.loss_rate
-    assert abs(tasa_observada - tasa_esperada) < 0.05, (
-        f"Tasa no-retorno {tasa_observada:.3f} fuera del rango "
-        f"esperado ({tasa_esperada:.3f} ± 0.05)"
+    tasa = perdidos / salidas
+    assert cfg_ci.loss.rate_low * 0.5 <= tasa <= cfg_ci.loss.rate_high, (
+        f"Merma observada {tasa:.4f} fuera de "
+        f"[{cfg_ci.loss.rate_low * 0.5:.4f}, {cfg_ci.loss.rate_high:.4f}]"
     )
