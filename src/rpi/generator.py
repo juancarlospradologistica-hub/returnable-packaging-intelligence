@@ -11,8 +11,8 @@ Ningún movimiento se emite después de cfg.reference_date.
 from __future__ import annotations
 
 import math
-import os
 from datetime import date, timedelta
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -375,26 +375,36 @@ def emit_plant_movements(
 # ---------------------------------------------------------------------------
 
 
-def _assign_document_numbers(df: pl.DataFrame) -> pl.DataFrame:
-    """Mblnr secuencial por año contable: 49 + 8 dígitos. Las parejas comparten documento."""
-    return (
-        df.sort(["Mjahr", "Budat", "Werks", "doc_id", "Zeile"])
+def _assign_document_numbers(
+    df: pl.DataFrame,
+    offsets: dict[int, int],
+) -> pl.DataFrame:
+    """
+    Mblnr = 49 + 8 dígitos, secuencial por año contable. Las parejas de traslado
+    comparten documento. offsets lleva el último número usado por año para que
+    la numeración siga de una planta a la siguiente sin repetirse.
+    """
+    df = (
+        df.sort(["Mjahr", "Budat", "doc_id", "Zeile"])
         .with_columns(
-            (pl.col("Werks") + "|" + pl.col("doc_id").cast(pl.String)).alias("_doc")
-        )
-        .with_columns(
-            (pl.col("_doc") != pl.col("_doc").shift(1))
+            (pl.col("doc_id") != pl.col("doc_id").shift(1))
             .fill_null(True)
             .cum_sum()
             .over("Mjahr")
             .alias("_seq")
         )
         .with_columns(
-            pl.format("49{}", pl.col("_seq").cast(pl.String).str.zfill(8)).alias("Mblnr"),
-            pl.col("Zeile").cast(pl.String).str.zfill(4),
+            pl.col("_seq")
+            + pl.col("Mjahr").replace_strict(offsets, default=0, return_dtype=pl.Int64)
         )
-        .drop("_doc", "_seq", "doc_id")
     )
+    for year, last in df.group_by("Mjahr").agg(pl.col("_seq").max()).iter_rows():
+        offsets[year] = int(last)
+
+    return df.with_columns(
+        pl.format("49{}", pl.col("_seq").cast(pl.String).str.zfill(8)).alias("Mblnr"),
+        pl.col("Zeile").cast(pl.String).str.zfill(4),
+    ).drop("_seq", "doc_id")
 
 
 _OUTPUT_COLUMNS = [
@@ -406,59 +416,66 @@ _OUTPUT_COLUMNS = [
 def generate(
     cfg: GeneratorConfig | None = None,
     output_dir: str = "data/raw",
-) -> pl.DataFrame:
-    """Genera el dataset MB51 completo y lo escribe en Parquet."""
+) -> pl.LazyFrame:
+    """
+    Genera el dataset MB51 y lo escribe como un Parquet por planta
+    (mb51_<Werks>.parquet). Cada planta se escribe y se libera antes de la
+    siguiente: el dataset completo no cabe en memoria en un laptop.
+    Devuelve un LazyFrame sobre los archivos escritos.
+    """
     cfg = cfg or GeneratorConfig()
     rng = np.random.default_rng(cfg.random_seed)
-    os.makedirs(output_dir, exist_ok=True)
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    # El directorio es del generador: una corrida no se mezcla con restos de otra.
+    for old in out.glob("mb51_*.parquet"):
+        old.unlink()
 
     pool = build_matnr_pool(cfg)
     assignment = assign_matnr_to_plants(cfg, pool, rng)
     customers, problem = assign_customers(cfg, rng)
     dates = build_date_range(cfg)
     recon = reconciliation_dates(cfg)
+    offsets: dict[int, int] = {}
+    total_rows = 0
 
-    plant_dfs: list[pl.DataFrame] = []
     for plant in cfg.plants:
         monthly = int(rng.integers(plant.monthly_movements_min, plant.monthly_movements_max))
-        total = monthly * cfg.horizon_months
-        print(f"  {plant.werks}: {total:,} movimientos base...")
-        plant_dfs.append(
-            emit_plant_movements(
-                werks=plant.werks,
-                plant_matnrs=assignment[plant.werks],
-                kunnrs=customers[plant.werks],
-                problem=problem,
-                pool=pool,
-                dates=dates,
-                recon=recon,
-                cfg=cfg,
-                rng=rng,
-                n_movements=total,
+        df = emit_plant_movements(
+            werks=plant.werks,
+            plant_matnrs=assignment[plant.werks],
+            kunnrs=customers[plant.werks],
+            problem=problem,
+            pool=pool,
+            dates=dates,
+            recon=recon,
+            cfg=cfg,
+            rng=rng,
+            n_movements=monthly * cfg.horizon_months,
+        )
+        df = (
+            df.join(pool.select("Matnr", "Maktx", "Costo_usd"), on="Matnr", how="left")
+            .with_columns(
+                pl.col("Budat").cast(pl.Date),
+                pl.col("Cpudt").cast(pl.Date),
+                pl.col("Budat").dt.year().cast(pl.Int64).alias("Mjahr"),
+                pl.col("Menge").cast(pl.Int64),
+                pl.lit("PC").alias("Meins"),
             )
+            # Documentos registrados después del corte todavía no existen
+            # a la fecha de extracción.
+            .filter(pl.col("Cpudt") <= cfg.reference_date)
         )
-
-    df = (
-        pl.concat(plant_dfs, how="vertical_relaxed")
-        .join(pool.select("Matnr", "Maktx", "Costo_usd"), on="Matnr", how="left")
-        .with_columns(
-            pl.col("Budat").cast(pl.Date),
-            pl.col("Cpudt").cast(pl.Date),
-            pl.col("Budat").dt.year().cast(pl.Int64).alias("Mjahr"),
-            pl.col("Menge").cast(pl.Int64),
-            pl.lit("PC").alias("Meins"),
+        df = (
+            _assign_document_numbers(df, offsets)
+            .select(_OUTPUT_COLUMNS)
+            .sort(["Budat", "Mblnr", "Zeile"])
         )
-    )
-    # Documentos contabilizados con Budat en rango pero registrados después del corte
-    # todavía no existen en el sistema a la fecha de extracción.
-    df = df.filter(pl.col("Cpudt") <= cfg.reference_date)
-    df = (
-        _assign_document_numbers(df)
-        .select(_OUTPUT_COLUMNS)
-        .sort(["Werks", "Budat", "Mblnr", "Zeile"])
-    )
+        df.write_parquet(out / f"mb51_{plant.werks}.parquet")
+        total_rows += df.height
+        print(f"  {plant.werks}: {df.height:,} filas")
+        del df
 
-    output_path = f"{output_dir}/mb51_synthetic_v1.parquet"
-    df.write_parquet(output_path)
-    print(f"Parquet escrito: {output_path} ({df.shape[0]:,} filas, {df.shape[1]} columnas)")
-    return df
+    print(f"Parquet escrito en {out}: {len(cfg.plants)} archivos, {total_rows:,} filas")
+    return pl.scan_parquet(out / "mb51_*.parquet")
