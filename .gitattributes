@@ -1,0 +1,9 @@
+# Todo el texto se guarda con LF en el repo y en la copia de trabajo.
+# CI corre en Linux; el editor maneja LF sin problema en Windows.
+* text=auto eol=lf
+
+*.png     binary
+*.jpg     binary
+*.parquet binary
+*.duckdb  binary
+*.pbix    binary
