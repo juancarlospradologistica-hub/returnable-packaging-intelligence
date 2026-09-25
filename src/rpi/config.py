@@ -1,11 +1,12 @@
 # src/rpi/config.py
 """
 Configuración parametrizada del generador sintético MB51.
-Todos los valores reflejan los parámetros definidos en PROYECTO.md §4.
+Los valores por defecto reproducen PROYECTO.md §4 (ADR-011).
 """
 
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Annotated
 
@@ -33,7 +34,6 @@ class PlantConfig(BaseModel):
         description="Código de planta sintético. Ejemplo: PLNT_MX01.",
     )
     country: Country
-    matnr_count: int = Field(default=480, ge=50, le=500)
     monthly_movements_min: int = Field(default=40_000, ge=100)
     monthly_movements_max: int = Field(default=80_000, ge=100)
 
@@ -47,10 +47,7 @@ class PlantConfig(BaseModel):
 
 
 class MaterialMix(BaseModel):
-    """
-    Proporción de cada tipo de material.
-    Los tres valores deben sumar 1.0.
-    """
+    """Proporción de Matnr por tipo. Debe sumar 1.0."""
 
     klt: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.60
     rack: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.30
@@ -67,10 +64,7 @@ class MaterialMix(BaseModel):
 
 
 class CycleConfig(BaseModel):
-    """
-    Distribución log-normal del ciclo 601 → 602.
-    Media 25 días, cola larga hasta ~90 días.
-    """
+    """Ciclo 621 → 622 log-normal. Media 25 días, cola larga."""
 
     mean_days: float = Field(default=25.0, gt=0.0)
     sigma: float = Field(
@@ -82,10 +76,7 @@ class CycleConfig(BaseModel):
 
 
 class CpudtLagConfig(BaseModel):
-    """
-    Lag entre Budat (fecha contabilización) y Cpudt (fecha registro sistema).
-    Los tres valores deben sumar 1.0.
-    """
+    """Lag Budat → Cpudt. Debe sumar 1.0."""
 
     same_day: Annotated[float, Field(ge=0.0, le=1.0)] = 0.92
     one_to_two_days: Annotated[float, Field(ge=0.0, le=1.0)] = 0.06
@@ -102,11 +93,93 @@ class CpudtLagConfig(BaseModel):
         return self
 
 
+class CustomerConfig(BaseModel):
+    """
+    Cuentas cliente (plantas OEM). Supuesto ADR-011: 40 globales,
+    de 3 a 8 por planta.
+    """
+
+    global_count: int = Field(default=40, ge=1)
+    per_plant_min: int = Field(default=3, ge=1)
+    per_plant_max: int = Field(default=8, ge=1)
+
+    @model_validator(mode="after")
+    def rango_valido(self) -> CustomerConfig:
+        if self.per_plant_min > self.per_plant_max:
+            raise ValueError("per_plant_min no puede ser mayor que per_plant_max")
+        if self.per_plant_max > self.global_count:
+            raise ValueError("per_plant_max no puede superar global_count")
+        return self
+
+
+class LossConfig(BaseModel):
+    """
+    Merma por viaje, heterogénea por cuenta (ADR-011).
+
+    Dos segmentos: las cuentas problema (problem_account_share) concentran
+    problem_loss_share de la merma. Con los defaults: 20% de las cuentas
+    generan 70% de la merma y la media ponderada es rate_mean.
+    """
+
+    rate_mean: float = Field(default=0.005, gt=0.0, le=0.5)
+    problem_account_share: float = Field(default=0.20, gt=0.0, lt=1.0)
+    problem_loss_share: float = Field(default=0.70, gt=0.0, lt=1.0)
+
+    @model_validator(mode="after")
+    def concentracion_valida(self) -> LossConfig:
+        if self.problem_loss_share <= self.problem_account_share:
+            raise ValueError(
+                "problem_loss_share debe ser mayor que problem_account_share; "
+                "si no, las cuentas problema pierden menos que el promedio"
+            )
+        if self.rate_high > 0.5:
+            raise ValueError(f"rate_high = {self.rate_high:.4f} supera 0.5")
+        return self
+
+    @property
+    def rate_high(self) -> float:
+        return self.rate_mean * self.problem_loss_share / self.problem_account_share
+
+    @property
+    def rate_low(self) -> float:
+        return (
+            self.rate_mean
+            * (1 - self.problem_loss_share)
+            / (1 - self.problem_account_share)
+        )
+
+
+class MengeRange(BaseModel):
+    min: int = Field(ge=1)
+    max: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def min_menor_max(self) -> MengeRange:
+        if self.min > self.max:
+            raise ValueError("min no puede ser mayor que max")
+        return self
+
+
+class MengeConfig(BaseModel):
+    """
+    Contenedores por línea de salida, por tipo. Supuesto temporal de
+    ADR-011; ADR-012 lo reemplaza con la explosión del plan.
+    """
+
+    klt: MengeRange = Field(default_factory=lambda: MengeRange(min=1, max=12))
+    rack: MengeRange = Field(default_factory=lambda: MengeRange(min=1, max=4))
+    carton: MengeRange = Field(default_factory=lambda: MengeRange(min=1, max=6))
+
+    def for_type(self, mat_type: MaterialType) -> MengeRange:
+        return {
+            MaterialType.KLT: self.klt,
+            MaterialType.RACK: self.rack,
+            MaterialType.CARTON: self.carton,
+        }[mat_type]
+
+
 def _default_plants() -> list[PlantConfig]:
-    """
-    Lista canónica de 14 plantas sintéticas.
-    Orden: MX01-06, US01-06, NI01-02.
-    """
+    """14 plantas canónicas: MX01-06, US01-06, NI01-02."""
     plants: list[PlantConfig] = []
     for i in range(1, 7):
         plants.append(PlantConfig(werks=f"PLNT_MX{i:02d}", country=Country.MX))
@@ -126,23 +199,34 @@ class MaterialCost(BaseModel):
 
 
 class GeneratorConfig(BaseModel):
-    """
-    Configuración completa del generador sintético MB51.
-    Instanciar con defaults reproduce los parámetros de PROYECTO.md §4.
-    """
+    """Configuración completa del generador sintético MB51."""
 
     plants: list[PlantConfig] = Field(default_factory=_default_plants)
+    reference_date: date = Field(
+        default=date(2026, 6, 30),
+        description="Fecha de corte. Ningún movimiento se emite después.",
+    )
     horizon_months: int = Field(default=18, ge=1, le=60)
-    global_matnr_pool: int = Field(
-        default=1_200,
-        ge=100,
+    global_matnr_pool: int = Field(default=1_200, ge=100)
+    global_matnr_share: float = Field(
+        default=0.40,
+        gt=0.0,
+        le=1.0,
         description=(
-            "Total de Matnr únicos en el universo. "
-            "El 40% circula en todas las plantas (~480 Matnr compartidos)."
+            "Fracción del pool presente en todas las plantas (ADR-007). "
+            "El resto se reparte sin repetir entre plantas."
         ),
     )
+    reconciliation_months: int = Field(
+        default=3,
+        ge=1,
+        le=12,
+        description="Periodicidad de la conciliación de saldo en cliente.",
+    )
     material_mix: MaterialMix = Field(default_factory=MaterialMix)
-    loss_rate: float = Field(default=0.02, ge=0.0, le=0.5)
+    customers: CustomerConfig = Field(default_factory=CustomerConfig)
+    loss: LossConfig = Field(default_factory=LossConfig)
+    menge: MengeConfig = Field(default_factory=MengeConfig)
     cycle: CycleConfig = Field(default_factory=CycleConfig)
     cpudt_lag: CpudtLagConfig = Field(default_factory=CpudtLagConfig)
     cost: MaterialCost = Field(default_factory=MaterialCost)
