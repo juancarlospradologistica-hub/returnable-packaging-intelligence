@@ -318,6 +318,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - Validación cruzada: merma TCO (KLT + Rack + Cartón) = pérdida total Fase 1 ($4.82M).
   - TcoConfig eliminado de config.py (ADR-010).
   - Historial local reescrito antes del push: un commit del dashboard tenía el mensaje de semana 6.
+  - 03_tco_analysis.ipynb: la sensibilidad usaba ciclos × tasa × costo y el escenario de 2% daba $41.44M contra $41.04M del headline. Ahora escala la merma real observada; el 2% cuadra exacto.
+  - Resumen ejecutivo del 03 corregido: cada punto de merma = ~$2.4M en 18 meses (~$1.6M por año). Antes decía $2.4M anuales en un bullet y $1.2M en otro.
+  - Signos $ escapados en markdown del 03: GitHub los renderizaba como fórmula.
 - **Decisiones tomadas:** ADR-010.
 - **Bloqueos:** ninguno.
 - **Notas de la sesión:**
@@ -327,10 +330,12 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - Windows PowerShell 5.1 escribe UTF-16 con `>` y Out-File. Notebooks y archivos de texto se guardan desde VS Code.
   - `marimo edit` no ejecuta celdas al abrir; para ver el dashboard usar `marimo run`.
   - ConnectionResetError WinError 10054 al cerrar Marimo es ruido de asyncio en Windows.
+  - En markdown de notebooks, dos $ en el mismo párrafo se renderizan como LaTeX en GitHub. Escapar con \$.
+  - Re-ejecutar notebooks con `jupyter nbconvert --execute --inplace` en vez de VS Code: no depende del kernel de la UI y conserva UTF-8.
 - **Próximo paso:** decidir si hay Fase 3 o cierre del proyecto con post de lanzamiento.
 
 
-### 2026-09-25 · Sesión 27 — Semana 10
+### 2026-09-24 · Sesión 27 — Semana 10
 
 - **Duración:** ~2 h
 - **Hecho:**
