@@ -1,71 +1,69 @@
-with ciclos as (
-    select * from {{ ref('int_ciclo_retorno') }}
-    where es_merma = false
-      and dias_ciclo is not null
-      and dias_ciclo > 0
+-- Insumos del TCO por planta y tipo de material (ADR-011, punto 8).
+-- Los parámetros de costo viven solo aquí (ADR-010). El cartón ya no entra:
+-- es desechable y sale con 601 (ADR-011, punto 10).
+with parametros as (
+    select 'KLT' as tipo_material,
+           25.0  as costo_unitario_usd,
+           150   as vida_util_ciclos,
+           0.20  as mant_por_ciclo_usd,
+           4.50  as desechable_equiv_usd
+    union all
+    select 'RACK', 180.0, 80, 2.50, 45.0      -- desechable $34–66 (ADR-010)
 ),
 
-tipo as (
+movimientos as (
+    select * from {{ ref('stg_mb51') }}
+    where mov_type in ('621', '702')
+),
+
+ultima_conciliacion as (
+    select max(fecha_contab) as fecha
+    from movimientos
+    where mov_type = '702'
+),
+
+-- Tasa por ventana conciliada (ADR-012): faltantes entre salidas con 120 días
+-- antes de la última conciliación. Viajes: todas las salidas del horizonte.
+flujo as (
+    select
+        m.planta,
+        m.tipo_material,
+        sum(abs(m.cantidad)) filter (where m.mov_type = '621')          as viajes,
+        sum(abs(m.cantidad)) filter (
+            where m.mov_type = '621' and m.fecha_contab <= u.fecha - 120
+        )                                                               as salidas_conciliadas,
+        coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
+        coalesce(sum(abs(m.cantidad) * m.costo_usd)
+            filter (where m.mov_type = '702'), 0)                       as perdida_reconocida_usd
+    from movimientos m
+    cross join ultima_conciliacion u
+    group by m.planta, m.tipo_material
+),
+
+tasa as (
     select
         *,
-        case
-            when material like 'KLT%' then 'KLT'
-            when material like 'RCK%' then 'RACK'
-            when material like 'CTN%' then 'CARTON'
-            else 'OTRO'
-        end as tipo_material
-    from ciclos
-),
-
-parametros as (
-    select 'KLT'     as tipo_material, 25.0  as costo_unitario_usd,
-           150       as vida_util_ciclos,     0.20 as mant_por_ciclo_usd,
-           4.50      as desechable_equiv_usd
-    union all
-    select 'RACK',  180.0, 80, 2.50, 45.0
-    union all
-    select 'CARTON',   8.0,  1, 0.0,  8.0
-),
-
-tco_base as (
-    select
-        t.planta,
-        t.material,
-        t.tipo_material,
-        p.costo_unitario_usd,
-        p.vida_util_ciclos,
-        p.mant_por_ciclo_usd,
-        p.desechable_equiv_usd,
-        round(p.costo_unitario_usd / p.vida_util_ciclos, 4)
-            as amortizacion_por_ciclo_usd,
-        round(
-            (p.costo_unitario_usd / p.vida_util_ciclos) + p.mant_por_ciclo_usd,
-            4
-        )                                       as costo_retornable_por_ciclo_usd,
-        count(*)                                as ciclos_observados,
-        round(avg(t.dias_ciclo), 1)             as ciclo_promedio_dias
-    from tipo t
-    join parametros p on t.tipo_material = p.tipo_material
-    group by
-        t.planta, t.material, t.tipo_material,
-        p.costo_unitario_usd, p.vida_util_ciclos,
-        p.mant_por_ciclo_usd, p.desechable_equiv_usd
+        faltantes * 1.0 / nullif(salidas_conciliadas, 0)                as p_merma
+    from flujo
 )
 
 select
-    *,
+    t.planta,
+    t.tipo_material,
+    t.viajes,
+    t.salidas_conciliadas,
+    t.faltantes,
+    round(t.p_merma * 100, 3)                                           as tasa_merma_pct,
+    t.perdida_reconocida_usd,
+    p.costo_unitario_usd,
+    p.vida_util_ciclos,
+    p.mant_por_ciclo_usd,
+    p.desechable_equiv_usd,
+    -- Viajes promedio antes de perderse o llegar a la vida útil:
+    -- E[vida] = (1 − (1 − p)^V) / p; sin merma, E[vida] = V.
     case
-        when desechable_equiv_usd is not null
-        then round(desechable_equiv_usd - costo_retornable_por_ciclo_usd, 4)
-        else null
-    end as ahorro_por_ciclo_vs_desechable_usd,
-    case
-        when desechable_equiv_usd is not null
-            and desechable_equiv_usd > mant_por_ciclo_usd
-        then ceil(
-            costo_unitario_usd / (desechable_equiv_usd - mant_por_ciclo_usd)
-        )
-        else null
-    end as ciclos_payback
-from tco_base
-order by tipo_material, planta, material
+        when coalesce(t.p_merma, 0) = 0 then p.vida_util_ciclos
+        else (1 - power(1 - t.p_merma, p.vida_util_ciclos)) / t.p_merma
+    end                                                                 as vida_esperada_ciclos
+from tasa t
+join parametros p on p.tipo_material = t.tipo_material

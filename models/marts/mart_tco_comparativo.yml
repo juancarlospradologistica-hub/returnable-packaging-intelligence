@@ -3,9 +3,9 @@ version: 2
 models:
   - name: mart_tco_comparativo
     description: >
-      TCO agregado por tipo de material y planta. Responde cuanto vale
-      en USD operar con retornables versus reemplazar con desechables,
-      considerando la tasa de merma observada.
+      Costo por ciclo del retornable contra el desechable equivalente, por
+      planta y tipo. La merma entra por vida esperada; perdida_reconocida_usd
+      es contexto y no se resta del ahorro.
     columns:
       - name: planta
         tests: [not_null]
@@ -13,9 +13,15 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: [KLT, RACK, CARTON]
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: costo_retornable_por_ciclo_usd
+        tests: [not_null]
       - name: ahorro_neto_usd
         description: >
-          Ahorro total vs desechable menos perdidas por merma.
-          Positivo = retornable sigue siendo conveniente.
-          Negativo = la merma erosiono el beneficio.
+          Viajes × (desechable equivalente − costo retornable por ciclo).
+          Positivo = el retornable conviene.
+        tests: [not_null]
+      - name: recupera_inversion
+        description: El payback cae dentro de la vida esperada.
+        tests: [not_null]
