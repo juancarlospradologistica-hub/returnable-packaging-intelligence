@@ -1,4 +1,4 @@
-﻿"""
+"""
 Schema Pandera del dataset MB51 sintetico.
 
 Define el contrato de las 22 columnas (16 core + 6 opcionales) que produce
@@ -24,7 +24,9 @@ BWART_VALIDOS = [
     "501",
     "502",
     "601",
-    "602",
+    "621",
+    "622",
+    "702",
 ]
 
 MEINS_VALIDAS = ["PC", "EA", "KG"]
@@ -77,8 +79,9 @@ class MB51Schema(pa.DataFrameModel):
     )
     Menge: Series[int] = pa.Field(
         description=(
-            "Cantidad del movimiento. "
-            "Negativa en reversas (502, 102, 411) y retornos (602)."
+            "Cantidad del movimiento con signo SAP: salidas negativas "
+            "(102, 261, 502, 601, 621, 702), entradas positivas. "
+            "Traslados 309/311/411 en dos posiciones que suman cero."
         ),
     )
     Meins: Series[str] = pa.Field(
@@ -104,7 +107,7 @@ class MB51Schema(pa.DataFrameModel):
     Kunnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
-        description="Cliente / consignatario. Nullable: solo aplica en 601/602/631/632.",
+        description="Cliente / cuenta de stock especial V. Solo en 601, 621, 622 y 702.",
     )
     Xblnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 16},
