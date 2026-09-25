@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-09-20
+**Última actualización:** 2026-09-24
 
 ---
 
@@ -39,7 +39,7 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 
 ### Alcance IN — Fase 2
 
-TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. En curso.
+TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. Cerrado en semana 11.
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -86,7 +86,7 @@ TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el c
 ### Capa 3 — Opcional (semana 6+)
 
 - **Prefect 3** — orquestación de pipelines
-- **Evidence.dev** — dashboard vivo como código
+- **Marimo** — dashboard como notebook reactivo en `.py` (ADR-008)
 - **Power BI Desktop** — vista ejecutiva descargable (.pbix)
 - **MkDocs Material** — sitio de documentación
 
@@ -97,6 +97,7 @@ TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el c
 - **Snowflake / BigQuery / Databricks** — no necesarios; portables vía dbt profiles.
 - **Pandas** — reemplazado por Polars en todo el pipeline.
 - **Kafka / streaming** — este es batch, no streaming.
+- **Evidence.dev** — migró a modelo cloud (ADR-008).
 
 ---
 
@@ -203,22 +204,40 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Consecuencias:** Sin dependencias Node. El dashboard corre con `uv run marimo run` dentro del mismo entorno uv del proyecto.
 
 ### ADR-009 · Fase 2: TCO retornable vs desechable (extiende ADR-005)
- **Fecha:** 2026-09-21
- **Estado:** Accepted
- **Contexto:** Fase 1 cerrada. El pipeline cubre rotación, pérdidas en USD y ciclo 601→602. La pregunta que queda sin respuesta es cuánto cuesta realmente operar con retornables frente a reemplazarlos con desechables: amortización, mantenimiento y pérdidas por merma consolidados en un solo número por ciclo.
- **Alternativas evaluadas:**
-- Fase 3 (Forecast vs MRP): requiere simular un plan de producción creíble. La complejidad del sintético sube sin que el análisis de packaging gane claridad.
-- Fase 4 (ciclo lavado/reparación): el output es tiempo de inmovilización, no dinero. Extensión válida de Fase 1 pero no cierra el argumento financiero.
-- TCO: usa Costo_usd y mart_perdidas_usd que ya existen. Agrega vida útil y mantenimiento. El output es USD/ciclo y punto de equilibrio, que es lo que justifica o cuestiona la inversión en flota retornable.
-- Decisión: Fase 2 = TCO retornable vs desechable. Se agrega TcoConfig a config.py y dos modelos dbt nuevos: int_tco_por_material y mart_tco_comparativo.
-- Parámetros iniciales:
-KLT: vida útil 150 ciclos, mantenimiento $0.20/ciclo, desechable equivalente $4.50/unidad.
-Rack: vida útil 80 ciclos, mantenimiento $2.50/ciclo, sin equivalente desechable directo.
-Cartón: 1 ciclo, $8.00/unidad.
-- Consecuencias:
-TcoConfig se agrega a config.py sin modificar GeneratorConfig existente.
-Los marts de Fase 1 no se tocan; los nuevos se construyen sobre int_ciclo_retorno.
-El notebook 03_tco_analysis.ipynb cierra el argumento: en cuántos ciclos el retornable recupera su costo y cuánto vale cada punto de merma recuperado.
+
+- **Fecha:** 2026-09-21
+- **Estado:** Accepted. Parámetro de Rack y ubicación de parámetros reemplazados por ADR-010.
+- **Contexto:** Fase 1 cerrada. El pipeline cubre rotación, pérdidas en USD y ciclo 601→602. La pregunta que queda sin respuesta es cuánto cuesta realmente operar con retornables frente a reemplazarlos con desechables: amortización, mantenimiento y pérdidas por merma consolidados en un solo número por ciclo.
+- **Alternativas evaluadas:**
+  - Fase 3 (Forecast vs MRP): requiere simular un plan de producción creíble. La complejidad del sintético sube sin que el análisis de packaging gane claridad.
+  - Fase 4 (ciclo lavado/reparación): el output es tiempo de inmovilización, no dinero. Extensión válida de Fase 1 pero no cierra el argumento financiero.
+  - TCO: usa Costo_usd y mart_perdidas_usd que ya existen. Agrega vida útil y mantenimiento. El output es USD/ciclo y punto de equilibrio, que es lo que justifica o cuestiona la inversión en flota retornable.
+- **Decisión:** Fase 2 = TCO retornable vs desechable. Se agrega TcoConfig a config.py y dos modelos dbt nuevos: int_tco_por_material y mart_tco_comparativo.
+- **Parámetros iniciales:**
+  - KLT: vida útil 150 ciclos, mantenimiento $0.20/ciclo, desechable equivalente $4.50/unidad.
+  - Rack: vida útil 80 ciclos, mantenimiento $2.50/ciclo, sin equivalente desechable directo.
+  - Cartón: 1 ciclo, $8.00/unidad.
+- **Consecuencias:**
+  - TcoConfig se agrega a config.py sin modificar GeneratorConfig existente.
+  - Los marts de Fase 1 no se tocan; los nuevos se construyen sobre int_ciclo_retorno.
+  - El notebook 03_tco_analysis.ipynb cierra el argumento: en cuántos ciclos el retornable recupera su costo y cuánto vale cada punto de merma recuperado.
+
+### ADR-010 · Desechable equivalente del Rack y fuente única de parámetros TCO
+
+- **Fecha:** 2026-09-24
+- **Estado:** Accepted
+- **Contexto:** ADR-009 dejó el Rack sin equivalente desechable y su ahorro salía null. Además los parámetros TCO quedaron duplicados: TcoConfig en config.py y un CTE hardcodeado en int_tco_por_material.sql. dbt solo lee el SQL; TcoConfig nunca se usó y ya divergía (Rack en None contra $45 en SQL).
+- **Alternativas evaluadas:**
+  - Dejar Rack sin equivalente: el TCO excluye el tipo con mayor valor por unidad. Se pierde el argumento.
+  - Rack a $45 por embarque, armado como kit de un solo uso: caja corrugada triple pared $22 (rango 18–30), tarima de madera $12 (10–20), dunnage interior $8 (5–12), consumibles $3 (1–4). Rango total $34–66. Supuesto: una carga de rack = un embarque desechable.
+  - Parámetros en TcoConfig inyectados como dbt vars: una sola fuente en Python, pero acopla generador y dbt.
+  - Parámetros solo en el SQL: una sola fuente, visible en el linaje de dbt.
+- **Decisión:** Rack desechable equivalente = $45.00. Parámetros TCO solo en el CTE `parametros` de int_tco_por_material.sql. Se elimina TcoConfig.
+- **Consecuencias:**
+  - Reemplaza el parámetro de Rack de ADR-009.
+  - Ahorro neto total $41.0M; con el rango $34–66 va de $30.9M a $60.4M. Cada $1 mueve el ahorro del Rack ~$0.9M. El Rack deja de convenir abajo de ~$8.70.
+  - Cambiar un supuesto TCO = editar el CTE y correr dbt.
+  - Si una fase futura necesita correr escenarios, migrar a dbt seed o vars con ADR nuevo.
 
 ---
 
@@ -278,13 +297,40 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 8** · Pulido README, generación de diagramas finales.
 - [x] **Semana 9** . TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs dbt, tres tests nuevos en test_marts.py. CI verde.
 - [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
-- [ ] **Semana 11** . Dashboard Marimo actualizado con pestaña TCO. README con resultados Fase 2.
+- [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
 
 ---
 
 ## 6. Worklog
 
-### 2026-09-25 · Sesión 26 — Semana 10
+Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
+
+### 2026-09-24 · Sesión 28 — Semana 11
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - 02_dashboard.py reestructurado en dos pestañas: "Rotación y pérdidas" y "TCO".
+  - Pestaña TCO: ahorro neto retornable $41.0M (Rack $33.6M, KLT $7.5M), payback 5/6 ciclos, costo de merma $4.77M, merma sobre bruto 9.8%/13.1%, detalle por tipo y por planta.
+  - Cartón mostrado como línea base (n/a en ahorro y payback); su -$57,064 en el mart es su costo de merma.
+  - 03_tco_analysis.ipynb estaba guardado en UTF-16 con acentos corrompidos (GitHub no lo renderizaba). Convertido a UTF-8 y texto reparado.
+  - Lint pendiente en los tres notebooks corregido. CI ahora corre ruff también sobre notebooks/.
+  - README: resultados Fase 2, tabla de supuestos, desglose del desechable equivalente del Rack con rango $34–66 y sensibilidad, Marimo en tabla de stack, estructura del repo actualizada.
+  - Validación cruzada: merma TCO (KLT + Rack + Cartón) = pérdida total Fase 1 ($4.82M).
+  - TcoConfig eliminado de config.py (ADR-010).
+  - Historial local reescrito antes del push: un commit del dashboard tenía el mensaje de semana 6.
+- **Decisiones tomadas:** ADR-010.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Las sumas de dbt sobre count(*) salen como HUGEINT; castear a BIGINT antes de pasar a Polars.
+  - mart_tco_comparativo es por planta × tipo; el resumen por tipo se agrega en el dashboard.
+  - En Marimo, variables auxiliares con prefijo _ para no chocar entre celdas.
+  - Windows PowerShell 5.1 escribe UTF-16 con `>` y Out-File. Notebooks y archivos de texto se guardan desde VS Code.
+  - `marimo edit` no ejecuta celdas al abrir; para ver el dashboard usar `marimo run`.
+  - ConnectionResetError WinError 10054 al cerrar Marimo es ruido de asyncio en Windows.
+- **Próximo paso:** decidir si hay Fase 3 o cierre del proyecto con post de lanzamiento.
+
+
+### 2026-09-25 · Sesión 27 — Semana 10
 
 - **Duración:** ~2 h
 - **Hecho:**
@@ -296,34 +342,32 @@ Marcar con `[x]` al cerrar.
 - **Bloqueos:** ninguno.
 - **Próximo paso:** semana 11 — dashboard Marimo con pestaña TCO, README con resultados Fase 2.
 
-## 2026-09-24 · Sesión 25 — Semana 9
+### 2026-09-24 · Sesión 26 — Semana 9
 
-Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
-
- **Duración:** ~2 h
- **Hecho:**
-- TcoConfig agregado a config.py con parámetros KLT/Rack/Cartón (vida útil, mantenimiento, desechable equivalente).
-- int_tco_por_material.sql: amortización por ciclo, costo retornable, ahorro vs desechable, ciclos de payback.
-- mart_tco_comparativo.sql: TCO agregado por tipo de material y planta, ahorro neto vs desechable considerando merma.
-- YMLs de documentación dbt para ambos modelos.
-- Tres tests de dominio en test_marts.py: costo retornable positivo, payback positivo, tipos válidos.
-- dbt run: PASS=7 WARN=0 ERROR=0. pytest: 17/17 passed.
-- 4 commits pusheados a main.
-- Decisiones tomadas: ninguna nueva.
-- Bloqueos: archivos SQL/YML creados con wrapper de PowerShell dentro — resuelto escribiendo directo con Set-Content.
-- Próximo paso: confirmar CI verde, luego notebook 03_tco_analysis.ipynb con storytelling TCO en USD.
+- **Duración:** ~2 h
+- **Hecho:**
+  - TcoConfig agregado a config.py con parámetros KLT/Rack/Cartón (vida útil, mantenimiento, desechable equivalente).
+  - int_tco_por_material.sql: amortización por ciclo, costo retornable, ahorro vs desechable, ciclos de payback.
+  - mart_tco_comparativo.sql: TCO agregado por tipo de material y planta, ahorro neto vs desechable considerando merma.
+  - YMLs de documentación dbt para ambos modelos.
+  - Tres tests de dominio en test_marts.py: costo retornable positivo, payback positivo, tipos válidos.
+  - dbt run: PASS=7 WARN=0 ERROR=0. pytest: 17/17 passed.
+  - 4 commits pusheados a main.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** archivos SQL/YML creados con wrapper de PowerShell dentro — resuelto escribiendo directo con Set-Content.
+- **Próximo paso:** confirmar CI verde, luego notebook 03_tco_analysis.ipynb con storytelling TCO en USD.
 
 ### 2026-09-23 · Sesión 25 — Arranque Fase 2
 
-  **Duración:** en curso
-  **Hecho:**
-- Revisión completa del repo (ZIP): código fuente, modelos dbt, tests, CI, README. Estado confirmado con Fase 1 funcionando de punta a punta.
-- Decisión de Fase 2: TCO retornable vs desechable. Descartadas Fase 3 (Forecast vs MRP) y Fase 4 (ciclo lavado/reparación) — razonamiento en ADR-009.
-- ADR-009 redactado y pegado en PROYECTO.md.
-- Código diseñado: TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs de documentación, tres  tests nuevos en test_marts.py.
-- Decisiones tomadas: ADR-009.
-- Bloqueos: ninguno.
-- Próximo paso: aplicar cambios en repo local, correr dbt + pytest, confirmar CI verde. Luego notebook 03_tco_analysis.ipynb.
+- **Duración:** en curso
+- **Hecho:**
+  - Revisión completa del repo (ZIP): código fuente, modelos dbt, tests, CI, README. Estado confirmado con Fase 1 funcionando de punta a punta.
+  - Decisión de Fase 2: TCO retornable vs desechable. Descartadas Fase 3 (Forecast vs MRP) y Fase 4 (ciclo lavado/reparación) — razonamiento en ADR-009.
+  - ADR-009 redactado y pegado en PROYECTO.md.
+  - Código diseñado: TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs de documentación, tres  tests nuevos en test_marts.py.
+- **Decisiones tomadas:** ADR-009.
+- **Bloqueos:** ninguno.
+- **Próximo paso:** aplicar cambios en repo local, correr dbt + pytest, confirmar CI verde. Luego notebook 03_tco_analysis.ipynb.
 
 ### 2026-09-22 · Sesión 24
 
@@ -642,6 +686,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ciclo 601→602** — Tiempo entre salida a cliente (601) y retorno del empaque (602).
 - **Merma** — Empaque que sale y no vuelve. Se convierte en pérdida contable.
 - **Flota fantasma** — Empaques registrados como activos pero perdidos en la práctica.
+- **TCO** — Total Cost of Ownership. Costo total de operar un contenedor en su vida útil: compra amortizada, mantenimiento y merma.
+- **Payback** — Ciclos que tarda un retornable en recuperar su costo de compra contra el desechable equivalente.
+- **Desechable equivalente** — Empaque de un solo uso que haría el mismo trabajo que un retornable en un embarque.
+- **Dunnage** — Material interior que protege y separa las piezas dentro del empaque (separadores, espuma, charolas).
+- **Bulk bin** — Caja corrugada grande de triple pared para carga a granel sobre tarima.
 
 ### Términos técnicos
 
@@ -654,6 +703,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **uv** — gestor de entornos y paquetes de Python, escrito en Rust, muy rápido.
 - **Ruff** — linter y formatter de Python, escrito en Rust, muy rápido.
 - **CI/CD** — Continuous Integration / Continuous Delivery.
+- **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
+- **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
+- **HUGEINT** — entero de 128 bits de DuckDB. Polars no lo maneja bien; castear a BIGINT.
 
 ---
 
