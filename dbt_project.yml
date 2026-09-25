@@ -3,7 +3,7 @@ version: "1.0.0"
 profile: rpi
 
 model-paths: ["models"]
-test-paths: ["tests"]
+test-paths: ["tests_dbt"]
 seed-paths: ["seeds"]
 
 models:

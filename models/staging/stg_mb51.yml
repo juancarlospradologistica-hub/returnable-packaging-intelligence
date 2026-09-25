@@ -3,8 +3,8 @@ version: 2
 models:
   - name: stg_mb51
     description: >
-      Vista limpia sobre raw_mb51. Un registro = un movimiento de material MB51.
-      Solo Bwart relevantes para el análisis RPL.
+      Vista tipada sobre raw_mb51. Un registro = una posición de documento
+      material. Cantidad conserva el signo SAP.
 
     columns:
       - name: doc_material
@@ -19,11 +19,17 @@ models:
         tests:
           - not_null
 
-      - name: mov_type
+      - name: tipo_material
+        description: Derivado del prefijo de Matnr (KLT, RCK, CTN).
         tests:
           - not_null
           - accepted_values:
-                values: ['501','502','601','602','311','411','101','102','261','309']
+              arguments:
+                values: ['KLT', 'RACK', 'CARTON']
+
+      - name: mov_type
+        tests:
+          - not_null
 
       - name: fecha_contab
         tests:
@@ -32,3 +38,10 @@ models:
       - name: cantidad
         tests:
           - not_null
+
+      - name: cliente
+        description: Cuenta de stock especial V. Obligatorio en 601, 621, 622 y 702.
+        tests:
+          - not_null:
+              config:
+                where: "mov_type in ('601', '621', '622', '702')"
