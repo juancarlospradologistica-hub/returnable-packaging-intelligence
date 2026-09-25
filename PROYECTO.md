@@ -283,6 +283,40 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - El diagrama de estados del README cambia a 621/622.
   - ADR-001 sigue vigente; el volumen se mantiene en el mismo orden.
 
+  ### ADR-012 · Merma por ventana conciliada, exceso de saldo por supervivencia y FIFO solo para ciclo
+
+- **Fecha:** 2026-09-25
+- **Estado:** Accepted. Reemplaza la definición de vencido y el cálculo de merma del punto 2 de ADR-011.
+- **Contexto:** Antes de escribir los modelos de Semana 13 prototipé el FIFO en DuckDB sobre una corrida reducida (2 plantas, 18 meses, seed 42).
+  - El FIFO conserva cantidad: salidas 621 = suma de tramos. El ciclo FIFO de 622 da 25.6 días.
+  - Los 702 cierran cantidad con edad FIFO promedio de ~31 días. La cuenta es fungible y con flujo continuo: los 622 posteriores a una pérdida consumen primero el saldo viejo y el faltante se corre hacia salidas recientes.
+  - Consecuencia: el saldo vencido >120 días al corte da 0, y la tasa de merma por cohorte FIFO subestima (0.30% contra 0.45% real).
+  - Con umbral 5% / 45 días, mart_rutas_rotas queda vacío: la tasa alta por cuenta es 1.75% y todas las rutas ciclan en ~26 días.
+  - Una cuenta con saldo −1: un 621 censurado por Cpudt con su 622 vivo.
+  - Saldo esperado por Little con ventana de 90 días: con ciclo por cuenta, una ruta sana llega a 9.1% de exceso y una problema a 3.1%. Con ciclo constante por tipo, separa peor que supervivencia en 5 de 8 meses.
+- **Alternativas evaluadas:**
+  - Vencido FIFO >120 días: no detecta nada en cuentas con flujo continuo, que son casi todas.
+  - Emparejar salida y cierre por documento: descartado en ADR-011, los contenedores son fungibles.
+  - Saldo esperado por Little (salidas de 90 días × ciclo): supone flujo estable; la variación de salidas cerca del cierre de mes mete ruido del mismo tamaño que la señal.
+  - Saldo esperado por curva de supervivencia: cada salida aporta su cantidad por la probabilidad de seguir en cliente a su edad. Es Little día por día, no supone flujo estable y es aditivo entre cuenta, ruta y planta.
+- **Decisión:**
+  1. FIFO solo para ciclo (tramos cerrados por 622, ponderados por cantidad).
+  2. Tasa de merma = Σ702 / Σ621 con Budat ≤ última conciliación − 120 días.
+  3. Saldo esperado por cuenta a fin de mes = Σ salidas del día × S(edad). S(edad) es la fracción de contenedores recogidos con 622 cuyo ciclo supera esa edad, por tipo de material. Exceso de saldo = saldo a fin de mes − saldo esperado.
+  4. Ruta rota: tasa de merma > 1.0% por viaje o ciclo promedio > 45 días.
+  5. mart_perdidas_usd se agrupa por mes de reconocimiento del 702.
+  6. El generador no emite 622 ni 702 si su 621 se registra después del corte.
+  7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres (un ciclo de conciliación) entre el esperado de esos cierres, por ruta planta × cliente. Un cierre aislado no separa rutas porque toda la flota sube y baja entre conciliaciones. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
+- **Supuestos:**
+  - Umbral de ruta rota: 1.0% por viaje (rango 0.8–1.5%). Es el tope del rango de industria de ADR-011; la cuenta sana del sintético queda en ~0.19% y la problema en ~1.75%.
+  - S(edad) se estima con los 18 meses completos. Un fin de mes antiguo ve recogidas posteriores; aceptable para análisis histórico. En monitoreo en línea se estimaría solo con recogidas anteriores a cada corte.
+  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas separa rutas rotas del resto en los 12 meses válidos; con un solo cierre se traslapan en 5 de 12.
+- **Consecuencias:**
+  - El saldo vencido >120 días deja de ser KPI; el exceso de saldo toma su lugar como alerta de flota fantasma.
+  - El exceso es alerta temprana, no clasificador. El criterio de ruta rota sigue siendo la tasa conciliada.
+  - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
+  - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
