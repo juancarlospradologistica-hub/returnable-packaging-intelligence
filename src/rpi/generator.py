@@ -1,13 +1,17 @@
 # src/rpi/generator.py
 """
-Generador sintético de movimientos MB51 para el proyecto RPI.
-Produce un dataset Parquet de 18 meses con reglas de negocio realistas
-según los parámetros definidos en PROYECTO.md §4.
+Generador sintético de movimientos MB51 (ADR-011).
+
+Ciclo del retornable con cliente como stock especial V:
+621 salida, 622 recogida, 702 faltante reconocido en conciliación.
+El cartón es desechable: sale con 601 y no regresa.
+Ningún movimiento se emite después de cfg.reference_date.
 """
 
 from __future__ import annotations
 
 import math
+import os
 from datetime import date, timedelta
 
 import numpy as np
@@ -15,145 +19,23 @@ import polars as pl
 
 from rpi.config import GeneratorConfig, MaterialType
 
-# ---------------------------------------------------------------------------
-# Utilidades de nomenclatura
-# ---------------------------------------------------------------------------
-
 _MATERIAL_PREFIX: dict[MaterialType, str] = {
     MaterialType.KLT: "KLT",
     MaterialType.RACK: "RCK",
     MaterialType.CARTON: "CTN",
 }
 
+_MAKTX_LABEL: dict[MaterialType, str] = {
+    MaterialType.KLT: "KLT Plastico",
+    MaterialType.RACK: "Rack Metalico",
+    MaterialType.CARTON: "Caja Carton",
+}
 
-# ---------------------------------------------------------------------------
-# Construcción del pool de materiales
-# ---------------------------------------------------------------------------
-
-
-def build_matnr_pool(
-    cfg: GeneratorConfig,
-    rng: np.random.Generator,
-) -> dict[str, dict]:
-    """Genera el universo global de Matnr y sus atributos estáticos."""
-    pool_size = cfg.global_matnr_pool
-    mix = cfg.material_mix
-
-    n_klt = round(pool_size * mix.klt)
-    n_rack = round(pool_size * mix.rack)
-    n_carton = pool_size - n_klt - n_rack
-
-    records: dict[str, dict] = {}
-
-    cost_map = {
-        MaterialType.KLT: cfg.cost.klt,
-        MaterialType.RACK: cfg.cost.rack,
-        MaterialType.CARTON: cfg.cost.carton,
-    }
-
-    for mat_type, count in [
-        (MaterialType.KLT, n_klt),
-        (MaterialType.RACK, n_rack),
-        (MaterialType.CARTON, n_carton),
-    ]:
-        prefix = _MATERIAL_PREFIX[mat_type]
-        for i in range(1, count + 1):
-            matnr = f"{prefix}-{i:05d}"
-            records[matnr] = {
-                "matnr": matnr,
-                "maktx": _maktx(mat_type, i),
-                "material_type": mat_type,
-                "costo_usd": cost_map[mat_type],
-            }
-
-    return records
-
-
-def _maktx(mat_type: MaterialType, idx: int) -> str:
-    """Descripción breve del material. Legible sin cruzar MAKT."""
-    labels = {
-        MaterialType.KLT: "KLT Plastico",
-        MaterialType.RACK: "Rack Metalico",
-        MaterialType.CARTON: "Caja Carton",
-    }
-    return f"{labels[mat_type]} {idx:05d}"
-
-
-# ---------------------------------------------------------------------------
-# Asignación de Matnr por planta con solape controlado
-# ---------------------------------------------------------------------------
-
-
-def assign_matnr_to_plants(
-    cfg: GeneratorConfig,
-    pool: dict[str, dict],
-    rng: np.random.Generator,
-) -> dict[str, list[str]]:
-    """
-    Asigna un subconjunto de Matnr a cada planta con solape entre plantas.
-
-    Estrategia:
-    - 40% del pool son Matnr globales: todas las plantas los tienen.
-    - 60% restante se reparte aleatoriamente hasta completar matnr_count.
-    """
-    all_matnr = list(pool.keys())
-    total = len(all_matnr)
-
-    n_global = round(total * 0.40)
-    global_matnr = list(rng.choice(all_matnr, size=n_global, replace=False))
-    local_pool = [m for m in all_matnr if m not in set(global_matnr)]
-
-    assignment: dict[str, list[str]] = {}
-
-    for plant in cfg.plants:
-        n_needed = plant.matnr_count - len(global_matnr)
-        n_needed = max(n_needed, 0)
-
-        if n_needed > 0 and len(local_pool) > 0:
-            n_sample = min(n_needed, len(local_pool))
-            local_sample = list(
-                rng.choice(local_pool, size=n_sample, replace=False)
-            )
-        else:
-            local_sample = []
-
-        assignment[plant.werks] = global_matnr + local_sample
-
-    return assignment
-
-
-# ---------------------------------------------------------------------------
-# Generación del horizonte de fechas
-# ---------------------------------------------------------------------------
-
-
-def build_date_range(
-    cfg: GeneratorConfig,
-    reference_date: date | None = None,
-) -> list[date]:
-    """Genera la lista de fechas hábiles del horizonte de 18 meses."""
-    end = reference_date or date.today()
-    start = end - timedelta(days=cfg.horizon_months * 30)
-
-    dates = []
-    current = start
-    while current <= end:
-        if current.weekday() < 5:
-            dates.append(current)
-        current += timedelta(days=1)
-
-    return dates
-
-
-# ---------------------------------------------------------------------------
-# Pesos de Bwart (mix realista según PROYECTO.md §4)
-# ---------------------------------------------------------------------------
-
-_BWART_WEIGHTS: dict[str, float] = {
+# "SHIP" es la salida a cliente: 621 para retornables, 601 para cartón.
+_KIND_WEIGHTS: dict[str, float] = {
+    "SHIP": 0.22,
     "501": 0.18,
     "502": 0.10,
-    "601": 0.22,
-    "602": 0.20,
     "311": 0.12,
     "411": 0.08,
     "101": 0.04,
@@ -161,246 +43,422 @@ _BWART_WEIGHTS: dict[str, float] = {
     "261": 0.03,
     "309": 0.01,
 }
+_KINDS = list(_KIND_WEIGHTS)
+_KIND_PROBS = np.array([_KIND_WEIGHTS[k] for k in _KINDS]) / sum(_KIND_WEIGHTS.values())
 
-_BWART_LIST = list(_BWART_WEIGHTS.keys())
-_BWART_PROBS = [_BWART_WEIGHTS[b] for b in _BWART_LIST]
+# Traslados: se emiten en pareja (sale de un almacén, entra a otro) con el mismo documento.
+_TRANSFERS = {"311", "411", "309"}
+# Signo SAP: salidas negativas, entradas positivas.
+_NEGATIVE = {"502", "102", "261", "601", "621", "702"}
+
+_OVERDUE_DAYS = 120
 
 
 # ---------------------------------------------------------------------------
-# Emisión de movimientos por planta
+# Maestros: materiales, asignación a plantas, clientes
 # ---------------------------------------------------------------------------
+
+
+def build_matnr_pool(cfg: GeneratorConfig) -> pl.DataFrame:
+    """Universo global de Matnr con tipo, descripción y costo."""
+    mix = cfg.material_mix
+    n_klt = round(cfg.global_matnr_pool * mix.klt)
+    n_rack = round(cfg.global_matnr_pool * mix.rack)
+    n_carton = cfg.global_matnr_pool - n_klt - n_rack
+    cost = {
+        MaterialType.KLT: cfg.cost.klt,
+        MaterialType.RACK: cfg.cost.rack,
+        MaterialType.CARTON: cfg.cost.carton,
+    }
+
+    rows = []
+    for mat_type, count in [
+        (MaterialType.KLT, n_klt),
+        (MaterialType.RACK, n_rack),
+        (MaterialType.CARTON, n_carton),
+    ]:
+        for i in range(1, count + 1):
+            rows.append(
+                {
+                    "Matnr": f"{_MATERIAL_PREFIX[mat_type]}-{i:05d}",
+                    "Maktx": f"{_MAKTX_LABEL[mat_type]} {i:05d}",
+                    "tipo": mat_type.value,
+                    "Costo_usd": cost[mat_type],
+                }
+            )
+    return pl.DataFrame(rows)
+
+
+def assign_matnr_to_plants(
+    cfg: GeneratorConfig,
+    pool: pl.DataFrame,
+    rng: np.random.Generator,
+) -> dict[str, list[str]]:
+    """
+    Globales en todas las plantas (ADR-007) y locales repartidos sin repetir
+    entre plantas (ADR-011).
+    """
+    all_matnr = pool["Matnr"].to_list()
+    n_global = round(len(all_matnr) * cfg.global_matnr_share)
+    shuffled = list(rng.permutation(all_matnr))
+    global_matnr = shuffled[:n_global]
+    local_chunks = np.array_split(np.array(shuffled[n_global:]), len(cfg.plants))
+
+    return {
+        plant.werks: global_matnr + list(chunk)
+        for plant, chunk in zip(cfg.plants, local_chunks, strict=True)
+    }
+
+
+def assign_customers(
+    cfg: GeneratorConfig,
+    rng: np.random.Generator,
+) -> tuple[dict[str, list[str]], dict[tuple[str, str], bool]]:
+    """
+    Clientes por planta y marca de ruta problema (planta × cliente).
+    La merma se concentra por ruta: ahí se ve en mart_rutas_rotas.
+    """
+    c = cfg.customers
+    universe = [f"CUST-{i:04d}" for i in range(1, c.global_count + 1)]
+
+    by_plant: dict[str, list[str]] = {}
+    problem: dict[tuple[str, str], bool] = {}
+    for plant in cfg.plants:
+        n = int(rng.integers(c.per_plant_min, c.per_plant_max + 1))
+        kunnrs = [str(k) for k in rng.choice(universe, size=n, replace=False)]
+        by_plant[plant.werks] = kunnrs
+        flags = rng.random(n) < cfg.loss.problem_account_share
+        for k, f in zip(kunnrs, flags, strict=True):
+            problem[(plant.werks, k)] = bool(f)
+    return by_plant, problem
+
+
+def build_date_range(cfg: GeneratorConfig) -> list[date]:
+    """Días hábiles del horizonte que termina en reference_date."""
+    end = cfg.reference_date
+    start = end - timedelta(days=cfg.horizon_months * 30)
+    return [
+        start + timedelta(days=i)
+        for i in range((end - start).days + 1)
+        if (start + timedelta(days=i)).weekday() < 5
+    ]
+
+
+def reconciliation_dates(cfg: GeneratorConfig) -> list[date]:
+    """Fines de mes cada reconciliation_months, alineados a reference_date."""
+    out: list[date] = []
+    y, m = cfg.reference_date.year, cfg.reference_date.month
+    start = cfg.reference_date - timedelta(days=cfg.horizon_months * 30)
+    while True:
+        first_next = date(y + (m == 12), m % 12 + 1, 1)
+        eom = first_next - timedelta(days=1)
+        if eom < start:
+            break
+        out.append(eom)
+        m -= cfg.reconciliation_months
+        while m <= 0:
+            m += 12
+            y -= 1
+    return sorted(out)
+
+
+# ---------------------------------------------------------------------------
+# Emisión por planta
+# ---------------------------------------------------------------------------
+
+
+def _sample_menge(
+    cfg: GeneratorConfig,
+    tipos: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Geométrica truncada: valores bajos frecuentes, cola corta hasta max."""
+    out = np.empty(len(tipos), dtype=np.int64)
+    for mat_type in MaterialType:
+        mask = tipos == mat_type.value
+        r = cfg.menge.for_type(mat_type)
+        span = r.max - r.min
+        p = 3 / (span + 3)
+        draws = r.min + rng.geometric(p, size=int(mask.sum())) - 1
+        out[mask] = np.minimum(draws, r.max)
+    return out
+
+
+def _lognormal_days(cfg: GeneratorConfig, rng: np.random.Generator, n: int) -> np.ndarray:
+    mu = math.log(cfg.cycle.mean_days) - 0.5 * cfg.cycle.sigma**2
+    raw = rng.lognormal(mean=mu, sigma=cfg.cycle.sigma, size=n)
+    return np.round(np.clip(raw, 1, cfg.cycle.cap_days)).astype(np.int64)
+
+
+def _next_business_day(d: np.ndarray) -> np.ndarray:
+    return np.busday_offset(d, 0, roll="forward")
 
 
 def emit_plant_movements(
-    plant_werks: str,
+    werks: str,
     plant_matnrs: list[str],
-    pool: dict[str, dict],
+    kunnrs: list[str],
+    problem: dict[tuple[str, str], bool],
+    pool: pl.DataFrame,
     dates: list[date],
+    recon: list[date],
     cfg: GeneratorConfig,
     rng: np.random.Generator,
     n_movements: int,
-) -> list[dict]:
-    """Genera n_movements registros MB51 para una planta."""
-    rows = []
-
-    chosen_dates = rng.choice(dates, size=n_movements)
-    chosen_matnrs = rng.choice(plant_matnrs, size=n_movements)
-    chosen_bwarts = rng.choice(_BWART_LIST, size=n_movements, p=_BWART_PROBS)
-    quantities = rng.integers(1, 50, size=n_movements)
-
-    lag_probs = [
-        cfg.cpudt_lag.same_day,
-        cfg.cpudt_lag.one_to_two_days,
-        cfg.cpudt_lag.over_48h,
-    ]
-    lag_category = rng.choice([0, 1, 2], size=n_movements, p=lag_probs)
-
-    for i in range(n_movements):
-        budat = chosen_dates[i]
-        matnr = str(chosen_matnrs[i])
-        bwart = str(chosen_bwarts[i])
-        menge = int(quantities[i])
-        mat_info = pool[matnr]
-
-        lag_cat = int(lag_category[i])
-        if lag_cat == 0:
-            cpudt = budat
-        elif lag_cat == 1:
-            cpudt = budat + timedelta(days=int(rng.integers(1, 3)))
-        else:
-            cpudt = budat + timedelta(days=int(rng.integers(3, 10)))
-
-        mblnr = f"50{rng.integers(10_000_000, 99_999_999)}"
-
-        row = {
-            "Werks": plant_werks,
-            "Lgort": _pick_lgort(bwart, rng),
-            "Matnr": matnr,
-            "Maktx": mat_info["maktx"],
-            "Bwart": bwart,
-            "Mjahr": budat.year,
-            "Budat": budat,
-            "Cpudt": cpudt,
-            "Cputm": f"{rng.integers(6,22):02d}:{rng.integers(0,60):02d}:00",
-            "Menge": menge if bwart not in ("502", "102", "411") else -menge,
-            "Meins": "PC",
-            "Mblnr": mblnr,
-            "Zeile": f"{rng.integers(1, 10):04d}",
-            "Lifnr": _pick_lifnr(bwart, rng),
-            "Kunnr": _pick_kunnr(bwart, rng),
-            "Xblnr": f"REF-{rng.integers(100_000, 999_999)}",
-            "Costo_usd": mat_info["costo_usd"],
-        }
-        rows.append(row)
-
-    return rows
-
-
-def _pick_lgort(bwart: str, rng: np.random.Generator) -> str:
-    """Almacén según tipo de movimiento."""
-    if bwart in ("601", "602"):
-        return rng.choice(["EXPE", "RECP"])
-    if bwart in ("311", "411"):
-        return rng.choice(["TR01", "TR02"])
-    return rng.choice(["RM01", "RM02", "QA01"])
-
-
-def _pick_lifnr(bwart: str, rng: np.random.Generator) -> str | None:
-    """Proveedor solo en movimientos de recepción con proveedor."""
-    if bwart in ("101", "102", "501", "502"):
-        return f"PROV-{rng.integers(1000, 9999)}"
-    return None
-
-
-def _pick_kunnr(bwart: str, rng: np.random.Generator) -> str | None:
-    """Cliente solo en movimientos de salida/retorno a cliente."""
-    if bwart in ("601", "602"):
-        return f"CUST-{rng.integers(1000, 9999)}"
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Ciclo 601 → 602 con merma
-# ---------------------------------------------------------------------------
-
-
-def _lognormal_cycle_days(
-    cfg: GeneratorConfig,
-    rng: np.random.Generator,
-    n: int,
-) -> np.ndarray:
-    """
-    Genera n duraciones de ciclo en días siguiendo distribución log-normal.
-    Media ~25 días, cola hasta ~90 días, techo en cap_days.
-    """
-    mu = math.log(cfg.cycle.mean_days) - 0.5 * cfg.cycle.sigma ** 2
-    raw = rng.lognormal(mean=mu, sigma=cfg.cycle.sigma, size=n)
-    clipped = np.clip(raw, 1, cfg.cycle.cap_days)
-    return np.round(clipped).astype(int)
-
-
-def apply_return_cycle(
-    df: pl.DataFrame,
-    cfg: GeneratorConfig,
-    rng: np.random.Generator,
 ) -> pl.DataFrame:
-    """
-    Post-proceso que reemplaza los 602 generados aleatoriamente
-    por retornos reales vinculados a cada 601.
+    """Movimientos MB51 de una planta: ruido operativo + ciclo con cliente."""
+    tipo_by_matnr = dict(zip(pool["Matnr"], pool["tipo"], strict=True))
+    matnr_arr = np.array(plant_matnrs)
+    tipo_arr = np.array([tipo_by_matnr[m] for m in plant_matnrs])
 
-    - 98% de los 601 generan un 602 con ciclo log-normal (media 25 días).
-    - 2% no generan 602 (merma / flota fantasma).
-    """
-    df_601 = df.filter(pl.col("Bwart") == "601")
-    df_rest = df.filter(pl.col("Bwart") != "601")
-    df_rest = df_rest.filter(pl.col("Bwart") != "602")
+    # Rack dedicado a un cliente de la planta; KLT y cartón van a cualquiera.
+    dedicated = {
+        m: str(rng.choice(kunnrs))
+        for m, t in zip(plant_matnrs, tipo_arr, strict=True)
+        if t == MaterialType.RACK.value
+    }
 
-    n_601 = len(df_601)
-    loss_rate = cfg.loss_rate
+    idx = rng.integers(0, len(matnr_arr), n_movements)
+    matnr = matnr_arr[idx]
+    tipo = tipo_arr[idx]
+    budat = np.array(dates, dtype="datetime64[D]")[rng.integers(0, len(dates), n_movements)]
+    kind = rng.choice(_KINDS, size=n_movements, p=_KIND_PROBS)
+    menge = _sample_menge(cfg, tipo, rng)
+    doc_id = np.arange(n_movements, dtype=np.int64)
 
-    returns_mask = rng.random(n_601) >= loss_rate
-    n_returns = int(returns_mask.sum())
+    bwart = kind.astype(object)
+    ship = kind == "SHIP"
+    bwart[ship & (tipo == MaterialType.CARTON.value)] = "601"
+    bwart[ship & (tipo != MaterialType.CARTON.value)] = "621"
+    bwart = bwart.astype(str)
 
-    cycle_days = _lognormal_cycle_days(cfg, rng, n_returns)
-
-    df_601_returns = df_601.filter(pl.Series("mask", returns_mask))
-
-    budats_601 = df_601_returns["Budat"].to_list()
-    new_budats = [
-        d + timedelta(days=int(c))
-        for d, c in zip(budats_601, cycle_days, strict=False)
+    random_kunnr = rng.choice(kunnrs, size=n_movements)
+    rack_ship = ship & (tipo == MaterialType.RACK.value)
+    kunnr = [
+        dedicated[m] if r else (k if s else None)
+        for m, k, s, r in zip(matnr, random_kunnr, ship, rack_ship, strict=True)
     ]
 
-    df_602 = df_601_returns.with_columns([
-        pl.lit("602").alias("Bwart"),
-        pl.Series("Budat", new_budats).cast(pl.Date),
-        pl.Series("Cpudt", new_budats).cast(pl.Date),
-        pl.col("Menge") * -1,
-    ])
-
-    loss_mask = ~returns_mask
-    df_601_loss = df_601.filter(pl.Series("mask", loss_mask))
-    df_601_loss = df_601_loss.with_columns(
-        pl.lit("MERMA-NO-RETORNO").alias("Xblnr")
+    base = pl.DataFrame(
+        {
+            "doc_id": doc_id,
+            "Zeile": np.ones(n_movements, dtype=np.int64),
+            "Matnr": matnr,
+            "tipo": tipo,
+            "Bwart": bwart,
+            "Budat": budat,
+            "Menge": menge,
+            "Kunnr": pl.Series(kunnr, dtype=pl.String),
+        }
     )
-    df_601_ok = df_601.filter(pl.Series("mask", returns_mask))
 
-    df_final = pl.concat([df_rest, df_601_ok, df_601_loss, df_602])
-    df_final = df_final.sort(["Werks", "Budat"])
+    # Traslados en pareja: posición 1 sale, posición 2 entra.
+    transfers = base.filter(pl.col("Bwart").is_in(list(_TRANSFERS)))
+    out_leg = transfers.with_columns(-pl.col("Menge"))
+    in_leg = transfers.with_columns(pl.lit(2, dtype=pl.Int64).alias("Zeile"))
+    others = base.filter(~pl.col("Bwart").is_in(list(_TRANSFERS)))
 
-    return df_final
+    # Ciclo 621 → 622 con merma por contenedor según la ruta.
+    s621 = others.filter(pl.col("Bwart") == "621")
+    is_problem = np.array(
+        [problem[(werks, k)] for k in s621["Kunnr"].to_list()], dtype=bool
+    )
+    p_loss = np.where(is_problem, cfg.loss.rate_high, cfg.loss.rate_low)
+    m = s621["Menge"].to_numpy()
+    lost = rng.binomial(m, p_loss)
+    returned = m - lost
+    ret_date = _next_business_day(
+        s621["Budat"].to_numpy().astype("datetime64[D]") + _lognormal_days(cfg, rng, len(m))
+    )
+
+    cutoff = np.datetime64(cfg.reference_date)
+    returns = (
+        s621.select("Matnr", "tipo", "Kunnr")
+        .with_columns(
+            pl.Series("Budat", ret_date),
+            pl.Series("Menge", returned),
+        )
+        .filter((pl.col("Menge") > 0) & (pl.col("Budat") <= cutoff))
+        .group_by("Matnr", "tipo", "Kunnr", "Budat", maintain_order=True)
+        .agg(pl.col("Menge").sum())
+        .with_columns(pl.lit("622").alias("Bwart"))
+    )
+
+    # Faltante: se reconoce en la primera conciliación con al menos 120 días de antigüedad.
+    recon_arr = np.array(recon, dtype="datetime64[D]")
+    due = s621["Budat"].to_numpy().astype("datetime64[D]") + np.timedelta64(_OVERDUE_DAYS, "D")
+    pos = np.searchsorted(recon_arr, due, side="left")
+    has_recon = pos < len(recon_arr)
+    recog = np.where(has_recon, recon_arr[np.minimum(pos, len(recon_arr) - 1)], cutoff)
+    shortages = (
+        s621.select("Matnr", "tipo", "Kunnr")
+        .with_columns(
+            pl.Series("Budat", recog),
+            pl.Series("Menge", lost),
+            pl.Series("has_recon", has_recon),
+        )
+        .filter((pl.col("Menge") > 0) & pl.col("has_recon"))
+        .group_by("Matnr", "tipo", "Kunnr", "Budat", maintain_order=True)
+        .agg(pl.col("Menge").sum())
+        .with_columns(pl.lit("702").alias("Bwart"))
+    )
+
+    next_id = n_movements
+    cycle_rows = pl.concat([returns, shortages], how="vertical_relaxed")
+    cycle_rows = cycle_rows.with_columns(
+        pl.int_range(next_id, next_id + cycle_rows.height, dtype=pl.Int64).alias("doc_id"),
+        pl.lit(1, dtype=pl.Int64).alias("Zeile"),
+    )
+
+    cols = ["doc_id", "Zeile", "Matnr", "tipo", "Bwart", "Budat", "Menge", "Kunnr"]
+    df = pl.concat(
+        [others.select(cols), out_leg.select(cols), in_leg.select(cols), cycle_rows.select(cols)],
+        how="vertical_relaxed",
+    )
+
+    n = df.height
+    lag_cat = rng.choice([0, 1, 2], size=n, p=[
+        cfg.cpudt_lag.same_day, cfg.cpudt_lag.one_to_two_days, cfg.cpudt_lag.over_48h,
+    ])
+    lag_days = np.where(
+        lag_cat == 0, 0, np.where(lag_cat == 1, rng.integers(1, 3, n), rng.integers(3, 10, n))
+    )
+    hours = rng.integers(6, 22, n)
+    minutes = rng.integers(0, 60, n)
+    ref = rng.integers(10_000_000, 99_999_999, n)
+
+    df = df.with_columns(
+        pl.lit(werks).alias("Werks"),
+        (pl.col("Budat") + pl.duration(days=pl.Series(lag_days))).alias("Cpudt"),
+        pl.format(
+            "{}:{}:00",
+            pl.Series(hours).cast(pl.String).str.zfill(2),
+            pl.Series(minutes).cast(pl.String).str.zfill(2),
+        ).alias("Cputm"),
+        pl.Series("_ref", ref),
+    ).with_columns(
+        # Un documento se registra una sola vez: ambas posiciones comparten hora y fecha.
+        pl.col("Cpudt").first().over("doc_id"),
+        pl.col("Cputm").first().over("doc_id"),
+        pl.col("_ref").first().over("doc_id"),
+    ).with_columns(
+        pl.when(pl.col("Bwart").is_in(["601", "621"])).then(pl.lit("EXPE"))
+        .when(pl.col("Bwart").is_in(["622", "702"])).then(pl.lit("RECP"))
+        .when(pl.col("Bwart").is_in(list(_TRANSFERS)) & (pl.col("Zeile") == 1))
+        .then(pl.lit("TR01"))
+        .when(pl.col("Bwart").is_in(list(_TRANSFERS))).then(pl.lit("TR02"))
+        .otherwise(pl.lit("RM01"))
+        .alias("Lgort"),
+        pl.when(pl.col("Bwart").is_in(["101", "102", "501", "502"]))
+        .then(pl.format("PROV-{}", (pl.col("_ref") % 9000 + 1000).cast(pl.String)))
+        .alias("Lifnr"),
+        pl.when(pl.col("Bwart").is_in(["601", "621"]))
+        .then(pl.format("80{}", pl.col("_ref").cast(pl.String)))
+        .when(pl.col("Bwart") == "622")
+        .then(pl.format("84{}", pl.col("_ref").cast(pl.String)))
+        .when(pl.col("Bwart") == "702")
+        .then(pl.format("INV-{}", pl.col("Budat").dt.strftime("%Y%m")))
+        .otherwise(pl.format("REF-{}", (pl.col("_ref") % 900_000 + 100_000).cast(pl.String)))
+        .alias("Xblnr"),
+        pl.when(pl.col("Bwart").is_in(list(_NEGATIVE)))
+        .then(-pl.col("Menge").abs())
+        .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
+        .then(pl.col("Menge"))
+        .otherwise(pl.col("Menge").abs())
+        .alias("Menge"),
+    )
+    return df.drop("_ref")
 
 
 # ---------------------------------------------------------------------------
-# Orquestador principal
+# Orquestador
 # ---------------------------------------------------------------------------
+
+
+def _assign_document_numbers(df: pl.DataFrame) -> pl.DataFrame:
+    """Mblnr secuencial por año contable: 49 + 8 dígitos. Las parejas comparten documento."""
+    return (
+        df.sort(["Mjahr", "Budat", "Werks", "doc_id", "Zeile"])
+        .with_columns(
+            (pl.col("Werks") + "|" + pl.col("doc_id").cast(pl.String)).alias("_doc")
+        )
+        .with_columns(
+            (pl.col("_doc") != pl.col("_doc").shift(1))
+            .fill_null(True)
+            .cum_sum()
+            .over("Mjahr")
+            .alias("_seq")
+        )
+        .with_columns(
+            pl.format("49{}", pl.col("_seq").cast(pl.String).str.zfill(8)).alias("Mblnr"),
+            pl.col("Zeile").cast(pl.String).str.zfill(4),
+        )
+        .drop("_doc", "_seq", "doc_id")
+    )
+
+
+_OUTPUT_COLUMNS = [
+    "Werks", "Lgort", "Matnr", "Maktx", "Bwart", "Mjahr", "Budat", "Cpudt", "Cputm",
+    "Menge", "Meins", "Mblnr", "Zeile", "Lifnr", "Kunnr", "Xblnr", "Costo_usd",
+]
 
 
 def generate(
     cfg: GeneratorConfig | None = None,
     output_dir: str = "data/raw",
-    reference_date: date | None = None,
 ) -> pl.DataFrame:
-    """
-    Genera el dataset MB51 completo y lo escribe en Parquet.
-    Retorna el DataFrame completo para validación inmediata.
-    """
-    import os
-
-    if cfg is None:
-        cfg = GeneratorConfig()
-
-    if cfg.random_seed is not None:
-        rng = np.random.default_rng(cfg.random_seed)
-    else:
-        rng = np.random.default_rng()
-
+    """Genera el dataset MB51 completo y lo escribe en Parquet."""
+    cfg = cfg or GeneratorConfig()
+    rng = np.random.default_rng(cfg.random_seed)
     os.makedirs(output_dir, exist_ok=True)
 
-    pool = build_matnr_pool(cfg, rng)
+    pool = build_matnr_pool(cfg)
     assignment = assign_matnr_to_plants(cfg, pool, rng)
-    dates = build_date_range(cfg, reference_date)
+    customers, problem = assign_customers(cfg, rng)
+    dates = build_date_range(cfg)
+    recon = reconciliation_dates(cfg)
 
     plant_dfs: list[pl.DataFrame] = []
-
     for plant in cfg.plants:
-        monthly = int(
-            rng.integers(
-                plant.monthly_movements_min,
-                plant.monthly_movements_max,
+        monthly = int(rng.integers(plant.monthly_movements_min, plant.monthly_movements_max))
+        total = monthly * cfg.horizon_months
+        print(f"  {plant.werks}: {total:,} movimientos base...")
+        plant_dfs.append(
+            emit_plant_movements(
+                werks=plant.werks,
+                plant_matnrs=assignment[plant.werks],
+                kunnrs=customers[plant.werks],
+                problem=problem,
+                pool=pool,
+                dates=dates,
+                recon=recon,
+                cfg=cfg,
+                rng=rng,
+                n_movements=total,
             )
         )
-        total_movements = monthly * cfg.horizon_months
 
-        print(f"  {plant.werks}: {total_movements:,} movimientos...")
-
-        rows = emit_plant_movements(
-            plant_werks=plant.werks,
-            plant_matnrs=assignment[plant.werks],
-            pool=pool,
-            dates=dates,
-            cfg=cfg,
-            rng=rng,
-            n_movements=total_movements,
-        )
-
-        df_plant = pl.DataFrame(rows).with_columns([
+    df = (
+        pl.concat(plant_dfs, how="vertical_relaxed")
+        .join(pool.select("Matnr", "Maktx", "Costo_usd"), on="Matnr", how="left")
+        .with_columns(
             pl.col("Budat").cast(pl.Date),
             pl.col("Cpudt").cast(pl.Date),
-            pl.col("Mjahr").cast(pl.Int64),
+            pl.col("Budat").dt.year().cast(pl.Int64).alias("Mjahr"),
             pl.col("Menge").cast(pl.Int64),
-            pl.col("Costo_usd").cast(pl.Float64),
-        ])
-        plant_dfs.append(df_plant)
-
-    print(f"Concatenando {len(plant_dfs)} plantas...")
-    df = pl.concat(plant_dfs)
-    print(f"Total filas: {df.shape[0]:,} — aplicando ciclo 601 → 602...")
-
-    df = apply_return_cycle(df, cfg, rng)
+            pl.lit("PC").alias("Meins"),
+        )
+    )
+    # Documentos contabilizados con Budat en rango pero registrados después del corte
+    # todavía no existen en el sistema a la fecha de extracción.
+    df = df.filter(pl.col("Cpudt") <= cfg.reference_date)
+    df = (
+        _assign_document_numbers(df)
+        .select(_OUTPUT_COLUMNS)
+        .sort(["Werks", "Budat", "Mblnr", "Zeile"])
+    )
 
     output_path = f"{output_dir}/mb51_synthetic_v1.parquet"
     df.write_parquet(output_path)
     print(f"Parquet escrito: {output_path} ({df.shape[0]:,} filas, {df.shape[1]} columnas)")
-
     return df
