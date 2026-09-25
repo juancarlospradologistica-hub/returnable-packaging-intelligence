@@ -265,9 +265,12 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   4. Signo SAP en Menge: salidas negativas, entradas positivas.
   5. reference_date fija en GeneratorConfig (2026-06-30). Nada se emite después del corte; Mjahr se calcula desde Budat.
   6. Mblnr secuencial por planta y año. Llave Werks + Mjahr + Mblnr + Zeile única, validada con test singular de dbt.
-  7. Matnr: 480 globales + 720 locales (~51 por planta), matnr_count = 531.
+  7. Matnr: 480 globales en todas las plantas + 720 locales repartidos sin repetir entre plantas (51 o 52 por planta). global_matnr_share = 0.40 pasa a GeneratorConfig; matnr_count se elimina de PlantConfig.
   8. TCO: costo por ciclo = costo / E[vida] + mantenimiento, con E[vida] = (1 − (1 − p)^V) / p. La merma no se resta aparte; la pérdida USD de Fase 1 se reporta como KPI propio.
   9. Faker fuera de dependencias. test-paths de dbt a tests_dbt. Sin continue-on-error en la ingesta de CI.
+  10. El cartón es desechable: sale con 601 y no genera 622 ni 702. Deja de participar en ciclo, merma y TCO como retornable.
+  11. Censura sobre Budat y Cpudt: un documento registrado después del corte no existe a la fecha de extracción.
+  12. Traslados 311/411/309 en dos posiciones del mismo documento (sale TR01, entra TR02) con el mismo registro. La suma por Matnr es cero. El volumen pasa de ~15.5M a ~22M filas; ADR-001 no cambia.
 - **Supuestos (práctica de industria, sin datos de empleador):**
   - Merma: 0.5% por viaje (rango 0.2–1.0%), ~6% anual de la flota. Tasa heterogénea por cuenta: ~20% de las cuentas concentran ~70% de la merma.
   - Clientes: 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido entre los clientes de la planta.
@@ -341,7 +344,7 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 9** . TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs dbt, tres tests nuevos en test_marts.py. CI verde.
 - [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
 - [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
-- [ ] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
+- [x] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
 - [ ] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 
 ---
@@ -349,6 +352,33 @@ Marcar con `[x]` al cerrar.
 ## 6. Worklog
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
+
+### 2026-09-25 · Sesión 29 — Semana 12
+
+- **Duración:** ~X h
+- **Hecho:**
+  - Medí generador y modelos con una corrida reducida antes de arrancar Fase 3: 480 Matnr en uso en lugar de 1,200, fan-out en el join 601→602, pérdidas contadas en líneas, 602 posteriores al corte, Mblnr con colisiones y ~9,000 clientes aleatorios por planta. Todo eso quedó en ADR-011.
+  - config.py: reference_date fija, CustomerConfig, LossConfig con merma por ruta en dos segmentos, MengeConfig por tipo, conciliación trimestral, global_matnr_share.
+  - generator.py reescrito y vectorizado:
+    - Ciclo 621/622/702; el cartón sale con 601.
+    - Censura sobre Budat y Cpudt.
+    - Mblnr secuencial por año.
+    - Traslados en dos posiciones.
+    - Rack dedicado a un cliente.
+    - Un Parquet por planta.
+  - Dataset completo: 21,218,569 filas, ~65 s, pico de ~1.1 GB.
+  - schema.py con Bwart 621/622/702 y signo SAP. CLI arma la config con model_validate.
+  - Tests del generador: reproducibilidad fila por fila, corte, llave única, traslados en cero, cartón fuera del ciclo, rack dedicado, merma en rango. 23/23 en pytest.
+  - Branch adr-011-correccion-base; main no se toca hasta alinear dbt.
+- **Decisiones tomadas:** ADR-011.
+- **Bloqueos:** OOM con 14 plantas al concatenar todo en memoria. Resuelto escribiendo un Parquet por planta.
+- **Notas de la sesión:**
+  - group_by de Polars no garantiza orden; sin maintain_order=True el dataset cambiaba entre corridas con el mismo seed. El test de reproducibilidad anterior solo comparaba conteo de filas y no lo detectaba.
+  - conftest generaba en data/raw y cada pytest local pisaba el dataset completo. Ahora usa tmp_path_factory.
+  - model_copy de Pydantic no corre validadores; para overrides usar model_validate.
+  - Reemplazar archivos con Copy-Item desde Descargas y verificar con Select-String o git grep; el pegado en VS Code no siempre se guarda.
+  - El warning LF → CRLF es ruido; pendiente .gitattributes.
+- **Próximo paso:** Semana 13 — diseño de modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2.
 
 ### 2026-09-24 · Sesión 28 — Semana 11
 
