@@ -70,7 +70,7 @@ TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el c
 - **Polars** — data manipulation
 - **DuckDB** — warehouse local
 - **Parquet** — persistencia de datos
-- **Faker + NumPy** — generación sintética
+- **NumPy** — generación sintética
 - **Jupyter en VS Code** — notebooks
 - **Git + GitHub**
 - **Mermaid** — diagramas en Markdown
@@ -239,6 +239,46 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - Cambiar un supuesto TCO = editar el CTE y correr dbt.
   - Si una fase futura necesita correr escenarios, migrar a dbt seed o vars con ADR nuevo.
 
+  ### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
+
+- **Fecha:** 2026-09-25
+- **Estado:** Accepted. Reemplaza el emparejamiento de int_ciclo_retorno, la asignación de Matnr descrita en ADR-007 y el tratamiento de merma en el TCO de ADR-009. La tabla de cifras antes/después se agrega al cerrar Semana 13.
+- **Contexto:** Antes de Fase 3 medí generador y modelos con una corrida reducida (2 plantas, 18 meses). Encontré:
+  - Solo existen 480 Matnr: los 720 locales nunca se asignan.
+  - El join 601→602 por planta + material + cliente hace fan-out y sobrecuenta la merma ~8%.
+  - Las pérdidas cuentan líneas y no Menge.
+  - Hay 602 con fecha posterior al corte y Mjahr heredado del 601.
+  - Mblnr aleatorio con llaves duplicadas.
+  - ~9,000 clientes aleatorios por planta.
+  - Signos de Menge que no permiten reconstruir stock.
+  - date.today() rompe la reproducibilidad.
+  
+  Además, en SAP estándar 602 es el storno del 601; el retornable con cliente se lleva como stock especial V con 621/622.
+- **Alternativas evaluadas:**
+  - Construir Fase 3 sobre la base actual y documentar limitaciones: descartado, porque Fase 3 necesita stock y saldo en cliente que hoy no se pueden derivar.
+  - Corregir solo el join, emparejando por documento: descartado, porque los contenedores son fungibles y ningún MB51 real permite emparejar salida con retorno por documento.
+  - Saldo por cuenta con antigüedad FIFO: elegido, porque es como se concilia en operación y es la base de la flota en cliente de Fase 3.
+- **Decisión:**
+  1. Ciclo de empaque con 621 (salida a stock especial V), 622 (recogida) y 702 con stock especial V (faltante en conciliación). 601/602 salen del ciclo.
+  2. Ciclo, vencido y merma se calculan por saldo planta × cliente × Matnr con antigüedad FIFO. Vencido = saldo con más de 120 días. Merma = faltante reconocido en conciliación.
+  3. Métricas en contenedores (Menge), no en líneas.
+  4. Signo SAP en Menge: salidas negativas, entradas positivas.
+  5. reference_date fija en GeneratorConfig (2026-06-30). Nada se emite después del corte; Mjahr se calcula desde Budat.
+  6. Mblnr secuencial por planta y año. Llave Werks + Mjahr + Mblnr + Zeile única, validada con test singular de dbt.
+  7. Matnr: 480 globales + 720 locales (~51 por planta), matnr_count = 531.
+  8. TCO: costo por ciclo = costo / E[vida] + mantenimiento, con E[vida] = (1 − (1 − p)^V) / p. La merma no se resta aparte; la pérdida USD de Fase 1 se reporta como KPI propio.
+  9. Faker fuera de dependencias. test-paths de dbt a tests_dbt. Sin continue-on-error en la ingesta de CI.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Merma: 0.5% por viaje (rango 0.2–1.0%), ~6% anual de la flota. Tasa heterogénea por cuenta: ~20% de las cuentas concentran ~70% de la merma.
+  - Clientes: 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido entre los clientes de la planta.
+  - Menge por línea: KLT 1–12, Rack 1–4, Cartón 1–6, sesgada a valores bajos. Temporal hasta que ADR-012 la derive del plan.
+  - Conciliación trimestral (rango mensual a semestral).
+- **Consecuencias:**
+  - Todas las cifras de Fase 1 y 2 cambian. README, notebooks 01/03 y dashboard se recalculan desde los marts.
+  - int_ciclo_retorno se reemplaza por un modelo de saldo por cuenta. mart_rotacion_planta y mart_rutas_rotas se reconstruyen sobre él.
+  - El diagrama de estados del README cambia a 621/622.
+  - ADR-001 sigue vigente; el volumen se mantiene en el mismo orden.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -251,14 +291,15 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 | Lgort | Almacén | Distingue racks piso / tránsito / cuarentena |
 | Matnr | Material (código empaque) | Rack, contenedor, KLT |
 | Maktx | Texto breve del material | Lectura rápida sin cruzar MAKT |
-| Bwart | Clase de movimiento | Separar 501/502, 561/562, 411/412, 309, 601/602 |
+| Bwart | Clase de movimiento | Separar 621/622 (ciclo con cliente), 702 con stock especial V (faltante), 501/502, 311/411, 101/102, 261, 309 |
 | Mjahr / Budat | Año contable y fecha contabilización | Cortes mensuales / semanales |
 | Cpudt / Cputm | Fecha y hora de registro en sistema | Auditar registros tardíos |
 | Menge + Meins | Cantidad y unidad de medida base | PC normalmente en empaques |
 | Mblnr / Zeile | Documento material y posición | Ancla a MIGO / ME23N |
 | Lifnr | Proveedor | Retornable con socio (461/462, 501/502) |
-| Kunnr | Cliente / consignatario | Racks a cliente (601/602, 631/632) |
+| Kunnr | Cliente / consignatario | Cuenta de stock especial V (621/622) |
 | Xblnr | Referencia / documento externo | Número embarque, delivery, pedido físico |
+| Costo_usd | Costo unitario del empaque en USD | Pérdida y TCO en dinero |
 
 ### Columnas extras opcionales (6)
 
@@ -272,14 +313,16 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### Parámetros del generador
 
 - **14 plantas:** 6 México, 6 Estados Unidos, 2 Nicaragua. Nombres genéricos PLNT_XX##.
-- **250 Matnr por planta**, ~1,200 únicos globales con solape entre plantas.
+- **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales (~51 por planta). matnr_count = 531.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
-- **Horizonte:** 18 meses de historia (para capturar estacionalidad).
-- **Volumen objetivo:** ~40-80k movimientos por planta/mes → ~10M filas totales.
-- **Bwart mix realista:** 501/502, 601/602, 311/411, 101/102, 261, 309 esporádico.
-- **Ciclo 601→602:** log-normal, media 25 días, con cola larga (60-90 días para algunos).
-- **Tasa de no-retorno:** 2% global, uniforme entre clientes y rutas.
-- **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h (ángulo de disciplina operativa).
+- **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
+- **Volumen:** ~40-80k movimientos por planta/mes, ~15.5M filas totales.
+- **Clientes:** 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido.
+- **Menge por línea:** KLT 1–12, Rack 1–4, Cartón 1–6. Signo SAP: salidas negativas.
+- **Ciclo 621→622:** log-normal, media 25 días, cola larga.
+- **Merma:** 0.5% por viaje, heterogénea por cuenta (~20% de las cuentas concentran ~70%). Faltante registrado con 702 en conciliación trimestral.
+- **Documento:** Mblnr secuencial por planta y año.
+- **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
 
 ---
 
@@ -298,6 +341,8 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 9** . TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs dbt, tres tests nuevos en test_marts.py. CI verde.
 - [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
 - [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
+- [ ] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
+- [ ] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 
 ---
 
@@ -681,6 +726,10 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Lifnr** — Proveedor.
 - **Kunnr** — Cliente.
 - **PO / OC** — Purchase Order / Orden de Compra.
+- **Stock especial V** — Empaque retornable en ubicación del cliente que sigue siendo propiedad de la empresa. Se ve en MMBE.
+- **LEIH** — Grupo de tipos de posición estándar SAP para empaque retornable.
+- **Pedido LA** — Pedido de recogida de empaque retornable; su entrada contabiliza 622.
+- **OMJJ** — Transacción SAP: configuración de clases de movimiento.
 
 ### Términos de dominio (RPL)
 
@@ -688,7 +737,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **KLT** — Kleinladungsträger. Contenedor plástico apilable pequeño, estándar automotriz.
 - **Rack** — Estructura metálica reutilizable para transportar piezas voluminosas.
 - **Tarima** — Pallet de madera. Aquí en categoría desechable/consumible.
-- **Ciclo 601→602** — Tiempo entre salida a cliente (601) y retorno del empaque (602).
+- **Ciclo 621→622** — Tiempo entre salida del empaque a stock especial del cliente (621) y su recogida (622).
 - **Merma** — Empaque que sale y no vuelve. Se convierte en pérdida contable.
 - **Flota fantasma** — Empaques registrados como activos pero perdidos en la práctica.
 - **TCO** — Total Cost of Ownership. Costo total de operar un contenedor en su vida útil: compra amortizada, mantenimiento y merma.
@@ -696,6 +745,10 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Desechable equivalente** — Empaque de un solo uso que haría el mismo trabajo que un retornable en un embarque.
 - **Dunnage** — Material interior que protege y separa las piezas dentro del empaque (separadores, espuma, charolas).
 - **Bulk bin** — Caja corrugada grande de triple pared para carga a granel sobre tarima.
+- **Conciliación de saldo** — Comparación periódica del saldo en cliente contra conteo físico; el faltante es merma confirmada.
+- **Antigüedad FIFO** — Edad del saldo en cliente asumiendo que lo primero que salió es lo primero que regresa.
+- **Saldo vencido** — Contenedores en cliente con más de 120 días de antigüedad. Riesgo de merma, todavía no pérdida.
+- **Vida esperada** — Ciclos promedio que dura un contenedor considerando la merma: (1 − (1 − p)^V) / p.
 
 ### Términos técnicos
 
@@ -711,6 +764,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
 - **HUGEINT** — entero de 128 bits de DuckDB. Polars no lo maneja bien; castear a BIGINT.
+- **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
 
 ---
 
