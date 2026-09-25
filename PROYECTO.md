@@ -271,6 +271,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   10. El cartón es desechable: sale con 601 y no genera 622 ni 702. Deja de participar en ciclo, merma y TCO como retornable.
   11. Censura sobre Budat y Cpudt: un documento registrado después del corte no existe a la fecha de extracción.
   12. Traslados 311/411/309 en dos posiciones del mismo documento (sale TR01, entra TR02) con el mismo registro. La suma por Matnr es cero. El volumen pasa de ~15.5M a ~22M filas; ADR-001 no cambia.
+  13. El generador escribe un Parquet por planta (data/raw/mb51_<Werks>.parquet) y libera memoria entre plantas. El dataset completo junto no cabe en un laptop de desarrollo. Mblnr sigue siendo único por año en todo el dataset.
 - **Supuestos (práctica de industria, sin datos de empleador):**
   - Merma: 0.5% por viaje (rango 0.2–1.0%), ~6% anual de la flota. Tasa heterogénea por cuenta: ~20% de las cuentas concentran ~70% de la merma.
   - Clientes: 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido entre los clientes de la planta.
@@ -319,13 +320,16 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales (~51 por planta). matnr_count = 531.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
 - **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
-- **Volumen:** ~40-80k movimientos por planta/mes, ~15.5M filas totales.
+- **Volumen:** ~40-80k movimientos base por planta/mes; con traslados en pareja y recogidas, ~22M filas totales.
 - **Clientes:** 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido.
 - **Menge por línea:** KLT 1–12, Rack 1–4, Cartón 1–6. Signo SAP: salidas negativas.
 - **Ciclo 621→622:** log-normal, media 25 días, cola larga.
 - **Merma:** 0.5% por viaje, heterogénea por cuenta (~20% de las cuentas concentran ~70%). Faltante registrado con 702 en conciliación trimestral.
 - **Documento:** Mblnr secuencial por planta y año.
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
+- **Cartón:** desechable, sale con 601 y no regresa.
+- **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet). Cada corrida borra los mb51_*.parquet previos del directorio. Pico de memoria ~1.1 GB.
 
 ---
 
