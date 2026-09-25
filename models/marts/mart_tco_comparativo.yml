@@ -15,6 +15,12 @@ models:
           - accepted_values:
               arguments:
                 values: ['KLT', 'RACK']
+      - name: salidas_conciliadas
+        description: >
+          Salidas 621 con 120 días antes de la última conciliación. Con
+          faltantes permite sumar la tasa por tipo o flota sin promediar tasas.
+      - name: faltantes
+        tests: [not_null]
       - name: costo_retornable_por_ciclo_usd
         tests: [not_null]
       - name: ahorro_neto_usd

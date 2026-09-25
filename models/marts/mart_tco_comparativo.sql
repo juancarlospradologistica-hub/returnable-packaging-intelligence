@@ -17,6 +17,8 @@ select
     planta,
     tipo_material,
     viajes,
+    salidas_conciliadas,
+    faltantes,
     tasa_merma_pct,
     vida_util_ciclos,
     round(vida_esperada_ciclos, 1)                                      as vida_esperada_ciclos,
