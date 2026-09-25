@@ -18,8 +18,8 @@ def test_plantas_en_df(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
 
 def test_reproducibilidad(cfg_ci: GeneratorConfig, tmp_path) -> None:
     """Misma seed, mismo dataset fila por fila."""
-    df1 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "a"))
-    df2 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "b"))
+    df1 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "a")).collect()
+    df2 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "b")).collect()
     assert df1.equals(df2)
 
 
@@ -29,7 +29,8 @@ def test_nada_despues_del_corte(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) ->
 
 
 def test_llave_de_documento_unica(df_ci: pl.DataFrame) -> None:
-    dup = df_ci.select("Werks", "Mjahr", "Mblnr", "Zeile").is_duplicated().sum()
+    # Mblnr es único por año en todo el mandante, no solo dentro de la planta.
+    dup = df_ci.select("Mjahr", "Mblnr", "Zeile").is_duplicated().sum()
     assert dup == 0, f"{dup} filas con llave de documento repetida"
 
 

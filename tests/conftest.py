@@ -31,4 +31,4 @@ def cfg_ci() -> GeneratorConfig:
 @pytest.fixture(scope="session")
 def df_ci(cfg_ci: GeneratorConfig, tmp_path_factory: pytest.TempPathFactory) -> pl.DataFrame:
     # tmp_path: correr pytest en local no debe pisar data/raw.
-    return generate(cfg=cfg_ci, output_dir=str(tmp_path_factory.mktemp("raw")))
+    return generate(cfg=cfg_ci, output_dir=str(tmp_path_factory.mktemp("raw"))).collect()
