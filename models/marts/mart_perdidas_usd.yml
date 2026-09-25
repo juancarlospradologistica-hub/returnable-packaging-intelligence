@@ -3,24 +3,22 @@ version: 2
 models:
   - name: mart_perdidas_usd
     description: >
-      Pérdidas en USD por planta, material y mes. Solo filas con
-      unidades_perdidas > 0.
+      Pérdida en USD reconocida con 702 en conciliación, por planta, material
+      y mes de reconocimiento.
     columns:
       - name: planta
-        tests:
-          - not_null
+        tests: [not_null]
       - name: material
+        tests: [not_null]
+      - name: tipo_material
         tests:
           - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
       - name: mes
-        tests:
-          - not_null
+        tests: [not_null]
       - name: unidades_perdidas
-        tests:
-          - not_null
+        tests: [not_null]
       - name: perdida_usd
-        tests:
-          - not_null
-      - name: tasa_merma_pct
-        tests:
-          - not_null
+        tests: [not_null]
