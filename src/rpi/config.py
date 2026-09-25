@@ -163,7 +163,7 @@ class MengeRange(BaseModel):
 class MengeConfig(BaseModel):
     """
     Contenedores por línea de salida, por tipo. Supuesto temporal de
-    ADR-011; ADR-012 lo reemplaza con la explosión del plan.
+    ADR-011; un ADR de Fase 3 lo reemplaza con la explosión del plan.
     """
 
     klt: MengeRange = Field(default_factory=lambda: MengeRange(min=1, max=12))

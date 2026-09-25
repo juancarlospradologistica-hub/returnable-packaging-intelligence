@@ -190,6 +190,13 @@ def _lognormal_days(cfg: GeneratorConfig, rng: np.random.Generator, n: int) -> n
     return np.round(np.clip(raw, 1, cfg.cycle.cap_days)).astype(np.int64)
 
 
+def _sample_lag_days(cfg: GeneratorConfig, rng: np.random.Generator, n: int) -> np.ndarray:
+    """Días entre Budat y Cpudt: 92% mismo día, 6% 1-2 días, 2% de 3 a 9."""
+    lag = cfg.cpudt_lag
+    cat = rng.choice([0, 1, 2], size=n, p=[lag.same_day, lag.one_to_two_days, lag.over_48h])
+    return np.where(cat == 0, 0, np.where(cat == 1, rng.integers(1, 3, n), rng.integers(3, 10, n)))
+
+
 def _next_business_day(d: np.ndarray) -> np.ndarray:
     return np.busday_offset(d, 0, roll="forward")
 
@@ -249,6 +256,7 @@ def emit_plant_movements(
             "Budat": budat,
             "Menge": menge,
             "Kunnr": pl.Series(kunnr, dtype=pl.String),
+            "lag_days": _sample_lag_days(cfg, rng, n_movements),
         }
     )
 
@@ -264,14 +272,15 @@ def emit_plant_movements(
         [problem[(werks, k)] for k in s621["Kunnr"].to_list()], dtype=bool
     )
     p_loss = np.where(is_problem, cfg.loss.rate_high, cfg.loss.rate_low)
-    m = s621["Menge"].to_numpy()
-    lost = rng.binomial(m, p_loss)
-    returned = m - lost
-    ret_date = _next_business_day(
-        s621["Budat"].to_numpy().astype("datetime64[D]") + _lognormal_days(cfg, rng, len(m))
-    )
-
     cutoff = np.datetime64(cfg.reference_date)
+    budat_621 = s621["Budat"].to_numpy().astype("datetime64[D]")
+    # Un 621 registrado después del corte no existe a la fecha de extracción.
+    # Su 622 o 702 tampoco: SAP no deja recoger stock especial V que no se ha contabilizado.
+    vivo = budat_621 + s621["lag_days"].to_numpy().astype("timedelta64[D]") <= cutoff
+    m = s621["Menge"].to_numpy()
+    lost = np.where(vivo, rng.binomial(m, p_loss), 0)
+    returned = np.where(vivo, m - lost, 0)
+    ret_date = _next_business_day(budat_621 + _lognormal_days(cfg, rng, len(m)))
     returns = (
         s621.select("Matnr", "tipo", "Kunnr")
         .with_columns(
@@ -308,28 +317,23 @@ def emit_plant_movements(
     cycle_rows = cycle_rows.with_columns(
         pl.int_range(next_id, next_id + cycle_rows.height, dtype=pl.Int64).alias("doc_id"),
         pl.lit(1, dtype=pl.Int64).alias("Zeile"),
+        pl.Series("lag_days", _sample_lag_days(cfg, rng, cycle_rows.height)),
     )
 
-    cols = ["doc_id", "Zeile", "Matnr", "tipo", "Bwart", "Budat", "Menge", "Kunnr"]
+    cols = ["doc_id", "Zeile", "Matnr", "tipo", "Bwart", "Budat", "Menge", "Kunnr", "lag_days"]
     df = pl.concat(
         [others.select(cols), out_leg.select(cols), in_leg.select(cols), cycle_rows.select(cols)],
         how="vertical_relaxed",
     )
 
     n = df.height
-    lag_cat = rng.choice([0, 1, 2], size=n, p=[
-        cfg.cpudt_lag.same_day, cfg.cpudt_lag.one_to_two_days, cfg.cpudt_lag.over_48h,
-    ])
-    lag_days = np.where(
-        lag_cat == 0, 0, np.where(lag_cat == 1, rng.integers(1, 3, n), rng.integers(3, 10, n))
-    )
     hours = rng.integers(6, 22, n)
     minutes = rng.integers(0, 60, n)
     ref = rng.integers(10_000_000, 99_999_999, n)
 
     df = df.with_columns(
         pl.lit(werks).alias("Werks"),
-        (pl.col("Budat") + pl.duration(days=pl.Series(lag_days))).alias("Cpudt"),
+        (pl.col("Budat") + pl.duration(days=pl.col("lag_days"))).alias("Cpudt"),
         pl.format(
             "{}:{}:00",
             pl.Series(hours).cast(pl.String).str.zfill(2),
@@ -367,7 +371,7 @@ def emit_plant_movements(
         .otherwise(pl.col("Menge").abs())
         .alias("Menge"),
     )
-    return df.drop("_ref")
+    return df.drop("_ref", "lag_days")
 
 
 # ---------------------------------------------------------------------------

@@ -87,3 +87,25 @@ def test_merma_en_rango(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
         f"Merma observada {tasa:.4f} fuera de "
         f"[{cfg_ci.loss.rate_low * 0.5:.4f}, {cfg_ci.loss.rate_high:.4f}]"
     )
+
+
+def test_saldo_en_cliente_nunca_negativo(df_ci: pl.DataFrame) -> None:
+    """
+    Saldo de stock especial V por cuenta (planta × cliente × material), en orden
+    de contabilización. 621 suma; 622 y 702 restan. En SAP no se puede recoger
+    ni dar de baja más de lo que hay en la cuenta.
+    """
+    minimo = (
+        df_ci.filter(pl.col("Bwart").is_in(["621", "622", "702"]))
+        .with_columns(
+            pl.when(pl.col("Bwart") == "702")
+            .then(pl.col("Menge"))
+            .otherwise(-pl.col("Menge"))
+            .alias("delta")
+        )
+        .sort("Budat", "Mjahr", "Mblnr", "Zeile")
+        .with_columns(pl.col("delta").cum_sum().over("Werks", "Kunnr", "Matnr").alias("saldo"))
+        ["saldo"]
+        .min()
+    )
+    assert minimo >= 0, f"Saldo en cliente negativo: {minimo}"
