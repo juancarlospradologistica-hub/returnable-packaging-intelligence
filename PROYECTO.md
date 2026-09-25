@@ -357,6 +357,44 @@ Marcar con `[x]` al cerrar.
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
 
+### 2026-09-25 · Sesión 30 — Semana 13
+
+- **Duración:** ~X h
+- **Hecho:**
+  - Prototipo FIFO en DuckDB antes de escribir modelos: sirve para ciclo pero no para merma ni vencido, porque los 702 cierran saldo reciente. Todo eso quedó en ADR-012.
+  - generator.py: 622 y 702 ya no se emiten si su 621 se registra después del corte. Dataset nuevo: 22,970,200 filas.
+  - Staging sin filtro de Bwart, con tipo_material. test-paths a tests_dbt.
+  - Tests singulares dbt:
+    - Llave única, signo SAP, saldo en cliente no negativo, cartón fuera del ciclo.
+    - Conservación FIFO y tramos válidos.
+    - Curva de supervivencia válida y saldo mensual que cuadra con tramos abiertos.
+    - Pérdidas del mart que cuadran con los 702 de staging.
+  - Modelos nuevos:
+    - int_mov_cuenta e int_tramos_fifo.
+    - int_supervivencia_retorno por tipo de material.
+    - int_cuenta_mensual con saldo esperado por curva de supervivencia y exceso de saldo.
+  - mart_perdidas_usd, mart_rotacion_planta y mart_rutas_rotas reescritos. mart_rotacion_planta.yml no existía en el branch; creado.
+  - TCO con vida esperada por merma, solo KLT y Rack. int_ciclo_retorno retirado.
+  - CI con dbt build, dataset de 12 meses por CLI y sin continue-on-error. .gitattributes con LF.
+  - PR #1 en borrador contra main. CI verde en 48 s: 79 tests dbt, 26 en pytest.
+  - Cifras con 14 plantas:
+    - Pérdida reconocida $2,238,765 en 45,853 contenedores (KLT $970,125, Rack $1,268,640). Tasa de flota 0.405%.
+    - Rutas rotas: 12 de 71, todas por merma (1.61–1.77%). Concentran $1.39M.
+    - Ciclo de cohortes completas: promedio 25.6 días, p50 25, p90 36.4.
+    - TCO: ahorro neto $137.5M (KLT $50.4M, Rack $87.1M). Payback de 6 y 5 ciclos.
+    - Rack: deja de convenir abajo de ~$5.55. Con el rango $34–66, ahorro de $63.1M a $133.1M.
+- **Decisiones tomadas:** ADR-012.
+- **Bloqueos:** OOM en int_cuenta_mensual al armar cuenta × mes × edad. Resuelto partiendo de las salidas: cada salida aporta solo a los fines de mes dentro del horizonte de la curva.
+- **Notas de la sesión:**
+  - dbt run no corre tests; en CI los tests de dbt nunca habían corrido. Usar dbt build.
+  - dbt 1.12 pide accepted_values con `arguments:`.
+  - dbt no borra la tabla de un modelo eliminado; DROP a mano en la DuckDB local.
+  - En DuckDB, date_trunc sobre una fecha devuelve timestamp; castear a date.
+  - git rm y git add --renormalize dejan en stage más de lo esperado. Hacer commit de lo pendiente antes de usarlos.
+  - Verificar con Test-Path que la descarga terminó antes de Expand-Archive.
+  - El ahorro TCO pasa de $41.0M a $137.5M casi todo por volumen: antes se contaban líneas, ahora contenedores. La economía por viaje es estable (KLT ~$4.08, Rack ~$39.80).
+- **Próximo paso:** Semana 13, paso 8a — dashboard alineado a los marts nuevos.
+
 ### 2026-09-25 · Sesión 29 — Semana 12
 
 - **Duración:** ~X h
