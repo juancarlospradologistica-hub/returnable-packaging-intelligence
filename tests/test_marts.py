@@ -107,9 +107,19 @@ def test_tco_ciclos_payback_positivo(con):
 
 
 def test_tco_tipos_validos(con):
-    """Solo KLT, RACK y CARTON deben aparecer en el mart TCO."""
+    """Solo KLT y RACK: el cartón es desechable y no entra al TCO (ADR-011)."""
     invalidos = con.execute("""
         SELECT COUNT(*) FROM mart_tco_comparativo
-        WHERE tipo_material NOT IN ('KLT', 'RACK', 'CARTON')
+        WHERE tipo_material NOT IN ('KLT', 'RACK')
     """).fetchone()[0]
     assert invalidos == 0, f"{invalidos} filas con tipo_material invalido"
+
+
+def test_tco_vida_esperada_en_rango(con):
+    """Con merma, la vida esperada es positiva y no pasa de la vida útil."""
+    fuera = con.execute("""
+        SELECT COUNT(*) FROM mart_tco_comparativo
+        WHERE vida_esperada_ciclos <= 0
+           OR vida_esperada_ciclos > vida_util_ciclos
+    """).fetchone()[0]
+    assert fuera == 0, f"{fuera} filas con vida esperada fuera de (0, vida útil]"
