@@ -22,7 +22,7 @@ jobs:
         run: uv sync --frozen
 
       - name: lint
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ notebooks/
 
       - name: generar dataset CI
         run: |
