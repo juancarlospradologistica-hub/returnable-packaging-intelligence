@@ -28,6 +28,11 @@ models:
         tests: [not_null]
       - name: mes
         tests: [not_null]
+      - name: fin_mes
+        description: >
+          Último día hábil del mes. Saldo y esperado se miden ese día, no el
+          último día natural (ADR-012).
+        tests: [not_null]
       - name: saldo_fin_mes
         tests: [not_null]
       - name: saldo_esperado

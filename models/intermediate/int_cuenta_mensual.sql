@@ -11,10 +11,18 @@ supervivencia as (
     select * from {{ ref('int_supervivencia_retorno') }}
 ),
 
+-- Cierre en el último día hábil del mes. Los 621 y 622 solo se contabilizan
+-- lunes a viernes; si el mes termina en fin de semana, el saldo real es el del
+-- viernes y el esperado por días naturales ya descontaría recogidas que aún no
+-- se registran. Ese desfase daba +7% de exceso en toda la flota los domingos.
 meses as (
     select
         cast(mes as date)                                           as mes,
-        cast(mes + interval 1 month - interval 1 day as date)       as fin_mes
+        cast(last_day(mes) - case isodow(last_day(mes))
+            when 6 then 1
+            when 7 then 2
+            else 0
+        end as date)                                                as fin_mes
     from (
         select unnest(generate_series(
             date_trunc('month', min(fecha_contab)),
