@@ -283,7 +283,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - El diagrama de estados del README cambia a 621/622.
   - ADR-001 sigue vigente; el volumen se mantiene en el mismo orden.
 
-  ### ADR-012 · Merma por ventana conciliada, exceso de saldo por supervivencia y FIFO solo para ciclo
+### ADR-012 · Merma por ventana conciliada, exceso de saldo por supervivencia y FIFO solo para ciclo
 
 - **Fecha:** 2026-09-25
 - **Estado:** Accepted. Reemplaza la definición de vencido y el cálculo de merma del punto 2 de ADR-011.
@@ -306,14 +306,16 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   4. Ruta rota: tasa de merma > 1.0% por viaje o ciclo promedio > 45 días.
   5. mart_perdidas_usd se agrupa por mes de reconocimiento del 702.
   6. El generador no emite 622 ni 702 si su 621 se registra después del corte.
-  7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres (un ciclo de conciliación) entre el esperado de esos cierres, por ruta planta × cliente. Un cierre aislado no separa rutas porque toda la flota sube y baja entre conciliaciones. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
+    7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres entre el esperado de esos cierres, por ruta planta × cliente. El exceso de una ruta rota crece entre conciliaciones y el 702 lo borra en el cierre del mes de conciliación; en ese cierre la ruta rota se ve igual que una sana. Una ventana de 3 cierres, igual al periodo de conciliación, siempre contiene un solo cierre de conciliación y dos con exceso acumulado. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
+  8. Cierre mensual en el último día hábil del mes (lunes a viernes, sin calendario de feriados), no en el último día natural. Los 621 y 622 solo caen en día hábil y S(edad) está en días naturales: un fin de mes en domingo inflaba el exceso de toda la flota +7% y uno en sábado +2.5%, y ese vaivén se confundía con la señal. El test singular assert_cierre_dia_habil valida que el cierre cae de lunes a viernes y dentro de su mes.
 - **Supuestos:**
   - Umbral de ruta rota: 1.0% por viaje (rango 0.8–1.5%). Es el tope del rango de industria de ADR-011; la cuenta sana del sintético queda en ~0.19% y la problema en ~1.75%.
   - S(edad) se estima con los 18 meses completos. Un fin de mes antiguo ve recogidas posteriores; aceptable para análisis histórico. En monitoreo en línea se estimaría solo con recogidas anteriores a cada corte.
-  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas separa rutas rotas del resto en los 12 meses válidos; con un solo cierre se traslapan en 5 de 12.
+  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas y cierre hábil separa rutas rotas del resto en los 12 meses válidos: rotas con exceso mediano de +4.7% a +6.8%, resto en ~−1.1%. Con un solo cierre se traslapan en 3 de 12 meses, dos de ellos de conciliación.
 - **Consecuencias:**
   - El saldo vencido >120 días deja de ser KPI; el exceso de saldo toma su lugar como alerta de flota fantasma.
   - El exceso es alerta temprana, no clasificador. El criterio de ruta rota sigue siendo la tasa conciliada.
+  - Sesgo residual: con cierre hábil las rutas sanas quedan en ~−1.1% de exceso, no en cero. No cambia el orden de la alerta porque pega parejo en la flota, pero el exceso no se lee como merma absoluta. Se revisa en Fase 3.
   - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
   - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
 
