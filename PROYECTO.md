@@ -393,7 +393,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 
 ### 2026-09-25 · Sesión 30 — Semana 13
 
-- **Duración:** ~X h
+- **Duración:** 3 h
 - **Hecho:**
   - Prototipo FIFO en DuckDB antes de escribir modelos: sirve para ciclo pero no para merma ni vencido, porque los 702 cierran saldo reciente. Todo eso quedó en ADR-012.
   - generator.py: 622 y 702 ya no se emiten si su 621 se registra después del corte. Dataset nuevo: 22,970,200 filas.
@@ -426,12 +426,12 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
   - En DuckDB, date_trunc sobre una fecha devuelve timestamp; castear a date.
   - git rm y git add --renormalize dejan en stage más de lo esperado. Hacer commit de lo pendiente antes de usarlos.
   - Verificar con Test-Path que la descarga terminó antes de Expand-Archive.
-  - El ahorro TCO pasa de $41.0M a $137.5M casi todo por volumen: antes se contaban líneas, ahora contenedores. La economía por viaje es estable (KLT ~$4.08, Rack ~$39.80).
+  - El ahorro TCO pasa de $41.0M a $137.5M casi todo por volumen: antes se contaban líneas, ahora contenedores. La economía por viaje es estable (KLT ~$4.08, Rack ~$39.86).
 - **Próximo paso:** Semana 13, paso 8a — dashboard alineado a los marts nuevos.
 
 ### 2026-09-25 · Sesión 29 — Semana 12
 
-- **Duración:** ~X h
+- **Duración:** 4 h
 - **Hecho:**
   - Medí generador y modelos con una corrida reducida antes de arrancar Fase 3: 480 Matnr en uso en lugar de 1,200, fan-out en el join 601→602, pérdidas contadas en líneas, 602 posteriores al corte, Mblnr con colisiones y ~9,000 clientes aleatorios por planta. Todo eso quedó en ADR-011.
   - config.py: reference_date fija, CustomerConfig, LossConfig con merma por ruta en dos segmentos, MengeConfig por tipo, conciliación trimestral, global_matnr_share.
