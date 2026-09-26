@@ -30,13 +30,22 @@ def test_perdida_usd_positiva(con):
     assert invalidas == 0, f"{invalidas} filas con perdida_usd <= 0"
 
 
+def test_perdidas_solo_en_meses_de_conciliacion(con):
+    """El 702 se reconoce en conciliación trimestral: marzo, junio, septiembre, diciembre."""
+    fuera = con.execute("""
+        SELECT COUNT(*) FROM mart_perdidas_usd
+        WHERE month(mes) NOT IN (3, 6, 9, 12)
+    """).fetchone()[0]
+    assert fuera == 0, f"{fuera} filas con pérdida fuera de mes de conciliación"
+
+
 def test_tasa_merma_entre_0_y_100(con):
     """tasa_merma_pct debe estar en [0, 100]."""
     fuera = con.execute("""
-        SELECT COUNT(*) FROM mart_perdidas_usd
+        SELECT COUNT(*) FROM mart_rutas_rotas
         WHERE tasa_merma_pct < 0 OR tasa_merma_pct > 100
     """).fetchone()[0]
-    assert fuera == 0, f"{fuera} filas con tasa_merma_pct fuera de [0, 100]"
+    assert fuera == 0, f"{fuera} rutas con tasa_merma_pct fuera de [0, 100]"
 
 
 def test_ciclo_promedio_positivo(con):
@@ -51,30 +60,32 @@ def test_ciclo_promedio_positivo(con):
 
 def test_ciclo_dentro_de_rango_razonable(con):
     """
-    El ciclo promedio no debe superar el cap del generador (180 días).
-    Un promedio > 180 indica un problema en el cálculo del join 601→602.
+    El ciclo no debe superar el cap del generador (180 días) y los
+    percentiles deben venir en orden.
     """
     fuera = con.execute("""
         SELECT COUNT(*) FROM mart_rotacion_planta
         WHERE ciclo_promedio_dias > 180
+           OR ciclo_p50_dias > ciclo_p90_dias
     """).fetchone()[0]
-    assert fuera == 0, f"{fuera} plantas con ciclo promedio > 180 días"
+    assert fuera == 0, f"{fuera} filas con ciclo fuera de rango o percentiles invertidos"
 
 
-def test_rutas_rotas_tienen_merma_o_ciclo_largo(con):
+def test_rutas_rotas_cumplen_criterio(con):
     """
-    Toda ruta en mart_rutas_rotas debe cumplir al menos uno
-    de los dos criterios de clasificación: merma > 5% o ciclo > 45 días.
+    Toda ruta en mart_rutas_rotas cumple al menos un criterio de ADR-012:
+    merma > 1.0 % por viaje o ciclo > 45 días.
     """
     sin_criterio = con.execute("""
         SELECT COUNT(*) FROM mart_rutas_rotas
-        WHERE tasa_merma_pct <= 5
+        WHERE (tasa_merma_pct IS NULL OR tasa_merma_pct <= 1.0)
           AND (ciclo_promedio_dias IS NULL OR ciclo_promedio_dias <= 45)
     """).fetchone()[0]
     assert sin_criterio == 0, (
         f"{sin_criterio} rutas en mart_rutas_rotas que no cumplen "
         "ningún criterio de clasificación"
     )
+
 
 def test_tco_costo_retornable_positivo(con):
     """El costo por ciclo del retornable debe ser mayor que cero."""
@@ -96,9 +107,19 @@ def test_tco_ciclos_payback_positivo(con):
 
 
 def test_tco_tipos_validos(con):
-    """Solo KLT, RACK y CARTON deben aparecer en el mart TCO."""
+    """Solo KLT y RACK: el cartón es desechable y no entra al TCO (ADR-011)."""
     invalidos = con.execute("""
         SELECT COUNT(*) FROM mart_tco_comparativo
-        WHERE tipo_material NOT IN ('KLT', 'RACK', 'CARTON')
+        WHERE tipo_material NOT IN ('KLT', 'RACK')
     """).fetchone()[0]
     assert invalidos == 0, f"{invalidos} filas con tipo_material invalido"
+
+
+def test_tco_vida_esperada_en_rango(con):
+    """Con merma, la vida esperada es positiva y no pasa de la vida útil."""
+    fuera = con.execute("""
+        SELECT COUNT(*) FROM mart_tco_comparativo
+        WHERE vida_esperada_ciclos <= 0
+           OR vida_esperada_ciclos > vida_util_ciclos
+    """).fetchone()[0]
+    assert fuera == 0, f"{fuera} filas con vida esperada fuera de (0, vida útil]"

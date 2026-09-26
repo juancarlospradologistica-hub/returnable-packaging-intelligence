@@ -16,10 +16,13 @@ def _(mo):
 
 @app.cell
 def _():
+    import base64
+    import io
     from pathlib import Path
 
     import duckdb
     import marimo as mo
+    import matplotlib.pyplot as plt
     import polars as pl
 
     db_path = Path("data/rpi.duckdb")
@@ -34,7 +37,7 @@ def _():
                     "```bash\n"
                     "uv run python -m rpi\n"
                     "uv run python -c \"from rpi.db import ingest; ingest()\"\n"
-                    "uv run dbt run --profiles-dir .\n"
+                    "uv run dbt build --profiles-dir .\n"
                     "```"
                 ),
                 kind="warn",
@@ -42,91 +45,100 @@ def _():
         )
 
     con = duckdb.connect(str(db_path), read_only=True)
-    return con, mo, pl
+
+    def a_imagen(fig):
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=120)
+        plt.close(fig)
+        return mo.image(src=f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}")
+
+    return a_imagen, con, mo, pl, plt
 
 
 @app.cell
 def _(con, mo):
+    # Las sumas de dbt salen como HUGEINT o DECIMAL(38); se castean para Polars.
     try:
         kpis = con.execute("""
-            SELECT
-                ROUND(SUM(perdida_usd), 0)    AS perdida_total_usd,
-                COUNT(DISTINCT planta)         AS plantas,
-                COUNT(DISTINCT material)       AS materiales_con_merma,
-                ROUND(AVG(tasa_merma_pct), 2)  AS tasa_merma_promedio
-            FROM mart_perdidas_usd
-        """).pl()
+            WITH perdida AS (
+                SELECT
+                    SUM(perdida_usd)                    AS perdida_usd,
+                    SUM(unidades_perdidas)::BIGINT      AS contenedores
+                FROM mart_perdidas_usd
+            ),
+            tasa AS (
+                SELECT SUM(faltantes) * 100.0 / SUM(salidas_conciliadas) AS tasa_flota_pct
+                FROM mart_tco_comparativo
+            ),
+            rutas AS (
+                SELECT
+                    (SELECT COUNT(*) FROM mart_rutas_rotas)                     AS rotas,
+                    (SELECT COUNT(DISTINCT (planta, cliente))
+                     FROM mart_exceso_saldo_ruta)                               AS total
+            )
+            SELECT * FROM perdida, tasa, rutas
+        """).pl().row(0, named=True)
     except Exception:
         mo.stop(
             True,
             mo.callout(
                 mo.md(
                     "**Marts no encontrados.**\n\n"
-                    "Corre `uv run dbt run --profiles-dir .` para generarlos."
+                    "Corre `uv run dbt build --profiles-dir .` para generarlos."
                 ),
                 kind="warn",
             ),
         )
-
     return (kpis,)
 
 
 @app.cell
 def _(kpis, mo):
     vista_kpis = mo.hstack([
-        mo.stat(label="Pérdida total USD",        value=f"${kpis['perdida_total_usd'][0]:,.0f}"),
-        mo.stat(label="Plantas",                  value=str(kpis['plantas'][0])),
-        mo.stat(label="Materiales con merma",     value=str(kpis['materiales_con_merma'][0])),
-        mo.stat(label="Tasa merma promedio %",    value=f"{kpis['tasa_merma_promedio'][0]:.2f}%"),
+        mo.stat(
+            label="Pérdida reconocida",
+            value=f"${kpis['perdida_usd']:,.0f}",
+            caption="702 en conciliación",
+        ),
+        mo.stat(label="Contenedores perdidos", value=f"{kpis['contenedores']:,}"),
+        mo.stat(
+            label="Tasa de merma de flota",
+            value=f"{kpis['tasa_flota_pct']:.3f}%",
+            caption="por viaje, ventana conciliada",
+        ),
+        mo.stat(label="Rutas rotas", value=f"{kpis['rotas']} de {kpis['total']}"),
     ])
     return (vista_kpis,)
 
 
 @app.cell
-def _(con, mo, pl):
-    import base64
-    import io
+def _(a_imagen, con, plt):
+    _mensual = (
+        con.execute("""
+            SELECT mes, tipo_material, SUM(perdida_usd) AS perdida_usd
+            FROM mart_perdidas_usd
+            GROUP BY mes, tipo_material
+        """).pl()
+        .pivot(on="tipo_material", index="mes", values="perdida_usd")
+        .fill_null(0)
+        .sort("mes")
+    )
+    _etiquetas = _mensual["mes"].dt.strftime("%Y-%m").to_list()
 
-    import matplotlib.pyplot as plt
-
-    _mensual = con.execute("""
-        SELECT
-            mes::DATE           AS mes,
-            SUM(perdida_usd)    AS perdida_usd
-        FROM mart_perdidas_usd
-        GROUP BY mes
-        ORDER BY mes
-    """).pl()
-
-    _fig, _ax = plt.subplots(figsize=(11, 3))
+    _fig, _ax = plt.subplots(figsize=(9, 3))
+    _ax.bar(_etiquetas, _mensual["KLT"] / 1e3, label="KLT", color="#2c7fb8", width=0.6)
     _ax.bar(
-        _mensual["mes"].cast(pl.String),
-        _mensual["perdida_usd"],
-        color="#c0392b",
-        width=0.7,
+        _etiquetas, _mensual["RACK"] / 1e3, bottom=_mensual["KLT"] / 1e3,
+        label="Rack", color="#c0392b", width=0.6,
     )
-    _ax.set_ylabel("USD")
-    _ax.set_title("Pérdidas mensuales en USD")
-    _step = max(1, len(_mensual) // 6)
-    _ax.set_xticks(range(0, len(_mensual), _step))
-    _ax.set_xticklabels(
-        _mensual["mes"].cast(pl.String)[::_step].to_list(),
-        rotation=45,
-        ha="right",
-        fontsize=9,
-    )
-    _ax.spines["top"].set_visible(False)
-    _ax.spines["right"].set_visible(False)
-    plt.tight_layout()
+    _ax.set_ylabel("miles de USD")
+    _ax.set_title("Pérdida reconocida por mes de conciliación")
+    _ax.legend(frameon=False)
+    _ax.spines[["top", "right"]].set_visible(False)
+    _fig.tight_layout()
 
-    _buf = io.BytesIO()
-    _fig.savefig(_buf, format="png", dpi=120)
-    _buf.seek(0)
-    _img_b64 = base64.b64encode(_buf.read()).decode()
-    plt.close(_fig)
-
-    grafica_mensual = mo.image(src=f"data:image/png;base64,{_img_b64}")
-    return (grafica_mensual,)
+    grafica_perdidas = a_imagen(_fig)
+    return (grafica_perdidas,)
 
 
 @app.cell
@@ -135,103 +147,200 @@ def _(con, mo):
         SELECT
             planta,
             cliente,
-            salidas,
-            mermas,
-            ROUND(tasa_merma_pct, 1) AS tasa_merma_pct,
-            ROUND(ciclo_promedio_dias, 1) AS ciclo_promedio_dias,
+            contenedores_salida::BIGINT     AS contenedores_salida,
+            salidas_conciliadas::BIGINT     AS salidas_conciliadas,
+            faltantes::BIGINT               AS faltantes,
+            tasa_merma_pct,
+            ciclo_promedio_dias,
             perdida_acum_usd
         FROM mart_rutas_rotas
-        ORDER BY tasa_merma_pct DESC
-        LIMIT 20
+        ORDER BY perdida_acum_usd DESC
     """).pl()
 
-    tabla_rutas = mo.ui.table(_rutas)
+    tabla_rutas = mo.ui.table(_rutas, selection=None)
     return (tabla_rutas,)
 
 
 @app.cell
-def _(con, mo):
-    _rotacion = con.execute("""
+def _(con):
+    # Solo filas con ventana válida: antes del horizonte de la curva el
+    # esperado está incompleto y el exceso sale sesgado.
+    exceso = con.execute("""
         SELECT
-            planta,
-            mes::DATE       AS mes,
-            salidas_totales,
-            retornos_totales,
-            mermas_totales,
-            tasa_merma_pct,
-            ciclo_promedio_dias
-        FROM mart_rotacion_planta
-        ORDER BY mes, planta
+            e.planta,
+            e.cliente,
+            e.mes,
+            e.saldo_fin_mes,
+            e.saldo_esperado,
+            e.exceso_saldo,
+            e.exceso_pct,
+            e.exceso_pct_ciclo,
+            r.planta IS NOT NULL            AS ruta_rota
+        FROM mart_exceso_saldo_ruta e
+        LEFT JOIN mart_rutas_rotas r
+            ON r.planta = e.planta AND r.cliente = e.cliente
+        WHERE e.alerta_valida
     """).pl()
+    return (exceso,)
 
-    tabla_rotacion = mo.ui.table(_rotacion)
-    return (tabla_rotacion,)
+
+@app.cell
+def _(a_imagen, exceso, pl, plt):
+    _serie = (
+        exceso.group_by("mes", "ruta_rota")
+        .agg(pl.col("exceso_pct_ciclo").median().alias("mediana"))
+        .sort("mes")
+    )
+
+    _fig, _ax = plt.subplots(figsize=(9, 3))
+    for _rota, _color, _nombre in [
+        (True, "#c0392b", "Rutas rotas"),
+        (False, "#7f8c8d", "Resto de la flota"),
+    ]:
+        _s = _serie.filter(pl.col("ruta_rota") == _rota)
+        _ax.plot(
+            _s["mes"].dt.strftime("%Y-%m").to_list(), _s["mediana"],
+            marker="o", color=_color, label=_nombre,
+        )
+    _ax.set_ylabel("% sobre esperado")
+    _ax.set_title("Exceso de saldo en cliente, últimos 3 cierres (mediana por grupo)")
+    _ax.tick_params(axis="x", rotation=45, labelsize=8)
+    _ax.legend(frameon=False)
+    _ax.spines[["top", "right"]].set_visible(False)
+    _fig.tight_layout()
+
+    grafica_exceso = a_imagen(_fig)
+    return (grafica_exceso,)
+
+
+@app.cell
+def _(exceso, mo, pl):
+    _ultimo = exceso["mes"].max()
+    _tabla = (
+        exceso.filter(pl.col("mes") == _ultimo)
+        .select(
+            "planta", "cliente", "saldo_fin_mes", "saldo_esperado",
+            "exceso_pct", "exceso_pct_ciclo", "ruta_rota",
+        )
+        .sort("exceso_pct_ciclo", descending=True)
+        .head(20)
+    )
+
+    tabla_exceso = mo.vstack([
+        mo.md(f"Cierre de {_ultimo:%Y-%m}. Top 20 rutas por exceso de los últimos 3 cierres."),
+        mo.ui.table(_tabla, selection=None),
+    ])
+    return (tabla_exceso,)
 
 
 @app.cell
 def _(con, mo):
+    # Solo cohortes completas: en las recientes aún no regresan los ciclos
+    # largos y el promedio sale bajo.
     _ciclo = con.execute("""
         SELECT
             planta,
-            ROUND(AVG(dias_ciclo), 1) AS dias_ciclo_promedio,
-            COUNT(*)                   AS movimientos
-        FROM int_ciclo_retorno
+            ROUND(SUM(ciclo_promedio_dias * contenedores_recogidos)
+                / SUM(contenedores_recogidos), 1)   AS ciclo_promedio_dias,
+            ROUND(AVG(ciclo_p50_dias), 1)           AS ciclo_p50_dias,
+            ROUND(AVG(ciclo_p90_dias), 1)           AS ciclo_p90_dias,
+            SUM(contenedores_recogidos)::BIGINT     AS contenedores_recogidos
+        FROM mart_rotacion_planta
+        WHERE cohorte_completa
         GROUP BY planta
-        ORDER BY dias_ciclo_promedio DESC
+        ORDER BY ciclo_promedio_dias DESC
     """).pl()
 
-    tabla_ciclo = mo.ui.table(_ciclo)
-    return (tabla_ciclo,)
+    _flota = con.execute("""
+        SELECT
+            SUM(ciclo_promedio_dias * contenedores_recogidos)
+                / SUM(contenedores_recogidos)       AS promedio,
+            AVG(ciclo_p50_dias)                     AS p50,
+            AVG(ciclo_p90_dias)                     AS p90
+        FROM mart_rotacion_planta
+        WHERE cohorte_completa
+    """).pl().row(0, named=True)
+
+    vista_ciclo = mo.vstack([
+        mo.hstack([
+            mo.stat(label="Ciclo promedio", value=f"{_flota['promedio']:.1f} días"),
+            mo.stat(label="p50", value=f"{_flota['p50']:.0f} días"),
+            mo.stat(label="p90", value=f"{_flota['p90']:.1f} días"),
+        ]),
+        mo.ui.table(_ciclo, selection=None),
+    ])
+    return (vista_ciclo,)
 
 
 @app.cell
-def _(grafica_mensual, mo, tabla_ciclo, tabla_rotacion, tabla_rutas, vista_kpis):
+def _(
+    grafica_exceso,
+    grafica_perdidas,
+    mo,
+    tabla_exceso,
+    tabla_rutas,
+    vista_ciclo,
+    vista_kpis,
+):
     vista_fase1 = mo.vstack([
         mo.md("## KPIs globales"),
         vista_kpis,
         mo.md("""
-        ## Pérdidas mensuales
+        ## Pérdida por mes de conciliación
 
-        Tendencia de pérdidas en USD por mes sobre las 14 plantas.
+        El faltante se reconoce con 702 en la conciliación trimestral, sobre
+        saldo con al menos 120 días. La pérdida cae en el mes de conciliación,
+        no en el mes en que el contenedor dejó de volver.
         """),
-        grafica_mensual,
+        grafica_perdidas,
         mo.md("""
-        ## Rutas con mayor tasa de merma
+        ## Rutas rotas
 
-        Combinaciones planta-cliente con merma > 5% o ciclo > 45 días,
-        ordenadas por porcentaje de contenedores sin retorno.
+        Rutas planta × cliente con merma conciliada mayor a 1.0 % por viaje o
+        ciclo promedio mayor a 45 días. Ordenadas por pérdida acumulada.
         """),
         tabla_rutas,
         mo.md("""
-        ## Rotación mensual por planta
+        ## Alerta temprana: exceso de saldo en cliente
 
-        Salidas, retornos y mermas absolutas por planta y mes.
+        Saldo real en stock especial V contra el saldo esperado por la curva
+        de supervivencia del ciclo. El exceso es merma que la conciliación
+        todavía no reconoce.
+
+        Un cierre aislado no sirve para comparar: en el mes de conciliación
+        el 702 borra el exceso acumulado y la ruta rota se ve sana. El
+        indicador suma los últimos 3 cierres. Es alerta, no clasificador;
+        la ruta rota se define por tasa conciliada.
         """),
-        tabla_rotacion,
+        grafica_exceso,
+        tabla_exceso,
         mo.md("""
-        ## Ciclo promedio de retorno por planta
+        ## Ciclo de retorno por planta
 
-        Días promedio entre movimiento 601 (salida a cliente) y 602 (retorno).
-        Media de diseño: 25 días.
+        Días entre 621 y 622 con antigüedad FIFO, ponderados por contenedor.
+        Solo cohortes de salida completas.
         """),
-        tabla_ciclo,
+        vista_ciclo,
     ])
     return (vista_fase1,)
 
 
 @app.cell
-def _(con, mo, pl):
+def _(con, mo):
     try:
-        # HUGEINT de las sumas en dbt se castea a BIGINT para Polars
         tco_planta = con.execute("""
             SELECT
                 planta,
                 tipo_material,
-                ciclos_totales_observados::BIGINT AS ciclos,
-                ahorro_por_ciclo_usd,
-                ciclos_payback::INTEGER           AS ciclos_payback,
-                ahorro_total_vs_desechable_usd    AS ahorro_bruto_usd,
-                perdida_acum_usd                  AS costo_merma_usd,
+                viajes::BIGINT                  AS viajes,
+                salidas_conciliadas::BIGINT     AS salidas_conciliadas,
+                faltantes::BIGINT               AS faltantes,
+                vida_util_ciclos,
+                vida_esperada_ciclos,
+                costo_unitario_usd,
+                desechable_equiv_usd,
+                costo_retornable_por_ciclo_usd,
+                ciclos_payback,
                 ahorro_neto_usd
             FROM mart_tco_comparativo
         """).pl()
@@ -241,91 +350,98 @@ def _(con, mo, pl):
             mo.callout(
                 mo.md(
                     "**mart_tco_comparativo no encontrado.**\n\n"
-                    "Corre `uv run dbt run --profiles-dir .` para generarlo."
+                    "Corre `uv run dbt build --profiles-dir .` para generarlo."
                 ),
                 kind="warn",
             ),
         )
+    return (tco_planta,)
 
-    # Cartón es la línea base del comparativo: ahorro y payback contra sí
-    # mismo no significan nada, pero su costo de merma sí es real.
-    _es_base = pl.col("tipo_material") == "CARTON"
 
+@app.cell
+def _(pl, tco_planta):
+    # Promedios ponderados por viaje: sumar ahorros y dividir, no promediar tasas.
+    _w = pl.col("viajes")
     tco_tipo = (
         tco_planta.group_by("tipo_material")
         .agg(
-            pl.col("ciclos").sum(),
-            pl.col("ahorro_por_ciclo_usd").max(),
+            _w.sum().alias("viajes"),
+            (pl.col("faltantes").sum() * 100 / pl.col("salidas_conciliadas").sum())
+            .round(3).alias("tasa_merma_pct"),
+            pl.col("vida_util_ciclos").first(),
+            ((pl.col("vida_esperada_ciclos") * _w).sum() / _w.sum())
+            .round(1).alias("vida_esperada_ciclos"),
+            ((pl.col("costo_retornable_por_ciclo_usd") * _w).sum() / _w.sum())
+            .round(2).alias("costo_retornable_por_ciclo_usd"),
+            pl.col("costo_retornable_por_ciclo_usd").max().round(2)
+            .alias("costo_por_ciclo_peor_planta_usd"),
+            pl.col("desechable_equiv_usd").first(),
+            (pl.col("ahorro_neto_usd").sum() / _w.sum())
+            .round(2).alias("ahorro_por_viaje_usd"),
             pl.col("ciclos_payback").max(),
-            pl.col("ahorro_bruto_usd").sum(),
-            pl.col("costo_merma_usd").sum(),
             pl.col("ahorro_neto_usd").sum(),
         )
-        .with_columns(
-            pl.when(_es_base).then(None)
-            .otherwise(pl.col("costo_merma_usd") / pl.col("ahorro_bruto_usd") * 100)
-            .round(1)
-            .alias("merma_sobre_bruto_pct"),
-            pl.when(_es_base).then(None).otherwise(pl.col("ahorro_neto_usd"))
-            .alias("ahorro_neto_usd"),
-            pl.when(_es_base).then(None).otherwise(pl.col("ciclos_payback"))
-            .alias("ciclos_payback"),
-            pl.when(_es_base).then(None).otherwise(pl.col("ahorro_por_ciclo_usd"))
-            .alias("ahorro_por_ciclo_usd"),
-        )
-        .sort("ahorro_neto_usd", descending=True, nulls_last=True)
+        .sort("ahorro_neto_usd", descending=True)
     )
-    return tco_planta, tco_tipo
+    return (tco_tipo,)
 
 
 @app.cell
 def _(mo, pl, tco_planta, tco_tipo):
-    _ret = tco_tipo.filter(pl.col("tipo_material") != "CARTON")
-    _klt = _ret.filter(pl.col("tipo_material") == "KLT").row(0, named=True)
-    _rack = _ret.filter(pl.col("tipo_material") == "RACK").row(0, named=True)
+    _klt = tco_tipo.filter(pl.col("tipo_material") == "KLT").row(0, named=True)
+    _rack = tco_tipo.filter(pl.col("tipo_material") == "RACK").row(0, named=True)
 
     _por_planta = (
-        tco_planta.filter(pl.col("tipo_material") != "CARTON")
-        .pivot(on="tipo_material", index="planta", values="ahorro_neto_usd")
+        tco_planta.pivot(on="tipo_material", index="planta", values="ahorro_neto_usd")
         .with_columns(pl.sum_horizontal("KLT", "RACK").round(2).alias("total_usd"))
         .sort("total_usd", descending=True)
     )
 
     vista_tco = mo.vstack([
-        mo.md("## Ahorro neto retornable vs desechable"),
+        mo.md("""
+        ## Economía por viaje
+
+        Cada viaje de retornable reemplaza un desechable equivalente. El costo
+        por ciclo del retornable es compra entre vida esperada más
+        mantenimiento; la merma entra por la vida esperada, no se resta aparte.
+        """),
+        mo.hstack([
+            mo.stat(
+                label="Ahorro por viaje KLT",
+                value=f"${_klt['ahorro_por_viaje_usd']:,.2f}",
+                caption=f"desechable ${_klt['desechable_equiv_usd']:.2f}",
+            ),
+            mo.stat(
+                label="Ahorro por viaje Rack",
+                value=f"${_rack['ahorro_por_viaje_usd']:,.2f}",
+                caption=f"desechable ${_rack['desechable_equiv_usd']:.2f}",
+            ),
+            mo.stat(label="Payback KLT", value=f"{_klt['ciclos_payback']} ciclos"),
+            mo.stat(label="Payback Rack", value=f"{_rack['ciclos_payback']} ciclos"),
+        ]),
+        mo.ui.table(tco_tipo, selection=None),
+        mo.md(f"""
+        El Rack deja de convenir en toda la flota con un desechable por debajo
+        de **\\${_rack['costo_retornable_por_ciclo_usd']:.2f}** por embarque, y en
+        la planta con más merma por debajo de
+        **\\${_rack['costo_por_ciclo_peor_planta_usd']:.2f}**. El supuesto
+        vigente es \\${_rack['desechable_equiv_usd']:.0f} (rango \\$34–66).
+        """),
+        mo.md("""
+        ## Ahorro neto
+
+        Ahorro por viaje multiplicado por los viajes de 18 meses. El total
+        depende del volumen; la economía por viaje es lo que se compara.
+        """),
         mo.hstack([
             mo.stat(
                 label="Ahorro neto retornable",
-                value=f"${_ret['ahorro_neto_usd'].sum() / 1e6:,.1f}M",
-                caption="KLT + Rack contra cartón + tarima",
+                value=f"${tco_tipo['ahorro_neto_usd'].sum() / 1e6:,.1f}M",
+                caption="KLT + Rack contra desechable equivalente",
             ),
             mo.stat(label="Ahorro neto Rack", value=f"${_rack['ahorro_neto_usd'] / 1e6:,.1f}M"),
             mo.stat(label="Ahorro neto KLT", value=f"${_klt['ahorro_neto_usd'] / 1e6:,.1f}M"),
         ]),
-        mo.hstack([
-            mo.stat(label="Payback Rack", value=f"{_rack['ciclos_payback']} ciclos"),
-            mo.stat(label="Payback KLT", value=f"{_klt['ciclos_payback']} ciclos"),
-        ]),
-        mo.md("""
-        ## Costo de la merma
-
-        Cuánto del ahorro bruto se come el empaque que sale y no vuelve.
-        """),
-        mo.hstack([
-            mo.stat(
-                label="Costo de la merma retornable",
-                value=f"${_ret['costo_merma_usd'].sum() / 1e6:,.2f}M",
-            ),
-            mo.stat(label="Merma / bruto Rack", value=f"{_rack['merma_sobre_bruto_pct']}%"),
-            mo.stat(label="Merma / bruto KLT", value=f"{_klt['merma_sobre_bruto_pct']}%"),
-        ]),
-        mo.md("""
-        ## Detalle por tipo
-
-        Cartón es la línea base del comparativo: no tiene ahorro ni payback
-        propio. Su costo de merma sí es pérdida real y se muestra.
-        """),
-        mo.ui.table(tco_tipo, selection=None),
         mo.md("## Ahorro neto por planta"),
         mo.ui.table(_por_planta, selection=None),
     ])

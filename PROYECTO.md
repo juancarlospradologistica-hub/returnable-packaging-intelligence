@@ -239,7 +239,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - Cambiar un supuesto TCO = editar el CTE y correr dbt.
   - Si una fase futura necesita correr escenarios, migrar a dbt seed o vars con ADR nuevo.
 
-  ### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
+### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
 
 - **Fecha:** 2026-09-25
 - **Estado:** Accepted. Reemplaza el emparejamiento de int_ciclo_retorno, la asignación de Matnr descrita en ADR-007 y el tratamiento de merma en el TCO de ADR-009. La tabla de cifras antes/después se agrega al cerrar Semana 13.
@@ -265,19 +265,73 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   4. Signo SAP en Menge: salidas negativas, entradas positivas.
   5. reference_date fija en GeneratorConfig (2026-06-30). Nada se emite después del corte; Mjahr se calcula desde Budat.
   6. Mblnr secuencial por planta y año. Llave Werks + Mjahr + Mblnr + Zeile única, validada con test singular de dbt.
-  7. Matnr: 480 globales + 720 locales (~51 por planta), matnr_count = 531.
+  7. Matnr: 480 globales en todas las plantas + 720 locales repartidos sin repetir entre plantas (51 o 52 por planta). global_matnr_share = 0.40 pasa a GeneratorConfig; matnr_count se elimina de PlantConfig.
   8. TCO: costo por ciclo = costo / E[vida] + mantenimiento, con E[vida] = (1 − (1 − p)^V) / p. La merma no se resta aparte; la pérdida USD de Fase 1 se reporta como KPI propio.
   9. Faker fuera de dependencias. test-paths de dbt a tests_dbt. Sin continue-on-error en la ingesta de CI.
+  10. El cartón es desechable: sale con 601 y no genera 622 ni 702. Deja de participar en ciclo, merma y TCO como retornable.
+  11. Censura sobre Budat y Cpudt: un documento registrado después del corte no existe a la fecha de extracción.
+  12. Traslados 311/411/309 en dos posiciones del mismo documento (sale TR01, entra TR02) con el mismo registro. La suma por Matnr es cero. El volumen pasa de ~15.5M a ~22M filas; ADR-001 no cambia.
+  13. El generador escribe un Parquet por planta (data/raw/mb51_<Werks>.parquet) y libera memoria entre plantas. El dataset completo junto no cabe en un laptop de desarrollo. Mblnr sigue siendo único por año en todo el dataset.
 - **Supuestos (práctica de industria, sin datos de empleador):**
   - Merma: 0.5% por viaje (rango 0.2–1.0%), ~6% anual de la flota. Tasa heterogénea por cuenta: ~20% de las cuentas concentran ~70% de la merma.
   - Clientes: 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido entre los clientes de la planta.
-  - Menge por línea: KLT 1–12, Rack 1–4, Cartón 1–6, sesgada a valores bajos. Temporal hasta que ADR-012 la derive del plan.
+  - Menge por línea: KLT 1–12, Rack 1–4, Cartón 1–6, sesgada a valores bajos. Temporal hasta que un ADR de Fase 3 la derive del plan.
   - Conciliación trimestral (rango mensual a semestral).
 - **Consecuencias:**
   - Todas las cifras de Fase 1 y 2 cambian. README, notebooks 01/03 y dashboard se recalculan desde los marts.
   - int_ciclo_retorno se reemplaza por un modelo de saldo por cuenta. mart_rotacion_planta y mart_rutas_rotas se reconstruyen sobre él.
   - El diagrama de estados del README cambia a 621/622.
   - ADR-001 sigue vigente; el volumen se mantiene en el mismo orden.
+
+### ADR-012 · Merma por ventana conciliada, exceso de saldo por supervivencia y FIFO solo para ciclo
+
+- **Fecha:** 2026-09-25
+- **Estado:** Accepted. Reemplaza la definición de vencido y el cálculo de merma del punto 2 de ADR-011.
+- **Contexto:** Antes de escribir los modelos de Semana 13 prototipé el FIFO en DuckDB sobre una corrida reducida (2 plantas, 18 meses, seed 42).
+  - El FIFO conserva cantidad: salidas 621 = suma de tramos. El ciclo FIFO de 622 da 25.6 días.
+  - Los 702 cierran cantidad con edad FIFO promedio de ~31 días. La cuenta es fungible y con flujo continuo: los 622 posteriores a una pérdida consumen primero el saldo viejo y el faltante se corre hacia salidas recientes.
+  - Consecuencia: el saldo vencido >120 días al corte da 0, y la tasa de merma por cohorte FIFO subestima (0.30% contra 0.45% real).
+  - Con umbral 5% / 45 días, mart_rutas_rotas queda vacío: la tasa alta por cuenta es 1.75% y todas las rutas ciclan en ~26 días.
+  - Una cuenta con saldo −1: un 621 censurado por Cpudt con su 622 vivo.
+  - Saldo esperado por Little con ventana de 90 días: con ciclo por cuenta, una ruta sana llega a 9.1% de exceso y una problema a 3.1%. Con ciclo constante por tipo, separa peor que supervivencia en 5 de 8 meses.
+- **Alternativas evaluadas:**
+  - Vencido FIFO >120 días: no detecta nada en cuentas con flujo continuo, que son casi todas.
+  - Emparejar salida y cierre por documento: descartado en ADR-011, los contenedores son fungibles.
+  - Saldo esperado por Little (salidas de 90 días × ciclo): supone flujo estable; la variación de salidas cerca del cierre de mes mete ruido del mismo tamaño que la señal.
+  - Saldo esperado por curva de supervivencia: cada salida aporta su cantidad por la probabilidad de seguir en cliente a su edad. Es Little día por día, no supone flujo estable y es aditivo entre cuenta, ruta y planta.
+- **Decisión:**
+  1. FIFO solo para ciclo (tramos cerrados por 622, ponderados por cantidad).
+  2. Tasa de merma = Σ702 / Σ621 con Budat ≤ última conciliación − 120 días.
+  3. Saldo esperado por cuenta a fin de mes = Σ salidas del día × S(edad). S(edad) es la fracción de contenedores recogidos con 622 cuyo ciclo supera esa edad, por tipo de material. Exceso de saldo = saldo a fin de mes − saldo esperado.
+  4. Ruta rota: tasa de merma > 1.0% por viaje o ciclo promedio > 45 días.
+  5. mart_perdidas_usd se agrupa por mes de reconocimiento del 702.
+  6. El generador no emite 622 ni 702 si su 621 se registra después del corte.
+    7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres entre el esperado de esos cierres, por ruta planta × cliente. El exceso de una ruta rota crece entre conciliaciones y el 702 lo borra en el cierre del mes de conciliación; en ese cierre la ruta rota se ve igual que una sana. Una ventana de 3 cierres, igual al periodo de conciliación, siempre contiene un solo cierre de conciliación y dos con exceso acumulado. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
+  8. Cierre mensual en el último día hábil del mes (lunes a viernes, sin calendario de feriados), no en el último día natural. Los 621 y 622 solo caen en día hábil y S(edad) está en días naturales: un fin de mes en domingo inflaba el exceso de toda la flota +7% y uno en sábado +2.5%, y ese vaivén se confundía con la señal. El test singular assert_cierre_dia_habil valida que el cierre cae de lunes a viernes y dentro de su mes.
+- **Supuestos:**
+  - Umbral de ruta rota: 1.0% por viaje (rango 0.8–1.5%). Es el tope del rango de industria de ADR-011; la cuenta sana del sintético queda en ~0.19% y la problema en ~1.75%.
+  - S(edad) se estima con los 18 meses completos. Un fin de mes antiguo ve recogidas posteriores; aceptable para análisis histórico. En monitoreo en línea se estimaría solo con recogidas anteriores a cada corte.
+  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas y cierre hábil separa rutas rotas del resto en los 12 meses válidos: rotas con exceso mediano de +4.7% a +6.8%, resto en ~−1.1%. Con un solo cierre se traslapan en 3 de 12 meses, dos de ellos de conciliación.
+- **Consecuencias:**
+  - El saldo vencido >120 días deja de ser KPI; el exceso de saldo toma su lugar como alerta de flota fantasma.
+  - El exceso es alerta temprana, no clasificador. El criterio de ruta rota sigue siendo la tasa conciliada.
+  - Sesgo residual: con cierre hábil las rutas sanas quedan en ~−1.1% de exceso, no en cero. No cambia el orden de la alerta porque pega parejo en la flota, pero el exceso no se lee como merma absoluta. Se revisa en Fase 3.
+  - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
+  - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
+
+  ### ADR-013 · Los marts entregan conteos en BIGINT
+
+- **Fecha:** 2026-09-25
+- **Estado:** Accepted
+- **Contexto:** En DuckDB, sum() sobre enteros devuelve HUGEINT. Polars no lo maneja, así que dashboard, notebooks y pytest tenían que castear cada columna por su cuenta. Nueve columnas de cuatro marts salían HUGEINT; saldo_fin_mes en mart_exceso_saldo_ruta ya salía BIGINT.
+- **Alternativas evaluadas:**
+  - Castear en cada consumidor: la regla depende de que nadie la olvide, y un consumidor nuevo la rompe sin avisar.
+  - Castear en el mart: una sola vez, en la capa que ya es contrato con los consumidores.
+- **Decisión:** Todo conteo en un mart sale como BIGINT. El test singular assert_marts_sin_hugeint falla si alguna columna de un mart sale HUGEINT.
+- **Consecuencias:**
+  - Los consumidores leen los marts sin cast.
+  - BIGINT alcanza de sobra: el conteo más grande del proyecto es del orden de 10^7.
+  - Un mart nuevo tiene que agregarse a los depends_on del test para quedar cubierto.
 
 ---
 
@@ -313,16 +367,19 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### Parámetros del generador
 
 - **14 plantas:** 6 México, 6 Estados Unidos, 2 Nicaragua. Nombres genéricos PLNT_XX##.
-- **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales (~51 por planta). matnr_count = 531.
+- **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales repartidos sin repetir (51 o 52 por planta): 531 o 532 Matnr por planta.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
 - **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
-- **Volumen:** ~40-80k movimientos por planta/mes, ~15.5M filas totales.
+- **Volumen:** ~40-80k movimientos base por planta/mes; con traslados en pareja y recogidas, ~22M filas totales.
 - **Clientes:** 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido.
 - **Menge por línea:** KLT 1–12, Rack 1–4, Cartón 1–6. Signo SAP: salidas negativas.
 - **Ciclo 621→622:** log-normal, media 25 días, cola larga.
 - **Merma:** 0.5% por viaje, heterogénea por cuenta (~20% de las cuentas concentran ~70%). Faltante registrado con 702 en conciliación trimestral.
 - **Documento:** Mblnr secuencial por planta y año.
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
+- **Cartón:** desechable, sale con 601 y no regresa.
+- **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet). Cada corrida borra los mb51_*.parquet previos del directorio. Pico de memoria ~1.1 GB.
 
 ---
 
@@ -341,7 +398,7 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 9** . TcoConfig en config.py, int_tco_por_material.sql, mart_tco_comparativo.sql, YMLs dbt, tres tests nuevos en test_marts.py. CI verde.
 - [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
 - [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
-- [ ] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
+- [x] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
 - [ ] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 
 ---
@@ -349,6 +406,71 @@ Marcar con `[x]` al cerrar.
 ## 6. Worklog
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
+
+### 2026-09-25 · Sesión 30 — Semana 13
+
+- **Duración:** 3 h
+- **Hecho:**
+  - Prototipo FIFO en DuckDB antes de escribir modelos: sirve para ciclo pero no para merma ni vencido, porque los 702 cierran saldo reciente. Todo eso quedó en ADR-012.
+  - generator.py: 622 y 702 ya no se emiten si su 621 se registra después del corte. Dataset nuevo: 22,970,200 filas.
+  - Staging sin filtro de Bwart, con tipo_material. test-paths a tests_dbt.
+  - Tests singulares dbt:
+    - Llave única, signo SAP, saldo en cliente no negativo, cartón fuera del ciclo.
+    - Conservación FIFO y tramos válidos.
+    - Curva de supervivencia válida y saldo mensual que cuadra con tramos abiertos.
+    - Pérdidas del mart que cuadran con los 702 de staging.
+  - Modelos nuevos:
+    - int_mov_cuenta e int_tramos_fifo.
+    - int_supervivencia_retorno por tipo de material.
+    - int_cuenta_mensual con saldo esperado por curva de supervivencia y exceso de saldo.
+  - mart_perdidas_usd, mart_rotacion_planta y mart_rutas_rotas reescritos. mart_rotacion_planta.yml no existía en el branch; creado.
+  - TCO con vida esperada por merma, solo KLT y Rack. int_ciclo_retorno retirado.
+  - CI con dbt build, dataset de 12 meses por CLI y sin continue-on-error. .gitattributes con LF.
+  - PR #1 en borrador contra main. CI verde en 48 s: 79 tests dbt, 26 en pytest.
+  - Cifras con 14 plantas:
+    - Pérdida reconocida $2,238,765 en 45,853 contenedores (KLT $970,125, Rack $1,268,640). Tasa de flota 0.405%.
+    - Rutas rotas: 12 de 71, todas por merma (1.61–1.77%). Concentran $1.39M.
+    - Ciclo de cohortes completas: promedio 25.6 días, p50 25, p90 36.4.
+    - TCO: ahorro neto $137.5M (KLT $50.4M, Rack $87.1M). Payback de 6 y 5 ciclos.
+    - Rack: deja de convenir abajo de ~$5.55. Con el rango $34–66, ahorro de $63.1M a $133.1M.
+- **Decisiones tomadas:** ADR-012.
+- **Bloqueos:** OOM en int_cuenta_mensual al armar cuenta × mes × edad. Resuelto partiendo de las salidas: cada salida aporta solo a los fines de mes dentro del horizonte de la curva.
+- **Notas de la sesión:**
+  - dbt run no corre tests; en CI los tests de dbt nunca habían corrido. Usar dbt build.
+  - dbt 1.12 pide accepted_values con `arguments:`.
+  - dbt no borra la tabla de un modelo eliminado; DROP a mano en la DuckDB local.
+  - En DuckDB, date_trunc sobre una fecha devuelve timestamp; castear a date.
+  - git rm y git add --renormalize dejan en stage más de lo esperado. Hacer commit de lo pendiente antes de usarlos.
+  - Verificar con Test-Path que la descarga terminó antes de Expand-Archive.
+  - El ahorro TCO pasa de $41.0M a $137.5M casi todo por volumen: antes se contaban líneas, ahora contenedores. La economía por viaje es estable (KLT ~$4.08, Rack ~$39.86).
+- **Próximo paso:** Semana 13, paso 8a — dashboard alineado a los marts nuevos.
+
+### 2026-09-25 · Sesión 29 — Semana 12
+
+- **Duración:** 4 h
+- **Hecho:**
+  - Medí generador y modelos con una corrida reducida antes de arrancar Fase 3: 480 Matnr en uso en lugar de 1,200, fan-out en el join 601→602, pérdidas contadas en líneas, 602 posteriores al corte, Mblnr con colisiones y ~9,000 clientes aleatorios por planta. Todo eso quedó en ADR-011.
+  - config.py: reference_date fija, CustomerConfig, LossConfig con merma por ruta en dos segmentos, MengeConfig por tipo, conciliación trimestral, global_matnr_share.
+  - generator.py reescrito y vectorizado:
+    - Ciclo 621/622/702; el cartón sale con 601.
+    - Censura sobre Budat y Cpudt.
+    - Mblnr secuencial por año.
+    - Traslados en dos posiciones.
+    - Rack dedicado a un cliente.
+    - Un Parquet por planta.
+  - Dataset completo: 21,218,569 filas, ~65 s, pico de ~1.1 GB.
+  - schema.py con Bwart 621/622/702 y signo SAP. CLI arma la config con model_validate.
+  - Tests del generador: reproducibilidad fila por fila, corte, llave única, traslados en cero, cartón fuera del ciclo, rack dedicado, merma en rango. 23/23 en pytest.
+  - Branch adr-011-correccion-base; main no se toca hasta alinear dbt.
+- **Decisiones tomadas:** ADR-011.
+- **Bloqueos:** OOM con 14 plantas al concatenar todo en memoria. Resuelto escribiendo un Parquet por planta.
+- **Notas de la sesión:**
+  - group_by de Polars no garantiza orden; sin maintain_order=True el dataset cambiaba entre corridas con el mismo seed. El test de reproducibilidad anterior solo comparaba conteo de filas y no lo detectaba.
+  - conftest generaba en data/raw y cada pytest local pisaba el dataset completo. Ahora usa tmp_path_factory.
+  - model_copy de Pydantic no corre validadores; para overrides usar model_validate.
+  - Reemplazar archivos con Copy-Item desde Descargas y verificar con Select-String o git grep; el pegado en VS Code no siempre se guarda.
+  - El warning LF → CRLF es ruido; pendiente .gitattributes.
+- **Próximo paso:** Semana 13 — diseño de modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2.
 
 ### 2026-09-24 · Sesión 28 — Semana 11
 
@@ -749,6 +871,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Antigüedad FIFO** — Edad del saldo en cliente asumiendo que lo primero que salió es lo primero que regresa.
 - **Saldo vencido** — Contenedores en cliente con más de 120 días de antigüedad. Riesgo de merma, todavía no pérdida.
 - **Vida esperada** — Ciclos promedio que dura un contenedor considerando la merma: (1 − (1 − p)^V) / p.
+- **Ventana conciliada** — Salidas con antigüedad suficiente para haber pasado por una conciliación: Budat ≤ última conciliación − 120 días. Denominador de la tasa de merma.
+- **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 
 ### Términos técnicos
 
@@ -763,8 +887,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **CI/CD** — Continuous Integration / Continuous Delivery.
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
-- **HUGEINT** — entero de 128 bits de DuckDB. Polars no lo maneja bien; castear a BIGINT.
+- **HUGEINT** — entero de 128 bits de DuckDB; es lo que devuelve sum() sobre enteros. Polars no lo maneja bien. Los marts castean a BIGINT (ADR-013).
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
+- **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
 
 ---
 

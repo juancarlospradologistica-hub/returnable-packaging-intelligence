@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: mart_exceso_saldo_ruta
+    description: >
+      Saldo en cliente contra saldo esperado por curva de supervivencia, por
+      ruta planta × cliente y fin de mes (ADR-012). Alerta temprana de merma
+      todavía no reconocida; el criterio de ruta rota sigue en
+      mart_rutas_rotas.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: cliente
+        tests: [not_null]
+      - name: mes
+        tests: [not_null]
+      - name: saldo_fin_mes
+        tests: [not_null]
+      - name: saldo_esperado
+        tests: [not_null]
+      - name: exceso_pct
+        description: Exceso del cierre sobre el esperado, en porcentaje.
+      - name: exceso_pct_ciclo
+        description: >
+          Exceso de los últimos 3 cierres entre el esperado de esos cierres.
+          Indicador de la alerta: un solo cierre no distingue rutas en el mes
+          de conciliación, porque el 702 borra el exceso acumulado.
+      - name: alerta_valida
+        description: >
+          La ventana tiene 3 cierres y todos caen después del horizonte de
+          la curva. Solo estas filas se comparan entre rutas.
+        tests: [not_null]
