@@ -7,7 +7,7 @@ select
     material_desc,
     tipo_material,
     cast(date_trunc('month', fecha_contab) as date)     as mes,
-    sum(abs(cantidad))                                  as unidades_perdidas,
+    cast(sum(abs(cantidad)) as bigint)                  as unidades_perdidas,
     max(costo_usd)                                      as costo_unitario_usd,
     round(sum(abs(cantidad) * costo_usd), 2)            as perdida_usd
 from {{ ref('stg_mb51') }}

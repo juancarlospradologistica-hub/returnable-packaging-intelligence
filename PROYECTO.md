@@ -319,6 +319,20 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
   - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
 
+  ### ADR-013 · Los marts entregan conteos en BIGINT
+
+- **Fecha:** 2026-09-25
+- **Estado:** Accepted
+- **Contexto:** En DuckDB, sum() sobre enteros devuelve HUGEINT. Polars no lo maneja, así que dashboard, notebooks y pytest tenían que castear cada columna por su cuenta. Nueve columnas de cuatro marts salían HUGEINT; saldo_fin_mes en mart_exceso_saldo_ruta ya salía BIGINT.
+- **Alternativas evaluadas:**
+  - Castear en cada consumidor: la regla depende de que nadie la olvide, y un consumidor nuevo la rompe sin avisar.
+  - Castear en el mart: una sola vez, en la capa que ya es contrato con los consumidores.
+- **Decisión:** Todo conteo en un mart sale como BIGINT. El test singular assert_marts_sin_hugeint falla si alguna columna de un mart sale HUGEINT.
+- **Consecuencias:**
+  - Los consumidores leen los marts sin cast.
+  - BIGINT alcanza de sobra: el conteo más grande del proyecto es del orden de 10^7.
+  - Un mart nuevo tiene que agregarse a los depends_on del test para quedar cubierto.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -873,7 +887,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **CI/CD** — Continuous Integration / Continuous Delivery.
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
-- **HUGEINT** — entero de 128 bits de DuckDB. Polars no lo maneja bien; castear a BIGINT.
+- **HUGEINT** — entero de 128 bits de DuckDB; es lo que devuelve sum() sobre enteros. Polars no lo maneja bien. Los marts castean a BIGINT (ADR-013).
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
 - **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
 

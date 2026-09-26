@@ -18,7 +18,7 @@ salidas as (
     select
         planta,
         cast(date_trunc('month', fecha_salida) as date) as mes,
-        sum(cantidad)                                   as contenedores_salida
+        cast(sum(cantidad) as bigint)                   as contenedores_salida
     from tramos
     group by planta, date_trunc('month', fecha_salida)
 ),
@@ -49,7 +49,7 @@ ciclo as (
     select
         planta,
         mes,
-        sum(cantidad)                                   as contenedores_recogidos,
+        cast(sum(cantidad) as bigint)                   as contenedores_recogidos,
         round(sum(cantidad * dias) * 1.0 / sum(cantidad), 1) as ciclo_promedio_dias,
         min(dias) filter (where fraccion_acum >= 0.5)   as ciclo_p50_dias,
         min(dias) filter (where fraccion_acum >= 0.9)   as ciclo_p90_dias

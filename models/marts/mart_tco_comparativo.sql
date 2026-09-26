@@ -16,9 +16,9 @@ costos as (
 select
     planta,
     tipo_material,
-    viajes,
-    salidas_conciliadas,
-    faltantes,
+    cast(viajes as bigint)                                              as viajes,
+    cast(salidas_conciliadas as bigint)                                 as salidas_conciliadas,
+    cast(faltantes as bigint)                                           as faltantes,
     tasa_merma_pct,
     vida_util_ciclos,
     round(vida_esperada_ciclos, 1)                                      as vida_esperada_ciclos,

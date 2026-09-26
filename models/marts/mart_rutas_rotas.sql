@@ -23,12 +23,14 @@ merma as (
     select
         m.planta,
         m.cliente,
-        sum(abs(m.cantidad)) filter (where m.mov_type = '621')      as contenedores_salida,
-        sum(abs(m.cantidad)) filter (
+        cast(sum(abs(m.cantidad)) filter (where m.mov_type = '621') as bigint)
+                                                                    as contenedores_salida,
+        cast(sum(abs(m.cantidad)) filter (
             where m.mov_type = '621'
               and m.fecha_contab <= u.fecha - p.dias_para_conciliar
-        )                                                           as salidas_conciliadas,
-        coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
+        ) as bigint)                                                as salidas_conciliadas,
+        cast(coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as bigint)
+                                                                    as faltantes,
         coalesce(round(sum(abs(m.cantidad) * m.costo_usd)
             filter (where m.mov_type = '702'), 2), 0)               as perdida_acum_usd
     from movimientos m
