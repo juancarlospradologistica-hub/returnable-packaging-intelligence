@@ -239,7 +239,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - Cambiar un supuesto TCO = editar el CTE y correr dbt.
   - Si una fase futura necesita correr escenarios, migrar a dbt seed o vars con ADR nuevo.
 
-  ### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
+### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
 
 - **Fecha:** 2026-09-25
 - **Estado:** Accepted. Reemplaza el emparejamiento de int_ciclo_retorno, la asignación de Matnr descrita en ADR-007 y el tratamiento de merma en el TCO de ADR-009. La tabla de cifras antes/después se agrega al cerrar Semana 13.
@@ -275,7 +275,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Supuestos (práctica de industria, sin datos de empleador):**
   - Merma: 0.5% por viaje (rango 0.2–1.0%), ~6% anual de la flota. Tasa heterogénea por cuenta: ~20% de las cuentas concentran ~70% de la merma.
   - Clientes: 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido entre los clientes de la planta.
-  - Menge por línea: KLT 1–12, Rack 1–4, Cartón 1–6, sesgada a valores bajos. Temporal hasta que ADR-012 la derive del plan.
+  - Menge por línea: KLT 1–12, Rack 1–4, Cartón 1–6, sesgada a valores bajos. Temporal hasta que un ADR de Fase 3 la derive del plan.
   - Conciliación trimestral (rango mensual a semestral).
 - **Consecuencias:**
   - Todas las cifras de Fase 1 y 2 cambian. README, notebooks 01/03 y dashboard se recalculan desde los marts.
@@ -351,7 +351,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### Parámetros del generador
 
 - **14 plantas:** 6 México, 6 Estados Unidos, 2 Nicaragua. Nombres genéricos PLNT_XX##.
-- **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales (~51 por planta). matnr_count = 531.
+- **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales repartidos sin repetir (51 o 52 por planta): 531 o 532 Matnr por planta.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
 - **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
 - **Volumen:** ~40-80k movimientos base por planta/mes; con traslados en pareja y recogidas, ~22M filas totales.
@@ -855,6 +855,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Antigüedad FIFO** — Edad del saldo en cliente asumiendo que lo primero que salió es lo primero que regresa.
 - **Saldo vencido** — Contenedores en cliente con más de 120 días de antigüedad. Riesgo de merma, todavía no pérdida.
 - **Vida esperada** — Ciclos promedio que dura un contenedor considerando la merma: (1 − (1 − p)^V) / p.
+- **Ventana conciliada** — Salidas con antigüedad suficiente para haber pasado por una conciliación: Budat ≤ última conciliación − 120 días. Denominador de la tasa de merma.
+- **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 
 ### Términos técnicos
 
@@ -871,6 +873,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
 - **HUGEINT** — entero de 128 bits de DuckDB. Polars no lo maneja bien; castear a BIGINT.
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
+- **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
 
 ---
 
