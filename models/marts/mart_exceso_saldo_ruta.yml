@@ -23,8 +23,8 @@ models:
       - name: exceso_pct_ciclo
         description: >
           Exceso de los últimos 3 cierres entre el esperado de esos cierres.
-          Indicador de la alerta: quita el vaivén de la flota entre
-          conciliaciones.
+          Indicador de la alerta: un solo cierre no distingue rutas en el mes
+          de conciliación, porque el 702 borra el exceso acumulado.
       - name: alerta_valida
         description: >
           La ventana tiene 3 cierres y todos caen después del horizonte de

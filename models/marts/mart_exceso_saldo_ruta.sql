@@ -2,10 +2,10 @@
 -- Alerta temprana, no clasificador: el criterio de ruta rota sigue siendo la
 -- tasa conciliada de mart_rutas_rotas.
 --
--- Un cierre aislado no sirve para comparar rutas: toda la flota sube y baja
--- con el calendario de conciliación. El indicador de la alerta es el exceso
--- de los últimos 3 cierres (un ciclo de conciliación trimestral) sobre el
--- saldo esperado de esos mismos cierres.
+-- Un cierre aislado no sirve para comparar rutas: en el mes de conciliación
+-- el 702 borra el exceso acumulado y una ruta rota queda igual que una sana.
+-- El indicador de la alerta es el exceso de los últimos 3 cierres (un ciclo
+-- de conciliación trimestral) sobre el saldo esperado de esos mismos cierres.
 with cuenta as (
     select * from {{ ref('int_cuenta_mensual') }}
 ),

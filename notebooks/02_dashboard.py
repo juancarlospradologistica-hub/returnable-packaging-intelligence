@@ -307,9 +307,10 @@ def _(
         de supervivencia del ciclo. El exceso es merma que la conciliación
         todavía no reconoce.
 
-        Un cierre aislado no sirve para comparar: toda la flota sube y baja
-        entre conciliaciones. El indicador suma los últimos 3 cierres. Es
-        alerta, no clasificador; la ruta rota se define por tasa conciliada.
+        Un cierre aislado no sirve para comparar: en el mes de conciliación
+        el 702 borra el exceso acumulado y la ruta rota se ve sana. El
+        indicador suma los últimos 3 cierres. Es alerta, no clasificador;
+        la ruta rota se define por tasa conciliada.
         """),
         grafica_exceso,
         tabla_exceso,
