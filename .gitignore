@@ -229,6 +229,7 @@ data/processed/*.parquet
 data/processed/*.csv
 data/**/*.duckdb
 data/**/*.db
+data/**/*.duckdb.tmp/
 
 # DuckDB local
 *.duckdb
