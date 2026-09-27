@@ -423,6 +423,43 @@ Marcar con `[x]` al cerrar.
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
 
+### 2026-09-26 · Sesión 31 — Semana 13
+
+- **Duración:** ~6 h (viernes noche y sábado)
+- **Hecho:**
+  - El OOM en int_tramos_fifo no era del modelo: el equipo tenía 3.2 GB libres de 15.6. Arranque depurado; con ~7 GB libres el build completo pasa en ~30 s. profiles.yml con memory_limit 4GB y threads 4.
+  - Cierre mensual en el último día hábil y test assert_cierre_dia_habil. El vaivén del exceso era calendario: fin de mes en domingo inflaba +7%.
+  - mart_exceso_saldo_ruta con la razón real de la ventana de 3 cierres: el 702 borra el exceso en el mes de conciliación.
+  - ADR-012: puntos 7 y 8, supuesto de la ventana y sesgo residual en Consecuencias.
+  - Marts con conteos en BIGINT y test assert_marts_sin_hugeint (ADR-013).
+  - mart_ciclo_cohortes con percentiles sobre la distribución completa (ADR-014). p90 de flota 35 días; el 36.4 anterior era promedio de percentiles mensuales.
+  - Notebook 01 reescrito sobre los marts de saldo: texto con cifras generado desde código, sección nueva de exceso de saldo, gráficas rutas_rotas.png y exceso_saldo_rutas.png.
+  - Notebook 03 reescrito: TCO con vida esperada, assert de cuadre contra Fase 1, sensibilidad a merma y al desechable del Rack, gráfica tco_costo_por_viaje.png.
+  - dbt build 99/99, pytest 26, CI verde.
+  - Cifras con 14 plantas:
+    - Ciclo de flota: promedio 25.6 días, p50 25, p90 35. Por planta, p90 de 33 a 39.
+    - Rutas rotas: 12 de 71, tasa de 1.60% a 1.77%, concentran $1,385,315 (62% de la pérdida).
+    - Exceso de saldo: rotas de +4.7% a +6.8%; resto de −1.6% a −0.9%.
+    - Vida esperada: KLT 113.9 ciclos, Rack 68.5.
+    - Rack: equilibrio de flota $5.14 por embarque, peor planta $5.55.
+- **Decisiones tomadas:** ADR-013, ADR-014. ADR-012 ajustado (puntos 7 y 8).
+- **Bloqueos:** archivos creados en VS Code que quedaron en 0 bytes o en carpetas duplicadas (tests_dbt\tests_dbt, models\ en vez de models\marts\). Resuelto copiando con Copy-Item desde Descargas y verificando Length.
+- **Notas de la sesión:**
+  - Medir memoria con Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory; Get-Counter falla en Windows en español.
+  - dbt partial parse no detecta archivos creados vacíos y llenados después. Si el TOTAL no cambia, correr con --no-partial-parse y revisar Length.
+  - sum() sobre BIGINT en DuckDB devuelve HUGEINT: al volver a sumar columnas de un mart hay que castear el resultado.
+  - Un promedio de percentiles mensuales no es un percentil; aquí inflaba el p90 1.4 días.
+  - El ruff del repo incluye B905: zip() necesita strict=. Correr ruff local antes de cada commit con notebooks.
+  - PowerShell 5.1 no acepta \" dentro de un python -c entre comillas dobles; usar comillas simples en el código Python.
+  - PROYECTO.md usa el signo menos tipográfico (−); Select-String con guion normal no lo encuentra.
+- **Próximo paso:** Semana 13, paso 8d:
+  - README con cifras nuevas y gráficas; retirar scatter_rutas_rotas.png.
+  - Tabla antes/después en ADR-011.
+  - Consecuencias de ADR-010: el equilibrio del Rack pasa de ~$8.70 a $5.14 de flota y $5.55 en la peor planta.
+  - faker fuera de pyproject.toml y uv.lock (ADR-011, punto 9).
+  - Dashboard: ciclo desde mart_ciclo_cohortes; quitar los ::BIGINT sobre columnas leídas directo.
+  - Ready for review y merge del PR #1.
+
 ### 2026-09-25 · Sesión 30 — Semana 13
 
 - **Duración:** 3 h
