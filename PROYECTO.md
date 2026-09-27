@@ -225,7 +225,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### ADR-010 · Desechable equivalente del Rack y fuente única de parámetros TCO
 
 - **Fecha:** 2026-09-24
-- **Estado:** Accepted
+- **Estado:** Accepted. Cifras de Consecuencias actualizadas con la base corregida de ADR-011.
 - **Contexto:** ADR-009 dejó el Rack sin equivalente desechable y su ahorro salía null. Además los parámetros TCO quedaron duplicados: TcoConfig en config.py y un CTE hardcodeado en int_tco_por_material.sql. dbt solo lee el SQL; TcoConfig nunca se usó y ya divergía (Rack en None contra $45 en SQL).
 - **Alternativas evaluadas:**
   - Dejar Rack sin equivalente: el TCO excluye el tipo con mayor valor por unidad. Se pierde el argumento.
@@ -235,7 +235,9 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Decisión:** Rack desechable equivalente = $45.00. Parámetros TCO solo en el CTE `parametros` de int_tco_por_material.sql. Se elimina TcoConfig.
 - **Consecuencias:**
   - Reemplaza el parámetro de Rack de ADR-009.
-  - Ahorro neto total $41.0M; con el rango $34–66 va de $30.9M a $60.4M. Cada $1 mueve el ahorro del Rack ~$0.9M. El Rack deja de convenir abajo de ~$8.70.
+  - Con la base de Sesión 28: ahorro neto total $41.0M; con el rango $34–66 va de $30.9M a $60.4M. Cada $1 mueve el ahorro del Rack ~$0.9M. El Rack deja de convenir abajo de ~$8.70.
+  - Con la base corregida de ADR-011: ahorro neto total $137.5M; con el rango $34–66 el del Rack va de $63.1M a $133.1M y el total de $113.5M a $183.4M. Cada $1 mueve el ahorro del Rack $2.2M, porque ahora se cuentan contenedores y no líneas.
+  - El equilibrio del Rack pasa de ~$8.70 a $5.14 por embarque en la flota y $5.55 en la planta con más merma. Baja porque la merma ya no se resta aparte con el conteo inflado por el fan-out 601→602: entra al costo por viaje vía vida esperada con la tasa conciliada, 0.415% por viaje en Rack (ADR-011, punto 8). El piso del rango ($34) queda arriba de los dos.
   - Cambiar un supuesto TCO = editar el CTE y correr dbt.
   - Si una fase futura necesita correr escenarios, migrar a dbt seed o vars con ADR nuevo.
 
