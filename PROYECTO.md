@@ -242,7 +242,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### ADR-011 · Corrección de base: ciclo 621→622, saldo por cuenta y generador reproducible
 
 - **Fecha:** 2026-09-25
-- **Estado:** Accepted. Reemplaza el emparejamiento de int_ciclo_retorno, la asignación de Matnr descrita en ADR-007 y el tratamiento de merma en el TCO de ADR-009. La tabla de cifras antes/después se agrega al cerrar Semana 13.
+- **Estado:** Accepted. Reemplaza el emparejamiento de int_ciclo_retorno, la asignación de Matnr descrita en ADR-007 y el tratamiento de merma en el TCO de ADR-009.
 - **Contexto:** Antes de Fase 3 medí generador y modelos con una corrida reducida (2 plantas, 18 meses). Encontré:
   - Solo existen 480 Matnr: los 720 locales nunca se asignan.
   - El join 601→602 por planta + material + cliente hace fan-out y sobrecuenta la merma ~8%.
@@ -282,6 +282,32 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - int_ciclo_retorno se reemplaza por un modelo de saldo por cuenta. mart_rotacion_planta y mart_rutas_rotas se reconstruyen sobre él.
   - El diagrama de estados del README cambia a 621/622.
   - ADR-001 sigue vigente; el volumen se mantiene en el mismo orden.
+- **Cifras antes y después:** Sesión 28 (cierre de Fase 2 sobre la base anterior) contra el cierre de Semana 13. 14 plantas, seed 42.
+
+| Métrica | Sesión 28 | Semana 13 | Qué lo mueve |
+|---|---:|---:|---|
+| Filas MB51 | ~15.5M | 22,970,200 | Traslados en dos posiciones (punto 12) |
+| Matnr en uso | 480 | 1,200 | Locales asignados (punto 7) |
+| Clientes por planta | ~9,000 | 3 a 8 | Cuentas globales (Supuestos) |
+| Pérdida reconocida | $4,822,074 | $2,238,765 | Sin fan-out 601→602, Menge en lugar de líneas, merma por conciliación (puntos 1 a 3, ADR-012) |
+| Contenedores perdidos | 72,512 líneas | 45,853 | Menge en lugar de líneas (punto 3) |
+| Costo promedio por pérdida | $66.50 | $48.82 | Mezcla Rack/KLT contada en contenedores |
+| Tasa de merma de flota | n/d | 0.405% por viaje | Ventana conciliada (ADR-012) |
+| Tasa máxima por ruta | 35.29% | 1.77% | Tasa por viaje sobre salidas conciliadas (ADR-012) |
+| Ruta con más pérdida | PLNT_MX01 → CUST-5144 | PLNT_US04 → CUST-0014 | Clientes y merma por cuenta |
+| Ciclo de flota | ~25 días | 25.6 promedio, p50 25, p90 35 | 621→622 con antigüedad FIFO (ADR-012, ADR-014) |
+| Viajes TCO, Rack / KLT | 923,918 / 2,085,975 líneas | 2,186,377 / 12,355,872 contenedores | Menge en lugar de líneas (punto 3) |
+| Ahorro por viaje, Rack / KLT | $36.32 / $3.59 | $39.86 / $4.08 | Merma dentro de la vida esperada (punto 8) |
+| Ahorro neto | $41.0M | $137.5M | Volumen en contenedores |
+| Ahorro neto, Rack / KLT | $33.6M / $7.5M | $87.1M / $50.4M | Volumen en contenedores |
+| Payback, Rack / KLT | 5 / 6 | 5 / 6 | Sin cambio |
+| Merma en el TCO | $4.77M restados aparte | Dentro de E[vida] | Punto 8 |
+| Cartón en el TCO | Línea base (−$57,064) | Fuera | Punto 10 |
+| Ahorro total con desechable Rack $34–66 | $30.9M a $60.4M | $113.5M a $183.4M | Volumen en contenedores |
+| Equilibrio del Rack | ~$8.70 | $5.14 flota, $5.55 peor planta | Punto 8 (ADR-010, Consecuencias) |
+| Tests dbt en CI | 0 (dbt run) | 87 (dbt build) | Punto 9 |
+
+La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es el volumen, que antes contaba líneas, y dónde se reconoce la merma: la pérdida baja a menos de la mitad porque ya no hay fan-out y solo cuenta el faltante conciliado.
 
 ### ADR-012 · Merma por ventana conciliada, exceso de saldo por supervivencia y FIFO solo para ciclo
 
@@ -306,7 +332,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   4. Ruta rota: tasa de merma > 1.0% por viaje o ciclo promedio > 45 días.
   5. mart_perdidas_usd se agrupa por mes de reconocimiento del 702.
   6. El generador no emite 622 ni 702 si su 621 se registra después del corte.
-    7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres entre el esperado de esos cierres, por ruta planta × cliente. El exceso de una ruta rota crece entre conciliaciones y el 702 lo borra en el cierre del mes de conciliación; en ese cierre la ruta rota se ve igual que una sana. Una ventana de 3 cierres, igual al periodo de conciliación, siempre contiene un solo cierre de conciliación y dos con exceso acumulado. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
+  7. Alerta de exceso en mart_exceso_saldo_ruta: exceso de los últimos 3 cierres entre el esperado de esos cierres, por ruta planta × cliente. El exceso de una ruta rota crece entre conciliaciones y el 702 lo borra en el cierre del mes de conciliación; en ese cierre la ruta rota se ve igual que una sana. Una ventana de 3 cierres, igual al periodo de conciliación, siempre contiene un solo cierre de conciliación y dos con exceso acumulado. Solo cuentan ventanas posteriores al horizonte de la curva (alerta_valida). Sin umbral: ordena rutas, no las clasifica.
   8. Cierre mensual en el último día hábil del mes (lunes a viernes, sin calendario de feriados), no en el último día natural. Los 621 y 622 solo caen en día hábil y S(edad) está en días naturales: un fin de mes en domingo inflaba el exceso de toda la flota +7% y uno en sábado +2.5%, y ese vaivén se confundía con la señal. El test singular assert_cierre_dia_habil valida que el cierre cae de lunes a viernes y dentro de su mes.
 - **Supuestos:**
   - Umbral de ruta rota: 1.0% por viaje (rango 0.8–1.5%). Es el tope del rango de industria de ADR-011; la cuenta sana del sintético queda en ~0.19% y la problema en ~1.75%.
@@ -319,7 +345,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
   - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
 
-  ### ADR-013 · Los marts entregan conteos en BIGINT
+### ADR-013 · Los marts entregan conteos en BIGINT
 
 - **Fecha:** 2026-09-25
 - **Estado:** Accepted
