@@ -3,6 +3,7 @@
 -- depends_on: {{ ref('mart_rotacion_planta') }}
 -- depends_on: {{ ref('mart_exceso_saldo_ruta') }}
 -- depends_on: {{ ref('mart_tco_comparativo') }}
+-- depends_on: {{ ref('mart_ciclo_cohortes') }}
 -- Los marts entregan conteos en BIGINT. Polars no maneja HUGEINT y cada
 -- consumidor tendría que castear por su cuenta.
 select table_name, column_name, data_type

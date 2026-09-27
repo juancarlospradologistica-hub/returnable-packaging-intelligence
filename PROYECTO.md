@@ -333,6 +333,22 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - BIGINT alcanza de sobra: el conteo más grande del proyecto es del orden de 10^7.
   - Un mart nuevo tiene que agregarse a los depends_on del test para quedar cubierto.
 
+### ADR-014 · Percentiles de ciclo sobre la distribución completa
+
+- **Fecha:** 2026-09-26
+- **Estado:** Accepted
+- **Contexto:** El dashboard mostraba p50 y p90 de flota y de planta como promedio de los percentiles mensuales de mart_rotacion_planta. Un promedio de percentiles no es un percentil. Con 14 plantas el promedio de p90 mensuales daba 36.4 días; el p90 de la distribución completa es 35. Esa cifra iba a README y notebook.
+- **Alternativas evaluadas:**
+  - Calcular el percentil en Polars dentro del dashboard y del notebook: la misma lógica escrita dos veces.
+  - Columnas nuevas en mart_rotacion_planta: cambia su grano planta × mes.
+  - Mart nuevo con grouping sets planta y flota: una sola regla para las dos vistas.
+- **Decisión:** mart_ciclo_cohortes con percentiles ponderados por contenedor sobre todos los tramos 622 de cohortes completas, una fila por planta y una de flota. La cohorte completa se toma de mart_rotacion_planta. Lo valida el test singular assert_ciclo_cohortes_cuadra.
+- **Consecuencias:**
+  - Ciclo de flota: promedio 25.6 días, p50 25, p90 35. Reemplaza el p90 de 36.4.
+  - Por planta, p90 de 33 a 39 días.
+  - Los percentiles salen en días enteros.
+  - Dashboard y notebook leen el ciclo de este mart; mart_rotacion_planta queda para la serie mensual.  
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)

@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: mart_ciclo_cohortes
+    description: >
+      Ciclo 621→622 de cohortes completas con percentiles ponderados por
+      contenedor. Una fila por planta y una de flota (planta null).
+    columns:
+      - name: nivel
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['flota', 'planta']
+      - name: contenedores_recogidos
+        data_tests:
+          - not_null
+      - name: ciclo_promedio_dias
+        data_tests:
+          - not_null
+      - name: ciclo_p50_dias
+        data_tests:
+          - not_null
+      - name: ciclo_p90_dias
+        data_tests:
+          - not_null
