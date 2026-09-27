@@ -311,11 +311,11 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 - **Supuestos:**
   - Umbral de ruta rota: 1.0% por viaje (rango 0.8–1.5%). Es el tope del rango de industria de ADR-011; la cuenta sana del sintético queda en ~0.19% y la problema en ~1.75%.
   - S(edad) se estima con los 18 meses completos. Un fin de mes antiguo ve recogidas posteriores; aceptable para análisis histórico. En monitoreo en línea se estimaría solo con recogidas anteriores a cada corte.
-  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas y cierre hábil separa rutas rotas del resto en los 12 meses válidos: rotas con exceso mediano de +4.7% a +6.8%, resto en ~−1.1%. Con un solo cierre se traslapan en 3 de 12 meses, dos de ellos de conciliación.
+  - Ventana de la alerta: 3 cierres, igual al periodo de conciliación (rango: el periodo de conciliación vigente). Con 14 plantas y cierre hábil separa rutas rotas del resto en los 12 cierres válidos: rotas con exceso mediano de +4.7% a +6.8%, resto de −1.6% a −0.9%. Con un solo cierre se traslapan en 3 de 12 meses, dos de ellos de conciliación.
 - **Consecuencias:**
   - El saldo vencido >120 días deja de ser KPI; el exceso de saldo toma su lugar como alerta de flota fantasma.
   - El exceso es alerta temprana, no clasificador. El criterio de ruta rota sigue siendo la tasa conciliada.
-  - Sesgo residual: con cierre hábil las rutas sanas quedan en ~−1.1% de exceso, no en cero. No cambia el orden de la alerta porque pega parejo en la flota, pero el exceso no se lee como merma absoluta. Se revisa en Fase 3.
+  - Sesgo residual: con cierre hábil las rutas sanas quedan entre −1.6% y −0.9% de exceso (−1.2% en promedio), no en cero. No cambia el orden de la alerta porque pega parejo en la flota, pero el exceso no se lee como merma absoluta. Se revisa en Fase 3.
   - El criterio de ciclo en rutas rotas hoy no dispara: el generador no tiene ciclo heterogéneo por ruta.
   - El dataset cambia completo con el mismo seed: 22,970,200 filas reemplazan la cifra de la Sesión 29.
 
@@ -329,7 +329,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
   - Castear en el mart: una sola vez, en la capa que ya es contrato con los consumidores.
 - **Decisión:** Todo conteo en un mart sale como BIGINT. El test singular assert_marts_sin_hugeint falla si alguna columna de un mart sale HUGEINT.
 - **Consecuencias:**
-  - Los consumidores leen los marts sin cast.
+  - Los consumidores leen las columnas de los marts sin cast. Si vuelven a sumarlas, sum() sobre BIGINT devuelve HUGEINT otra vez y hay que castear el resultado.
   - BIGINT alcanza de sobra: el conteo más grande del proyecto es del orden de 10^7.
   - Un mart nuevo tiene que agregarse a los depends_on del test para quedar cubierto.
 
