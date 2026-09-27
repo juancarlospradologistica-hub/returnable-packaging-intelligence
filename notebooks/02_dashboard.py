@@ -57,7 +57,8 @@ def _():
 
 @app.cell
 def _(con, mo):
-    # Las sumas de dbt salen como HUGEINT o DECIMAL(38); se castean para Polars.
+    # Los marts ya entregan BIGINT (ADR-013), pero SUM() sobre BIGINT vuelve a
+    # dar HUGEINT: al re-sumar aquí se castea.
     try:
         kpis = con.execute("""
             WITH perdida AS (
@@ -147,9 +148,9 @@ def _(con, mo):
         SELECT
             planta,
             cliente,
-            contenedores_salida::BIGINT     AS contenedores_salida,
-            salidas_conciliadas::BIGINT     AS salidas_conciliadas,
-            faltantes::BIGINT               AS faltantes,
+            contenedores_salida,
+            salidas_conciliadas,
+            faltantes,
             tasa_merma_pct,
             ciclo_promedio_dias,
             perdida_acum_usd
@@ -234,40 +235,41 @@ def _(exceso, mo, pl):
 
 
 @app.cell
-def _(con, mo):
-    # Solo cohortes completas: en las recientes aún no regresan los ciclos
-    # largos y el promedio sale bajo.
+def _(con, mo, pl):
+    # El mart ya filtra cohortes completas y calcula los percentiles sobre la
+    # distribución completa (ADR-014). Promediar p90 mensuales no da el p90.
     _ciclo = con.execute("""
         SELECT
+            nivel,
             planta,
-            ROUND(SUM(ciclo_promedio_dias * contenedores_recogidos)
-                / SUM(contenedores_recogidos), 1)   AS ciclo_promedio_dias,
-            ROUND(AVG(ciclo_p50_dias), 1)           AS ciclo_p50_dias,
-            ROUND(AVG(ciclo_p90_dias), 1)           AS ciclo_p90_dias,
-            SUM(contenedores_recogidos)::BIGINT     AS contenedores_recogidos
-        FROM mart_rotacion_planta
-        WHERE cohorte_completa
-        GROUP BY planta
-        ORDER BY ciclo_promedio_dias DESC
+            ciclo_promedio_dias,
+            ciclo_p50_dias,
+            ciclo_p90_dias,
+            contenedores_recogidos
+        FROM mart_ciclo_cohortes
     """).pl()
 
-    _flota = con.execute("""
-        SELECT
-            SUM(ciclo_promedio_dias * contenedores_recogidos)
-                / SUM(contenedores_recogidos)       AS promedio,
-            AVG(ciclo_p50_dias)                     AS p50,
-            AVG(ciclo_p90_dias)                     AS p90
-        FROM mart_rotacion_planta
-        WHERE cohorte_completa
-    """).pl().row(0, named=True)
+    _flota = _ciclo.filter(pl.col("nivel") == "flota").row(0, named=True)
+
+    # El promedio casi no se mueve entre plantas; la diferencia está en la cola.
+    _plantas = (
+        _ciclo.filter(pl.col("nivel") == "planta")
+        .drop("nivel")
+        .sort(["ciclo_p90_dias", "ciclo_promedio_dias"], descending=True)
+    )
 
     vista_ciclo = mo.vstack([
         mo.hstack([
-            mo.stat(label="Ciclo promedio", value=f"{_flota['promedio']:.1f} días"),
-            mo.stat(label="p50", value=f"{_flota['p50']:.0f} días"),
-            mo.stat(label="p90", value=f"{_flota['p90']:.1f} días"),
+            mo.stat(label="Ciclo promedio", value=f"{_flota['ciclo_promedio_dias']:.1f} días"),
+            mo.stat(label="p50", value=f"{_flota['ciclo_p50_dias']} días"),
+            mo.stat(label="p90", value=f"{_flota['ciclo_p90_dias']} días"),
+            mo.stat(
+                label="Contenedores recogidos",
+                value=f"{_flota['contenedores_recogidos']:,}",
+                caption="cohortes completas",
+            ),
         ]),
-        mo.ui.table(_ciclo, selection=None),
+        mo.ui.table(_plantas, selection=None),
     ])
     return (vista_ciclo,)
 
@@ -318,7 +320,8 @@ def _(
         ## Ciclo de retorno por planta
 
         Días entre 621 y 622 con antigüedad FIFO, ponderados por contenedor.
-        Solo cohortes de salida completas.
+        Solo cohortes de salida completas. Plantas ordenadas por p90: el
+        promedio casi no cambia entre plantas, la cola sí.
         """),
         vista_ciclo,
     ])
@@ -332,9 +335,9 @@ def _(con, mo):
             SELECT
                 planta,
                 tipo_material,
-                viajes::BIGINT                  AS viajes,
-                salidas_conciliadas::BIGINT     AS salidas_conciliadas,
-                faltantes::BIGINT               AS faltantes,
+                viajes,
+                salidas_conciliadas,
+                faltantes,
                 vida_util_ciclos,
                 vida_esperada_ciclos,
                 costo_unitario_usd,
