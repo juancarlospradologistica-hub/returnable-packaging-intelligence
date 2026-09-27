@@ -443,11 +443,36 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 10**. Notebook 03_tco_analysis.ipynb: punto de equilibrio por tipo, ahorro neto vs desechable, sensibilidad a tasa de merma.
 - [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
 - [x] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
-- [ ] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
+- [x] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 
 ---
 
 ## 6. Worklog
+
+### 2026-09-26 · Sesión 32 — Semana 13
+
+- **Duración:** ~1 h
+- **Hecho:**
+  - Dashboard: ciclo desde mart_ciclo_cohortes, plantas ordenadas por p90. Fuera los casts ::BIGINT sobre columnas leídas directo del mart; queda solo el de SUM(unidades_perdidas).
+  - README con cifras de la base corregida: gráficas de rutas rotas, exceso de saldo, costo por viaje y sensibilidad; diagrama de estados 621/622/702; linaje dbt como Mermaid tomado del manifest.
+  - Retirados scatter_rutas_rotas.png y dbt_lineage.png (linaje anterior a ADR-011).
+  - ADR-011: tabla de cifras antes y después, Sesión 28 contra Semana 13.
+  - ADR-010: Consecuencias con la base corregida; equilibrio del Rack de ~$8.70 a $5.14 de flota y $5.55 en la peor planta.
+  - faker fuera de pyproject.toml y uv.lock (ADR-011, punto 9).
+  - Formato: encabezado de ADR-013 e item 7 de ADR-012 sin indentación de más.
+  - Semana 13 cerrada. PR #1 a Ready for review y merge a main.
+- **Decisiones tomadas:** ninguna nueva.
+- **Bloqueos:** un Copy-Item tomó un PROYECTO.md viejo de Descargas (Length 37823 contra 62728). Detectado antes del commit; restaurado con git checkout.
+- **Notas de la sesión:**
+  - El README decía que 311 era traslado entre plantas. En el generador 311/411/309 van de TR01 a TR02 dentro de la misma planta.
+  - Limpiar Descargas antes de bajar un reemplazo: el navegador renombra a "archivo (1)" y el Copy-Item agarra el viejo.
+  - uv.lock se regenera con el uv del repo (0.12.15). Otra versión reescribe markers de paquetes que no cambiaron.
+  - ruff format --check no pasa en 02_dashboard.py desde antes de esta sesión; CI solo corre ruff check.
+- **Próximo paso:** decidir alcance de Fase 3. Pendientes abiertos:
+  - Unit tests de dbt para int_tramos_fifo.
+  - int_tramos_fifo con ASOF JOIN (costo lineal), ~1 día.
+  - Denominador "de 71" rutas: hoy sale de mart_exceso_saldo_ruta; evaluar mart propio.
+  - ruff format del dashboard como commit aparte.
 
 Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Code sin agregar entrada del día.**
 
