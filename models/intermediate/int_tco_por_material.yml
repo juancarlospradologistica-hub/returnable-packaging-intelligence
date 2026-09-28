@@ -3,18 +3,19 @@ version: 2
 models:
   - name: int_tco_por_material
     description: >
-      Costo total de propiedad por ciclo para cada material con historia
-      de retornos. Combina amortizacion, mantenimiento y comparativa
-      contra la alternativa desechable equivalente.
+      Insumos del TCO por planta y tipo de material retornable: viajes 621,
+      tasa de merma por ventana conciliada, parámetros de costo y vida
+      esperada en ciclos considerando la merma.
     columns:
       - name: planta
-        tests: [not_null]
-      - name: material
         tests: [not_null]
       - name: tipo_material
         tests:
           - not_null
           - accepted_values:
-              values: [KLT, RACK, CARTON]
-      - name: costo_retornable_por_ciclo_usd
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: viajes
+        tests: [not_null]
+      - name: vida_esperada_ciclos
         tests: [not_null]

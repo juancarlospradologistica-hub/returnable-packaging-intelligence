@@ -4,26 +4,24 @@
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Análisis de rotación, ciclo y pérdidas de contenedores retornables en flota multi-planta usando datos MB51 sintéticos. Modela el comportamiento real de una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, ~1,200 SKUs de empaque, 18 meses de historia, ~10M movimientos.
+Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 22,970,200 movimientos.
 
-El objetivo es aterrizar en KPIs accionables para un equipo de gobernanza de RPL: cuánto se pierde en USD, en qué rutas cliente se pierde primero, qué SKUs pasan de "activos" a "flota fantasma", y qué tan disciplinado es el registro operativo comparado con la fecha real del movimiento.
+El objetivo es llegar a KPIs que un equipo de gobernanza de RPL pueda usar: cuánto se pierde en USD, qué rutas planta × cliente concentran la pérdida, qué rutas acumulan saldo en cliente antes de que la conciliación lo reconozca y cuánto ahorra el retornable contra un desechable equivalente.
 
 ## Disclaimer
 
-Todos los datos de este repositorio son **sintéticos**. Se generan por código a partir de reglas de negocio publicadas en `PROYECTO.md`. No provienen de ningún sistema SAP productivo, ni de datos anonimizados de ningún empleador pasado o presente. El generador vive en `src/rpi/` y es 100% reproducible con `uv sync` + un comando. 
-
-El período del dataset cubre 18 meses hacia atrás desde la fecha de generación. Los movimientos de retorno (Bwart 602) pueden extenderse algunos meses más allá de esa ventana, dado que el ciclo 601→602 es log-normal con cola de hasta 180 días.
+Todos los datos de este repositorio son **sintéticos**. Se generan por código a partir de reglas de negocio publicadas en `PROYECTO.md`. No provienen de ningún sistema SAP productivo, ni de datos anonimizados de ningún empleador pasado o presente. El generador vive en `src/rpi/` y es reproducible: seed 42 y fecha de corte fija al 2026-06-30. Nada se emite después del corte.
 
 ## Problema
 
-Los suppliers Tier-1 de industria automotriz manejan flotas de contenedores retornables (racks metálicos, KLTs plásticos) que ciclan entre planta y cliente. La tasa típica de pérdida anual está entre 2% y 5%. En una flota mediana eso son cientos de miles de dólares que se registran como activos en SAP pero que en la práctica ya no vuelven.
+Los proveedores Tier-1 automotrices manejan flotas de contenedores retornables (racks metálicos, KLTs plásticos) que ciclan entre planta y cliente. En SAP el contenedor que sale a cliente se lleva como stock especial V: sale con 621, regresa con 622 y el faltante se reconoce con 702 cuando se concilia el saldo. Con una merma de fracciones de punto por viaje y unos 14 viajes al año, cada año se va una parte visible de la flota. Mientras no se concilia, esos contenedores siguen en el saldo como si fueran a volver.
 
-MB51 registra cada movimiento (clase 501, 601, 311, etc.) pero por sí solo no responde:
+MB51 registra cada movimiento, pero por sí solo no responde:
 
-- ¿Cuántos días tarda en promedio un empaque en volver de cliente? (ciclo 601→602)
-- ¿Qué rutas cliente concentran las pérdidas?
-- ¿Qué SKUs cruzaron un umbral que sugiere pérdida no reconocida?
-- ¿La disciplina de registro varía por planta? (lag Cpudt vs Budat)
+- ¿Cuántos días tarda un contenedor en volver de cliente? (ciclo 621→622)
+- ¿Qué rutas planta × cliente concentran la pérdida?
+- ¿Qué rutas acumulan más saldo del esperado antes de la siguiente conciliación?
+- ¿Cuánto cuesta un viaje en retornable contra uno en desechable, con la merma incluida?
 
 Este proyecto construye el pipeline analítico que sí responde esas preguntas.
 
@@ -33,32 +31,55 @@ Batch, no streaming. Pipeline reproducible corrido localmente sin infraestructur
 
 ```mermaid
 flowchart LR
-    A[Generador sintetico] -->|Parquet| B[data/raw]
+    A[Generador sintetico] -->|Parquet por planta| B[data/raw]
     B --> C[DuckDB ingesta]
     C --> D[dbt staging + tests]
     D --> E[dbt marts KPIs]
-    E --> F[Notebook narrativo]
+    E --> F[Notebooks 01 y 03]
     E --> G[Dashboard Marimo]
 ```
 
-Grafo de linaje generado por dbt:
+Linaje de los modelos dbt:
 
-![dbt lineage](docs/img/dbt_lineage.png)
+```mermaid
+flowchart LR
+    raw[raw_mb51] --> stg[stg_mb51]
+    stg --> mov[int_mov_cuenta]
+    stg --> tcoi[int_tco_por_material]
+    stg --> perd[mart_perdidas_usd]
+    stg --> rutas[mart_rutas_rotas]
+    mov --> fifo[int_tramos_fifo]
+    fifo --> sup[int_supervivencia_retorno]
+    mov --> cuenta[int_cuenta_mensual]
+    sup --> cuenta
+    fifo --> rutas
+    mov --> rot[mart_rotacion_planta]
+    fifo --> rot
+    sup --> rot
+    fifo --> ciclo[mart_ciclo_cohortes]
+    rot --> ciclo
+    cuenta --> exceso[mart_exceso_saldo_ruta]
+    mov --> exceso
+    sup --> exceso
+    tcoi --> tco[mart_tco_comparativo]
+```
 
-Ciclo de vida de un contenedor retornable en la red:
+Ciclo de un contenedor retornable con el cliente:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> EnPlanta : Recepción (501/101)
-    EnPlanta --> EnTransito : Traslado entre plantas (311)
-    EnPlanta --> EnCliente : Salida a cliente (601)
-    EnCliente --> EnPlanta : Retorno (602) — ciclo cerrado
-    EnCliente --> Merma : Sin retorno en 120 días — flota fantasma
-    EnTransito --> EnPlanta : Llegada al destino
-    Merma --> [*] : Pérdida contable en USD
+    [*] --> EnPlanta : Entrada (101 / 501)
+    EnPlanta --> EnCliente : 621, salida a stock especial V
+    EnCliente --> EnPlanta : 622, recogida
+    EnCliente --> Faltante : 702 en conciliación trimestral
+    Faltante --> [*] : Pérdida reconocida en USD
 ```
 
-El generador produce los movimientos MB51 con reglas realistas: mix por tipo de empaque, ciclo log-normal 601→602 con cola larga, tasa de no-retorno del 2% distribuida entre rutas, lag Cpudt/Budat con distribución 92/6/2. Los parámetros están documentados en `PROYECTO.md` sección 4.
+Los traslados 311/411/309 mueven contenedores entre almacenes de la misma planta y no cambian su estado con el cliente. El cartón es desechable: sale con 601 y no regresa, así que no entra al ciclo ni al TCO.
+
+El generador produce los movimientos con reglas explícitas: ciclo 621→622 log-normal con cola larga, merma de 0.5% por viaje concentrada en ~20% de las cuentas, conciliación trimestral y lag Cpudt/Budat con distribución 92/6/2. Los parámetros están en `PROYECTO.md` sección 4.
+
+Los modelos no emparejan salida con retorno por documento: los contenedores son fungibles y ningún MB51 real lo permite. El ciclo sale de un saldo por cuenta planta × cliente × material con antigüedad FIFO; la merma, de la tasa conciliada; y el saldo esperado en cliente, de la curva de supervivencia del ciclo (ADR-011 y ADR-012).
 
 ## Stack
 
@@ -66,16 +87,16 @@ Elegí este stack apuntando a un pipeline analítico reproducible sin depender d
 
 | Capa | Herramienta | Por qué |
 |------|-------------|---------|
-| DataFrames | Polars | 5-10x más rápido que Pandas a 10M filas. Sintaxis moderna. |
+| DataFrames | Polars | Lazy y multihilo; el generador escribe 22M filas sin salir del laptop. |
 | Warehouse local | DuckDB | Motor OLAP embebido. Cero infraestructura. |
 | Modelado analítico | dbt-duckdb | Linaje, tests y docs auto-generados. |
 | Validación de schemas | Pandera | Contrato explícito sobre las 22 columnas MB51. |
-| Generación sintética | NumPy + Faker | Distribuciones realistas por parámetro. |
-| Persistencia | Parquet | Columnar comprimido, interoperable. |
+| Generación sintética | NumPy | Distribuciones por parámetro con seed fijo. |
+| Persistencia | Parquet | Columnar comprimido, un archivo por planta. |
 | Package manager | uv | Setup en segundos. Reemplaza pip + venv + poetry. |
 | Lint + format | Ruff | Rápido, opinado, un solo binario. |
 | Tests | pytest + pytest-cov | Estándar. |
-| CI | GitHub Actions | Tests y lint en cada push. |
+| CI | GitHub Actions | Lint, generador reducido, dbt build y pytest en cada push. |
 | Dashboard | Marimo | Notebook reactivo en `.py` plano: diffs legibles en Git, corre como app. |
 
 Explícitamente descartado: Pandas, Airflow, Postgres, Snowflake. Ver ADRs para el razonamiento.
@@ -85,6 +106,7 @@ Explícitamente descartado: Pandas, Airflow, Postgres, Snowflake. Ver ADRs para 
 - Python 3.11 o superior.
 - [uv](https://github.com/astral-sh/uv) instalado.
 - Git.
+- 8 GB de RAM. `profiles.yml` limita DuckDB a 4GB y 4 threads; arriba de eso escribe a disco en lugar de fallar.
 
 ## Reproducir el pipeline completo
 
@@ -96,14 +118,13 @@ cd returnable-packaging-intelligence
 uv sync
 ```
 
-Generar el dataset sintético (18 meses, 14 plantas, ~10M movimientos):
+Generar el dataset sintético (14 plantas, 18 meses, 22,970,200 filas):
 
 ```bash
-uv run python -c "
-from rpi.generator import generate
-generate()
-"
+uv run python -m rpi
 ```
+
+`uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed y directorio de salida.
 
 Ingestar a DuckDB:
 
@@ -112,13 +133,13 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Correr los modelos dbt:
+Construir modelos y correr los tests de dbt (12 modelos, 87 tests):
 
 ```bash
-uv run dbt run --profiles-dir .
+uv run dbt build --profiles-dir .
 ```
 
-Correr los tests:
+Correr los tests de Python:
 
 ```bash
 uv run pytest tests/ -v
@@ -135,22 +156,27 @@ uv run marimo run notebooks/02_dashboard.py
 ```
 returnable-packaging-intelligence/
 ├── .github/workflows/
-│   └── ci.yml                  # lint + generador CI + dbt + pytest en cada push
+│   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
-│   └── raw/                    # Parquet generado (excluido de Git)
+│   └── raw/                    # Parquet por planta (excluido de Git)
 ├── docs/
-│   └── img/                    # Imágenes para notebooks
+│   └── img/                    # Gráficas que escriben los notebooks
 ├── models/
 │   ├── staging/
 │   │   ├── sources.yml
 │   │   └── stg_mb51.sql
 │   ├── intermediate/
-│   │   ├── int_ciclo_retorno.sql
-│   │   └── int_tco_por_material.sql
+│   │   ├── int_mov_cuenta.sql              # movimientos de stock especial V por cuenta
+│   │   ├── int_tramos_fifo.sql             # salida → cierre con antigüedad FIFO
+│   │   ├── int_supervivencia_retorno.sql   # curva S(edad) por tipo
+│   │   ├── int_cuenta_mensual.sql          # saldo real y esperado por cierre
+│   │   └── int_tco_por_material.sql        # parámetros TCO (fuente única)
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
+│       ├── mart_ciclo_cohortes.sql
 │       ├── mart_rutas_rotas.sql
+│       ├── mart_exceso_saldo_ruta.sql
 │       └── mart_tco_comparativo.sql
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
@@ -158,76 +184,108 @@ returnable-packaging-intelligence/
 │   ├── 02_dashboard.py         # Dashboard Marimo
 │   └── 03_tco_analysis.ipynb
 ├── src/rpi/
+│   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
 │   ├── generator.py            # Generador sintético MB51
 │   └── schema.py               # Schema Pandera 22 columnas
-├── tests/
-│   ├── conftest.py
-│   ├── test_generator.py
-│   ├── test_marts.py
-│   └── test_schema.py
+├── tests/                      # pytest: generador, schema y marts
+├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
 ├── pyproject.toml
 └── README.md
 ```
 
-## Resultados Fase 1: rotación y pérdidas
+## Resultados Fase 1: ciclo y pérdidas
 
-Dataset sintético de 18 meses, 14 plantas (MX / US / NI), ~15.5 M movimientos MB51.
+14 plantas, 18 meses con corte al 2026-06-30, seed 42.
 
 | KPI | Valor |
 |-----|-------|
-| Pérdida acumulada | $4,822,074 USD |
-| Unidades sin retorno | 72,512 |
-| Costo promedio por unidad perdida | $66.50 USD |
-| Plantas analizadas | 14 |
-| Tipo de contenedor con mayor impacto | Rack metálico ($180 USD/unidad) |
-| Ruta con mayor pérdida acumulada | PLNT_MX01 → CUST-5144 |
-| Tasa de merma máxima por ruta | 35.29% |
+| Pérdida reconocida (702) | $2,238,765 USD |
+| Contenedores perdidos | 45,853 |
+| Pérdida Rack / KLT | $1,268,640 / $970,125 |
+| Tasa de merma de flota | 0.405% por viaje |
+| Rutas rotas | 12 de 71 |
+| Pérdida en rutas rotas | $1,385,315 (62%) |
+| Ciclo de flota | promedio 25.6 días, p50 25, p90 35 |
 
-Cada punto porcentual de mejora en la tasa de retorno vale ~$48,000 USD anuales sobre esta flota.
+La tasa de merma es faltante entre salidas 621 que ya pasaron por una conciliación. Es por viaje, no anual.
 
-Los racks metálicos concentran el impacto financiero aunque los KLTs plásticos superan en volumen de pérdidas. Perder un rack equivale a perder 7 KLTs.
+El Rack es 15% de los contenedores perdidos y 57% del dinero. Un Rack cuesta $180 y un KLT $25: perder un Rack equivale a perder 7.2 KLT. Si hay que priorizar dónde poner control de flota, empiezo por racks.
+
+La pérdida cae en escalones: el 702 se registra en la conciliación trimestral, así que la serie mensual muestra el calendario de conciliación, no la tendencia de merma.
+
+### Rutas rotas
+
+Una ruta planta × cliente está rota si su merma conciliada supera 1.0% por viaje o su ciclo promedio supera 45 días. El umbral es el tope del rango de industria; el supuesto y su rango están en ADR-012.
+
+![Rutas rotas por tasa de merma](docs/img/rutas_rotas.png)
+
+Las 12 rutas rotas van de 1.60% a 1.77% por viaje, contra 0.405% de la flota. Son 17% de las rutas y 62% de la pérdida. La que más pierde es PLNT_US04 · CUST-0014 con 1.72%. Hoy ninguna entra por ciclo: el generador no tiene ciclo heterogéneo por ruta.
+
+### Alerta temprana: exceso de saldo en cliente
+
+La tasa conciliada llega tarde, porque una ruta tiene que pasar por una conciliación para que su faltante se vea. La señal previa es el exceso de saldo: saldo real en stock especial V contra el saldo esperado por la curva de supervivencia del ciclo.
+
+![Exceso de saldo por grupo de rutas](docs/img/exceso_saldo_rutas.png)
+
+El indicador suma los últimos 3 cierres, igual al periodo de conciliación. Un cierre aislado no sirve: en el mes de conciliación el 702 borra el exceso acumulado y la ruta rota se ve sana.
+
+- Rutas rotas: exceso mediano de +4.7% a +6.8%.
+- Resto de la flota: de −1.6% a −0.9%.
+- Las rutas rotas quedan arriba del resto en los 12 cierres válidos.
+
+El resto de la flota no queda en cero sino alrededor de −1.2%. Es un sesgo del saldo esperado que pega parejo en toda la flota: no cambia el orden de la alerta, pero el exceso no se lee como merma absoluta. Es alerta, no clasificador; la ruta rota se define por tasa conciliada.
+
+### Ciclo de retorno
+
+Días entre 621 y 622 con antigüedad FIFO, ponderados por contenedor, solo en cohortes de salida completas. Los percentiles se calculan sobre la distribución completa, no como promedio de percentiles mensuales (ADR-014).
+
+El promedio casi no se mueve entre plantas (25.3 a 26.1 días). La diferencia está en la cola: el p90 por planta va de 33 a 39 días.
 
 El análisis completo está en `notebooks/01_analisis_perdidas.ipynb`.
 
 ## Resultados Fase 2: TCO retornable vs desechable
 
-La pregunta de Fase 2: con amortización, mantenimiento y merma incluidos, ¿sigue saliendo más barato operar con retornables que reemplazarlos por empaque de un solo uso?
+La pregunta de Fase 2: con compra, mantenimiento y merma incluidos, ¿cuánto cuesta un viaje en retornable contra hacer el mismo embarque con un desechable equivalente?
 
-El ahorro neto de la flota retornable contra desechable es **$41.0M USD** en 18 meses.
+El costo por viaje del retornable es su compra repartida entre su vida esperada más el mantenimiento. La merma no se resta aparte: un contenedor que se pierde deja de dar viajes, así que su compra se reparte entre menos. E[vida] = (1 − (1 − p)^V) / p, con p la tasa de merma por viaje y V la vida útil (ADR-011, punto 8).
 
-| Tipo | Ciclos | Ahorro neto (USD) | Ahorro neto / ciclo | Payback | Merma / ahorro bruto |
-|---|---:|---:|---:|---:|---:|
-| Rack | 923,918 | 33,552,240 | $36.32 | 5 ciclos | 9.8% |
-| KLT | 2,085,975 | 7,492,410 | $3.59 | 6 ciclos | 13.1% |
-| Cartón | 325,534 | n/a | n/a | n/a | línea base |
+![Costo por viaje, retornable contra desechable](docs/img/tco_costo_por_viaje.png)
 
-![Ahorro neto por tipo](docs/img/tco_ahorro_neto.png)
+| | KLT | Rack |
+|---|---:|---:|
+| Viajes, 18 meses | 12,355,872 | 2,186,377 |
+| Merma por viaje | 0.404% | 0.415% |
+| Vida esperada (vida útil) | 113.9 (150) ciclos | 68.5 (80) ciclos |
+| Costo por viaje retornable | $0.42 | $5.14 |
+| Desechable equivalente | $4.50 | $45.00 |
+| Ahorro por viaje | $4.08 | $39.86 |
+| Payback | 6 viajes | 5 viajes |
+| Ahorro neto, 18 meses | $50.4M | $87.1M |
+
+El ahorro neto de la flota retornable contra desechable es **$137.5M USD** en 18 meses. Ese número depende del volumen; el que se defiende es el ahorro por viaje.
 
 Observaciones:
 
-- El rack corre menos de la mitad de ciclos que el KLT y genera 4.5x su ahorro. Si hay que priorizar dónde poner control de flota, empiezo por racks.
-- La tasa de no-retorno es la misma para todos los tipos, pero pega más en el KLT. Su margen por ciclo contra el desechable es delgado, así que cada pieza perdida se come una fracción mayor del ahorro.
-- Los dos retornables recuperan su costo en 5-6 ciclos. Con un ciclo de ~25 días, son unos 5 meses de operación.
-- La merma que resta el TCO ($4.8M) cuadra con la pérdida total de Fase 1. Los dos marts leen de `int_ciclo_retorno`, así que sirve como validación cruzada.
-
-Cartón aparece como línea base: contra sí mismo no tiene ahorro ni payback. En el mart su ahorro neto sale en -$57,064, que es exactamente su costo de merma.
+- El Rack corre menos de una quinta parte de los viajes del KLT y genera 1.7 veces su ahorro.
+- Los dos recuperan su compra en 5–6 viajes. Con un ciclo de ~26 días son unos 5 meses de operación. Ninguna de las 28 combinaciones planta × tipo deja de recuperar la compra.
+- La pérdida reconocida de Fase 1 ($2,238,765) ya está dentro del costo por viaje vía vida esperada. Se reporta como KPI propio y no se resta otra vez. El notebook 03 verifica que la pérdida reconocida del TCO cuadre con la de Fase 1.
 
 ### Supuestos
 
-| Parámetro | KLT | Rack | Cartón |
-|---|---:|---:|---:|
-| Costo unitario (USD) | 25.00 | 180.00 | 8.00 |
-| Vida útil (ciclos) | 150 | 80 | 1 |
-| Mantenimiento por ciclo (USD) | 0.20 | 2.50 | 0.00 |
-| Desechable equivalente (USD) | 4.50 | 45.00 | 8.00 |
+| Parámetro | KLT | Rack |
+|---|---:|---:|
+| Costo unitario (USD) | 25.00 | 180.00 |
+| Vida útil (ciclos) | 150 | 80 |
+| Mantenimiento por ciclo (USD) | 0.20 | 2.50 |
+| Desechable equivalente (USD) | 4.50 | 45.00 |
 
-Los parámetros viven en `models/intermediate/int_tco_por_material.sql`.
+Los parámetros viven solo en `models/intermediate/int_tco_por_material.sql` (ADR-010).
 
-### Desechable equivalente del rack
+### Desechable equivalente del Rack
 
 Un rack metálico no tiene sustituto desechable directo. Para compararlo armé el empaque de un solo uso que haría el mismo trabajo en un embarque:
 
@@ -241,13 +299,19 @@ Un rack metálico no tiene sustituto desechable directo. Para compararlo armé e
 
 Son rangos de orden de magnitud, no cotizaciones: cambian por región, volumen y tamaño de pieza. Asumo que una carga de rack equivale a un embarque desechable.
 
-Es el supuesto que más mueve el resultado. Cada dólar arriba o abajo cambia el ahorro del rack en ~$0.9M. Con el rango completo, el ahorro total va de ~$31M a ~$60M. Con la merma actual, el rack deja de convenir solo si el desechable baja de ~$8.70.
+### Sensibilidad
 
-Payback, sensibilidad a la tasa de merma y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. El dashboard Marimo tiene una pestaña TCO con el detalle por planta.
+![Sensibilidad a merma y al desechable del Rack](docs/img/tco_sensibilidad.png)
+
+- **Desechable del Rack.** Es el supuesto que más mueve el resultado. Con el rango $34–66 el ahorro del Rack va de $63.1M a $133.1M; cada dólar del supuesto mueve $2.2M.
+- **Merma.** Entre 0.2% y 2.0% por viaje el ahorro total se mueve $9.0M. Con 2.0%, cinco veces la tasa actual, el Rack sigue en $82.9M y el KLT en $46.5M.
+- **Equilibrio.** El Rack deja de convenir con un desechable por debajo de $5.14 por embarque en la flota y de $5.55 en la planta con más merma. El piso del rango ($34) queda muy arriba de los dos.
+
+Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. El dashboard Marimo tiene una pestaña TCO con el detalle por planta.
 
 ## Estado
 
-Fase 1 (rotación y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas. Pipeline de punta a punta: generador sintético → DuckDB → 7 modelos dbt → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 12 modelos dbt con 87 tests → notebooks → dashboard Marimo con dos pestañas.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

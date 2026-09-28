@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: mart_rotacion_planta
+    description: >
+      Ciclo de retorno por planta y mes de salida con tramos FIFO cerrados
+      por 622, ponderados por cantidad. Solo las cohortes completas sirven
+      para comparar ciclo entre meses.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: mes
+        tests: [not_null]
+      - name: contenedores_salida
+        tests: [not_null]
+      - name: cohorte_completa
+        tests: [not_null]

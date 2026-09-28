@@ -3,34 +3,24 @@ version: 2
 models:
   - name: mart_rutas_rotas
     description: >
-      Rutas planta-cliente con tasa de merma > 5% o ciclo promedio > 45 días.
-      Ordenadas por pérdida acumulada descendente.
+      Rutas planta × cliente con tasa de merma > 1.0 % por viaje o ciclo
+      promedio > 45 días (ADR-012). Ordenadas por pérdida acumulada.
     columns:
       - name: planta
-        description: Centro / planta.
-        tests:
-          - not_null
+        tests: [not_null]
       - name: cliente
-        description: Cliente / consignatario.
-        tests:
-          - not_null
-      - name: salidas
-        description: Total de movimientos 601 en la ruta.
-        tests:
-          - not_null
-      - name: mermas
-        description: Movimientos 601 sin retorno en ventana de 120 días.
-        tests:
-          - not_null
+        tests: [not_null]
+      - name: contenedores_salida
+        description: Contenedores enviados con 621 en todo el horizonte.
+        tests: [not_null]
+      - name: salidas_conciliadas
+        description: Salidas 621 con 120 días antes de la última conciliación.
+      - name: faltantes
+        description: Contenedores reconocidos como faltante con 702.
+        tests: [not_null]
       - name: tasa_merma_pct
-        description: Porcentaje de merma sobre total de salidas.
-        tests:
-          - not_null
+        description: Faltantes entre salidas conciliadas, en porcentaje.
       - name: ciclo_promedio_dias
-        description: Promedio de días entre 601 y 602 en la ruta.
-        tests:
-          - not_null
+        description: Días promedio de tramos FIFO cerrados por 622.
       - name: perdida_acum_usd
-        description: Suma en USD de unidades no retornadas en la ruta.
-        tests:
-          - not_null
+        tests: [not_null]

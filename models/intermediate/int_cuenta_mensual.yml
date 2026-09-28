@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: int_supervivencia_retorno
+    description: >
+      Probabilidad de que un contenedor que regresa siga en cliente a cada
+      edad en días, por tipo de material. Estimada con tramos FIFO cerrados
+      por 622 sobre todo el horizonte del dataset.
+    columns:
+      - name: tipo_material
+        tests: [not_null]
+      - name: edad
+        tests: [not_null]
+      - name: prob_en_cliente
+        tests: [not_null]
+
+  - name: int_cuenta_mensual
+    description: >
+      Una fila por cuenta (planta × cliente × material) y mes. Movimientos
+      del mes, saldo a fin de mes, saldo esperado por curva de supervivencia
+      y exceso de saldo (ADR-012).
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: cliente
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: mes
+        tests: [not_null]
+      - name: fin_mes
+        description: >
+          Último día hábil del mes. Saldo y esperado se miden ese día, no el
+          último día natural (ADR-012).
+        tests: [not_null]
+      - name: saldo_fin_mes
+        tests: [not_null]
+      - name: saldo_esperado
+        tests: [not_null]
+      - name: exceso_saldo
+        description: >
+          Saldo a fin de mes menos saldo esperado. Positivo y creciente
+          entre conciliaciones = merma todavía no reconocida.

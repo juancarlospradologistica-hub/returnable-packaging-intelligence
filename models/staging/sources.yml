@@ -6,19 +6,22 @@ sources:
     tables:
       - name: raw_mb51
         description: >
-          Movimientos de material MB51 sintéticos. Fuente única de verdad para
-          todo el pipeline de rotación y pérdidas RPL.
+          Movimientos de material MB51 sintéticos (ADR-011). Un Parquet por planta
+          cargado a una sola tabla. Fuente única del pipeline.
         columns:
           - name: mblnr
             description: Documento material SAP.
             tests:
               - not_null
           - name: bwart
-            description: Clase de movimiento (501, 601, 602, 311, etc.).
+            description: >
+              Clase de movimiento. 621/622/702 con stock especial V para el ciclo
+              con cliente; 601 solo para cartón desechable.
             tests:
               - not_null
               - accepted_values:
-                  values: ['501','502','601','602','311','411','101','102','261','309']
+                  arguments:
+                    values: ['101','102','261','309','311','411','501','502','601','621','622','702']
           - name: budat
             description: Fecha de contabilización.
             tests:
@@ -32,6 +35,6 @@ sources:
             tests:
               - not_null
           - name: menge
-            description: Cantidad del movimiento.
+            description: Cantidad con signo SAP. Salidas negativas, entradas positivas.
             tests:
               - not_null

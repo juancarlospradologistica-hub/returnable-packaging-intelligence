@@ -5,3 +5,9 @@ rpi:
       type: duckdb
       path: "data/rpi.duckdb"
       threads: 4
+      # Tope explícito para que DuckDB escriba a disco en lugar de fallar.
+      # Sin él toma 80% de la RAM y en Windows el SO puede negar la memoria
+      # antes de llegar a ese límite (OOM en int_tramos_fifo).
+      settings:
+        memory_limit: "4GB"
+        threads: 4
