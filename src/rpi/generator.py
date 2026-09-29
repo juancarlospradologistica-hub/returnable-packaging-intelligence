@@ -268,9 +268,7 @@ def emit_plant_movements(
 
     # Ciclo 621 → 622 con merma por contenedor según la ruta.
     s621 = others.filter(pl.col("Bwart") == "621")
-    is_problem = np.array(
-        [problem[(werks, k)] for k in s621["Kunnr"].to_list()], dtype=bool
-    )
+    is_problem = np.array([problem[(werks, k)] for k in s621["Kunnr"].to_list()], dtype=bool)
     p_loss = np.where(is_problem, cfg.loss.rate_high, cfg.loss.rate_low)
     cutoff = np.datetime64(cfg.reference_date)
     budat_621 = s621["Budat"].to_numpy().astype("datetime64[D]")
@@ -331,45 +329,52 @@ def emit_plant_movements(
     minutes = rng.integers(0, 60, n)
     ref = rng.integers(10_000_000, 99_999_999, n)
 
-    df = df.with_columns(
-        pl.lit(werks).alias("Werks"),
-        (pl.col("Budat") + pl.duration(days=pl.col("lag_days"))).alias("Cpudt"),
-        pl.format(
-            "{}:{}:00",
-            pl.Series(hours).cast(pl.String).str.zfill(2),
-            pl.Series(minutes).cast(pl.String).str.zfill(2),
-        ).alias("Cputm"),
-        pl.Series("_ref", ref),
-    ).with_columns(
-        # Un documento se registra una sola vez: ambas posiciones comparten hora y fecha.
-        pl.col("Cpudt").first().over("doc_id"),
-        pl.col("Cputm").first().over("doc_id"),
-        pl.col("_ref").first().over("doc_id"),
-    ).with_columns(
-        pl.when(pl.col("Bwart").is_in(["601", "621"])).then(pl.lit("EXPE"))
-        .when(pl.col("Bwart").is_in(["622", "702"])).then(pl.lit("RECP"))
-        .when(pl.col("Bwart").is_in(list(_TRANSFERS)) & (pl.col("Zeile") == 1))
-        .then(pl.lit("TR01"))
-        .when(pl.col("Bwart").is_in(list(_TRANSFERS))).then(pl.lit("TR02"))
-        .otherwise(pl.lit("RM01"))
-        .alias("Lgort"),
-        pl.when(pl.col("Bwart").is_in(["101", "102", "501", "502"]))
-        .then(pl.format("PROV-{}", (pl.col("_ref") % 9000 + 1000).cast(pl.String)))
-        .alias("Lifnr"),
-        pl.when(pl.col("Bwart").is_in(["601", "621"]))
-        .then(pl.format("80{}", pl.col("_ref").cast(pl.String)))
-        .when(pl.col("Bwart") == "622")
-        .then(pl.format("84{}", pl.col("_ref").cast(pl.String)))
-        .when(pl.col("Bwart") == "702")
-        .then(pl.format("INV-{}", pl.col("Budat").dt.strftime("%Y%m")))
-        .otherwise(pl.format("REF-{}", (pl.col("_ref") % 900_000 + 100_000).cast(pl.String)))
-        .alias("Xblnr"),
-        pl.when(pl.col("Bwart").is_in(list(_NEGATIVE)))
-        .then(-pl.col("Menge").abs())
-        .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
-        .then(pl.col("Menge"))
-        .otherwise(pl.col("Menge").abs())
-        .alias("Menge"),
+    df = (
+        df.with_columns(
+            pl.lit(werks).alias("Werks"),
+            (pl.col("Budat") + pl.duration(days=pl.col("lag_days"))).alias("Cpudt"),
+            pl.format(
+                "{}:{}:00",
+                pl.Series(hours).cast(pl.String).str.zfill(2),
+                pl.Series(minutes).cast(pl.String).str.zfill(2),
+            ).alias("Cputm"),
+            pl.Series("_ref", ref),
+        )
+        .with_columns(
+            # Un documento se registra una sola vez: ambas posiciones comparten hora y fecha.
+            pl.col("Cpudt").first().over("doc_id"),
+            pl.col("Cputm").first().over("doc_id"),
+            pl.col("_ref").first().over("doc_id"),
+        )
+        .with_columns(
+            pl.when(pl.col("Bwart").is_in(["601", "621"]))
+            .then(pl.lit("EXPE"))
+            .when(pl.col("Bwart").is_in(["622", "702"]))
+            .then(pl.lit("RECP"))
+            .when(pl.col("Bwart").is_in(list(_TRANSFERS)) & (pl.col("Zeile") == 1))
+            .then(pl.lit("TR01"))
+            .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
+            .then(pl.lit("TR02"))
+            .otherwise(pl.lit("RM01"))
+            .alias("Lgort"),
+            pl.when(pl.col("Bwart").is_in(["101", "102", "501", "502"]))
+            .then(pl.format("PROV-{}", (pl.col("_ref") % 9000 + 1000).cast(pl.String)))
+            .alias("Lifnr"),
+            pl.when(pl.col("Bwart").is_in(["601", "621"]))
+            .then(pl.format("80{}", pl.col("_ref").cast(pl.String)))
+            .when(pl.col("Bwart") == "622")
+            .then(pl.format("84{}", pl.col("_ref").cast(pl.String)))
+            .when(pl.col("Bwart") == "702")
+            .then(pl.format("INV-{}", pl.col("Budat").dt.strftime("%Y%m")))
+            .otherwise(pl.format("REF-{}", (pl.col("_ref") % 900_000 + 100_000).cast(pl.String)))
+            .alias("Xblnr"),
+            pl.when(pl.col("Bwart").is_in(list(_NEGATIVE)))
+            .then(-pl.col("Menge").abs())
+            .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
+            .then(pl.col("Menge"))
+            .otherwise(pl.col("Menge").abs())
+            .alias("Menge"),
+        )
     )
     return df.drop("_ref", "lag_days")
 
@@ -412,8 +417,23 @@ def _assign_document_numbers(
 
 
 _OUTPUT_COLUMNS = [
-    "Werks", "Lgort", "Matnr", "Maktx", "Bwart", "Mjahr", "Budat", "Cpudt", "Cputm",
-    "Menge", "Meins", "Mblnr", "Zeile", "Lifnr", "Kunnr", "Xblnr", "Costo_usd",
+    "Werks",
+    "Lgort",
+    "Matnr",
+    "Maktx",
+    "Bwart",
+    "Mjahr",
+    "Budat",
+    "Cpudt",
+    "Cputm",
+    "Menge",
+    "Meins",
+    "Mblnr",
+    "Zeile",
+    "Lifnr",
+    "Kunnr",
+    "Xblnr",
+    "Costo_usd",
 ]
 
 

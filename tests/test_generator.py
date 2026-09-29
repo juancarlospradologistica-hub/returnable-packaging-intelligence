@@ -61,8 +61,7 @@ def test_rack_dedicado_a_un_cliente(df_ci: pl.DataFrame) -> None:
     max_clientes = (
         df_ci.filter((pl.col("Bwart") == "621") & pl.col("Matnr").str.starts_with("RCK"))
         .group_by("Werks", "Matnr")
-        .agg(pl.col("Kunnr").n_unique())
-        ["Kunnr"]
+        .agg(pl.col("Kunnr").n_unique())["Kunnr"]
         .max()
     )
     assert max_clientes == 1
@@ -75,9 +74,7 @@ def test_merma_en_rango(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
     """
     recon = reconciliation_dates(cfg_ci)
     limite = recon[-1] - timedelta(days=120)
-    salidas = -df_ci.filter((pl.col("Bwart") == "621") & (pl.col("Budat") <= limite))[
-        "Menge"
-    ].sum()
+    salidas = -df_ci.filter((pl.col("Bwart") == "621") & (pl.col("Budat") <= limite))["Menge"].sum()
     perdidos = -df_ci.filter(pl.col("Bwart") == "702")["Menge"].sum()
     if salidas == 0:
         pytest.skip("Sin salidas con antigüedad suficiente")
@@ -104,8 +101,9 @@ def test_saldo_en_cliente_nunca_negativo(df_ci: pl.DataFrame) -> None:
             .alias("delta")
         )
         .sort("Budat", "Mjahr", "Mblnr", "Zeile")
-        .with_columns(pl.col("delta").cum_sum().over("Werks", "Kunnr", "Matnr").alias("saldo"))
-        ["saldo"]
+        .with_columns(pl.col("delta").cum_sum().over("Werks", "Kunnr", "Matnr").alias("saldo"))[
+            "saldo"
+        ]
         .min()
     )
     assert minimo >= 0, f"Saldo en cliente negativo: {minimo}"

@@ -40,9 +40,7 @@ class PlantConfig(BaseModel):
     @model_validator(mode="after")
     def max_mayor_que_min(self) -> PlantConfig:
         if self.monthly_movements_max <= self.monthly_movements_min:
-            raise ValueError(
-                "monthly_movements_max debe ser mayor que monthly_movements_min"
-            )
+            raise ValueError("monthly_movements_max debe ser mayor que monthly_movements_min")
         return self
 
 
@@ -57,9 +55,7 @@ class MaterialMix(BaseModel):
     def suma_uno(self) -> MaterialMix:
         total = round(self.klt + self.rack + self.carton, 10)
         if total != 1.0:
-            raise ValueError(
-                f"klt + rack + carton debe sumar 1.0, obtenido {total}"
-            )
+            raise ValueError(f"klt + rack + carton debe sumar 1.0, obtenido {total}")
         return self
 
 
@@ -87,8 +83,7 @@ class CpudtLagConfig(BaseModel):
         total = round(self.same_day + self.one_to_two_days + self.over_48h, 10)
         if total != 1.0:
             raise ValueError(
-                f"same_day + one_to_two_days + over_48h debe sumar 1.0, "
-                f"obtenido {total}"
+                f"same_day + one_to_two_days + over_48h debe sumar 1.0, obtenido {total}"
             )
         return self
 
@@ -142,11 +137,7 @@ class LossConfig(BaseModel):
 
     @property
     def rate_low(self) -> float:
-        return (
-            self.rate_mean
-            * (1 - self.problem_loss_share)
-            / (1 - self.problem_account_share)
-        )
+        return self.rate_mean * (1 - self.problem_loss_share) / (1 - self.problem_account_share)
 
 
 class MengeRange(BaseModel):

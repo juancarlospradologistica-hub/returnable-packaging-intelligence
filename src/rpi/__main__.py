@@ -23,18 +23,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="python -m rpi",
         description="Genera dataset MB51 sintético para el pipeline RPI.",
     )
-    p.add_argument("--months", type=int, default=None, metavar="N",
-                   help="Horizonte en meses (default: 18).")
-    p.add_argument("--plants", type=int, default=None, metavar="N",
-                   help="Número de plantas. Si se omite, usa las 14 canónicas.")
-    p.add_argument("--country", type=str, default=None, choices=["MX", "US", "NI"],
-                   metavar="CC", help="Filtrar plantas por país (MX, US, NI).")
-    p.add_argument("--loss-rate", type=float, default=None, metavar="RATE",
-                   help="Merma media por viaje (default: 0.005).")
-    p.add_argument("--seed", type=int, default=None, metavar="N",
-                   help="Semilla aleatoria (default: 42).")
-    p.add_argument("--output", type=str, default="data/raw", metavar="DIR",
-                   help="Directorio de salida del Parquet (default: data/raw).")
+    p.add_argument(
+        "--months", type=int, default=None, metavar="N", help="Horizonte en meses (default: 18)."
+    )
+    p.add_argument(
+        "--plants",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Número de plantas. Si se omite, usa las 14 canónicas.",
+    )
+    p.add_argument(
+        "--country",
+        type=str,
+        default=None,
+        choices=["MX", "US", "NI"],
+        metavar="CC",
+        help="Filtrar plantas por país (MX, US, NI).",
+    )
+    p.add_argument(
+        "--loss-rate",
+        type=float,
+        default=None,
+        metavar="RATE",
+        help="Merma media por viaje (default: 0.005).",
+    )
+    p.add_argument(
+        "--seed", type=int, default=None, metavar="N", help="Semilla aleatoria (default: 42)."
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        default="data/raw",
+        metavar="DIR",
+        help="Directorio de salida del Parquet (default: data/raw).",
+    )
     return p.parse_args(argv)
 
 

@@ -12,10 +12,22 @@ def test_schema_valida_df_ci(df_ci: pl.DataFrame) -> None:
 
 def test_columnas_core_presentes(df_ci: pl.DataFrame) -> None:
     columnas_core = [
-        "Werks", "Lgort", "Matnr", "Maktx", "Bwart",
-        "Mjahr", "Budat", "Cpudt", "Cputm",
-        "Menge", "Meins", "Mblnr", "Zeile",
-        "Lifnr", "Kunnr", "Xblnr",
+        "Werks",
+        "Lgort",
+        "Matnr",
+        "Maktx",
+        "Bwart",
+        "Mjahr",
+        "Budat",
+        "Cpudt",
+        "Cputm",
+        "Menge",
+        "Meins",
+        "Mblnr",
+        "Zeile",
+        "Lifnr",
+        "Kunnr",
+        "Xblnr",
     ]
     faltantes = [c for c in columnas_core if c not in df_ci.columns]
     assert not faltantes, f"Columnas faltantes: {faltantes}"
