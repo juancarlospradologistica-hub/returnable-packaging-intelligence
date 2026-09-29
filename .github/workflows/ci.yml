@@ -24,6 +24,9 @@ jobs:
       - name: lint
         run: uv run ruff check src/ tests/ notebooks/
 
+      - name: formato
+        run: uv run ruff format --check src/ tests/ notebooks/
+
       # 12 meses: con menos no hay salidas de 120 días antes de una
       # conciliación y los tests de merma no tienen qué medir.
       - name: generar dataset CI
