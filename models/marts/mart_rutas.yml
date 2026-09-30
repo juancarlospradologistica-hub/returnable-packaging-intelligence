@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: mart_rutas
+    description: >
+      Todas las rutas planta × cliente con salidas 621: tasa de merma
+      conciliada, ciclo promedio y marca de ruta rota (merma > 1.0 % por viaje
+      o ciclo > 45 días, ADR-012). Universo de rutas para los KPIs (ADR-015).
+    columns:
+      - name: planta
+        data_tests: [not_null]
+      - name: cliente
+        data_tests: [not_null]
+      - name: contenedores_salida
+        description: Contenedores enviados con 621 en todo el horizonte.
+        data_tests: [not_null]
+      - name: salidas_conciliadas
+        description: Salidas 621 con 120 días antes de la última conciliación.
+      - name: faltantes
+        description: Contenedores reconocidos como faltante con 702.
+        data_tests: [not_null]
+      - name: tasa_merma_pct
+        description: Faltantes entre salidas conciliadas, en porcentaje.
+      - name: ciclo_promedio_dias
+        description: Días promedio de tramos FIFO cerrados por 622.
+      - name: perdida_acum_usd
+        data_tests: [not_null]
+      - name: rota_por_merma
+        data_tests: [not_null]
+      - name: rota_por_ciclo
+        data_tests: [not_null]
+      - name: ruta_rota
+        description: rota_por_merma o rota_por_ciclo.
+        data_tests: [not_null]

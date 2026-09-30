@@ -377,6 +377,22 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Los percentiles salen en días enteros.
   - Dashboard y notebook leen el ciclo de este mart; mart_rotacion_planta queda para la serie mensual.  
 
+### ADR-015 · mart_rutas como universo de rutas
+
+- **Fecha:** 2026-09-29
+- **Estado:** Accepted
+- **Contexto:** El KPI "12 de 71" rutas rotas tomaba el numerador de mart_rutas_rotas y el denominador de mart_exceso_saldo_ruta, un mart de grano ruta × mes hecho para la alerta. Si un cambio en la ventana de la alerta dejaba fuera una ruta, el denominador cambiaba sin que nadie tocara la definición de ruta. Además, las rutas sanas no existían en ningún mart con su tasa y su ciclo.
+- **Alternativas evaluadas:**
+  - Dejar el conteo sobre mart_exceso_saldo_ruta y documentarlo: el denominador sigue dependiendo de la alerta.
+  - Contar rutas en el dashboard y el notebook desde stg_mb51: la definición de ruta queda escrita dos veces fuera de dbt.
+  - Mart de grano planta × cliente con todas las rutas y la marca de rota: una sola definición de ruta y de umbral.
+- **Decisión:** mart_rutas con todas las rutas planta × cliente con salidas 621, su tasa de merma conciliada, ciclo promedio y las marcas rota_por_merma, rota_por_ciclo y ruta_rota. Los umbrales de ADR-012 (punto 4) viven solo ahí. mart_rutas_rotas pasa a ser un filtro de mart_rutas y conserva sus columnas. El test singular assert_rutas_universo falla si mart_rutas tiene rutas duplicadas o si no coincide con las rutas de mart_exceso_saldo_ruta.
+- **Consecuencias:**
+  - 71 rutas, 12 rotas, 0 por ciclo. Las cifras no cambian.
+  - Dashboard y notebook 01 toman el total y las rotas de mart_rutas.
+  - count_if() en DuckDB devuelve HUGEINT, igual que sum() sobre enteros: al contar rutas en un consumidor hay que castear.
+  - Las rutas sanas quedan disponibles para comparar contra las rotas sin reconstruir la tasa.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)

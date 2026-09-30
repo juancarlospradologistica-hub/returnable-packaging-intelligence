@@ -1,4 +1,5 @@
 -- depends_on: {{ ref('mart_perdidas_usd') }}
+-- depends_on: {{ ref('mart_rutas') }}
 -- depends_on: {{ ref('mart_rutas_rotas') }}
 -- depends_on: {{ ref('mart_rotacion_planta') }}
 -- depends_on: {{ ref('mart_exceso_saldo_ruta') }}
