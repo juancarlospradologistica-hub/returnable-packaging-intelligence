@@ -57,8 +57,8 @@ def _():
 
 @app.cell
 def _(con, mo):
-    # Los marts ya entregan BIGINT (ADR-013), pero SUM() sobre BIGINT vuelve a
-    # dar HUGEINT: al re-sumar aquí se castea.
+    # Los marts ya entregan BIGINT (ADR-013), pero SUM() y COUNT_IF() vuelven a
+    # dar HUGEINT: al agregar aquí se castea.
     try:
         kpis = (
             con.execute("""
@@ -74,9 +74,9 @@ def _(con, mo):
             ),
             rutas AS (
                 SELECT
-                    (SELECT COUNT(*) FROM mart_rutas_rotas)                     AS rotas,
-                    (SELECT COUNT(DISTINCT (planta, cliente))
-                     FROM mart_exceso_saldo_ruta)                               AS total
+                    COUNT_IF(ruta_rota)::BIGINT         AS rotas,
+                    COUNT(*)                            AS total
+                FROM mart_rutas
             )
             SELECT * FROM perdida, tasa, rutas
         """)
@@ -187,9 +187,9 @@ def _(con):
             e.exceso_saldo,
             e.exceso_pct,
             e.exceso_pct_ciclo,
-            r.planta IS NOT NULL            AS ruta_rota
+            r.ruta_rota
         FROM mart_exceso_saldo_ruta e
-        LEFT JOIN mart_rutas_rotas r
+        INNER JOIN mart_rutas r
             ON r.planta = e.planta AND r.cliente = e.cliente
         WHERE e.alerta_valida
     """).pl()
