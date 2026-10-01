@@ -27,6 +27,8 @@ Para la vista pública ver `README.md`.
 
 Análisis de rotación, ciclo y pérdidas de contenedores retornables en flota multi-planta usando datos MB51 sintéticos. El objetivo es aterrizar en KPIs accionables para un equipo de gobernanza de Returnable Packaging Logistics (RPL): cuánto se pierde en USD, dónde, qué rutas cliente están rotas, qué SKUs se descontrolan primero.
 
+El pipeline se diseña para recibir algún día un extracto MB51 real sin reescribir modelos. Lo que cambia entre empresas (códigos de almacén, clases de movimiento, parámetros de política) vive en seeds, no en el SQL. Ver ADR-017.
+
 ### Audiencia
 
 - Equipos de gobernanza de Returnable Packaging Logistics (RPL) en industria automotriz.
@@ -41,9 +43,9 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 
 TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. Cerrado en semana 11.
 
-### Alcance IN — Fase 3 (en diseño)
+### Alcance IN — Fase 3 (diseño cerrado, ADR-017)
 
-Necesidad de flota retornable por planta, empaque y semana contra el plan de producción, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en Semana 15.
+Necesidad de flota retornable por planta, empaque y semana contra el plan de producción de las 12 semanas posteriores al corte, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: recepción, vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en ADR-017. 3a en Semanas 16–17, 3b en Semanas 18–19.
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -56,6 +58,7 @@ Necesidad de flota retornable por planta, empaque y semana contra el plan de pro
 - Pipeline reproducible: `uv sync` + comando único para regenerar dataset y correr todo el stack analítico.
 - Notebook narrativo que traduzca KPIs técnicos en cifras de negocio en USD.
 - Diagramas Mermaid del dominio y del flujo de datos.
+- Contrato de entrada documentado: MB51, foto de stock inicial (MB5B), plan de producción (MD61) e instrucción de empaque. Un extracto real se carga cambiando seeds, no modelos.
 
 ### Restricciones
 
@@ -434,6 +437,62 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Si el ciclo interno consume la misma secuencia aleatoria, las cifras de Fase 1 y 2 se mueven. El ADR de diseño decide si usa un generador aleatorio propio para no tocarlas.
   - Fase 3 pasa de un bloque a dos: ~1.5–2 semanas para 3a y ~2 para 3b.
 
+  ### ADR-017 · Diseño de Fase 3: almacenes, plan de producción y flota inicial
+
+- **Fecha:** 2026-09-30
+- **Estado:** Accepted. Fija los valores y el modelo de datos que ADR-016 dejó abiertos. Vuelve permanente la Menge por línea de ADR-011: el plan se deriva de los embarques, no al revés.
+- **Contexto:** Antes de diseñar corrí el generador con una planta (PLNT_MX01, seed 42; en una corrida de una planta los 720 Matnr locales caen en ella). Encontré:
+  - El ruido operativo no conserva stock. Solo el 501 de KLT mete 835,087 contenedores en 18 meses, el 82% de los 1,024,381 que salen con 621 de KLT en la planta. Con almacenes con significado, vacíos quedaría negativo o la flota crecería sola.
+  - 47,257 líneas 261 sobre retornables. ADR-016 deja el 261 solo para el cartón.
+  - El 702 V lleva Lgort RECP. El stock especial V se lleva por planta, cliente y material (MSKU), sin almacén.
+  - Un solo generador aleatorio para las 14 plantas. Hora, minuto y referencia se sortean por fila al final de cada planta: una fila de más en una planta cambia los 621 de todas las siguientes.
+  - MB51 no trae el stock con el que arranca la ventana. Sin una foto inicial no hay flota real.
+  - El proyecto apunta a recibir algún día un MB51 real, y cada empresa configura sus almacenes y clases de movimiento a su manera.
+- **Alternativas evaluadas:**
+  - Que el plan genere los 621: cambia todas las cifras de Fase 1 y 2.
+  - Mismo generador aleatorio, aceptando cifras nuevas: obliga a recalcular y documentar todo otra vez y rompe el criterio de ADR-016 para arrancar Fase 4.
+  - Movimientos internos en un Parquet aparte: en SAP es un solo MB51; parte la numeración de Mblnr y obliga a unir dos fuentes en staging.
+  - Un 311 por cada 621: más filas sin más información. Un 311 semanal: borra lavado y reparación de 1 a 3 días. Elegí registro diario por material y tramo, que además es como lo registra un coordinador: conteo al cierre de turno.
+  - Daño con 311 a reparación y 344 ahí: el contenedor dañado queda como libre un rato. Elegí 344 donde se detecta y 325 a reparación.
+  - Códigos de almacén y de clase de movimiento fijos en el SQL: un MB51 real obligaría a reescribir modelos. Elegí mapeo en seeds.
+- **Decisión:**
+  1. Siete almacenes: RECF recepción de flota nueva, VACI vacíos limpios (ahí vive el stock de seguridad, sin Lgort propio), LINE línea/PSA, LLEN llenos/embarque, SUCI sucios por lavar e inspección de retorno, todos en libre utilización; REPA reparación y SCRP scrap pendiente, en bloqueado.
+  2. Movimientos: 101 con OC entra a RECF. 311 de RECF a VACI, de VACI a LINE, de LINE a LLEN, de SUCI a VACI y de REPA a VACI. 621 sale de LLEN. 622 entra a SUCI. 702 V sin Lgort. Daño: 344 en SUCI y 325 a REPA. Reparado: 343 en REPA y 311 a VACI. Irreparable: 325 a SCRP. Baja: 555 desde SCRP, en lote el último día hábil del mes. 325, 343, 344 y 555 entran a BWART_VALIDOS. Lgort acepta nulo en el schema.
+  3. El tipo de stock se deriva de Bwart y signo, sin columna nueva: en 344 la posición positiva es bloqueada, en 343 la negativa; 325 y 555 siempre son bloqueado. Posición 1 sale, posición 2 entra, igual que el 311 de hoy.
+  4. Los 311 internos se registran un documento por día, material y tramo. Los modelos no asumen granularidad: calculan stock sumando lo que llegue.
+  5. Seeds almacenes.csv (Lgort → estado del ciclo) y clases_movimiento.csv (Bwart → evento). Los modelos de Fase 3 leen estado y evento, no códigos SAP.
+  6. Ruido: salen 501, 502 y los 311, 411 y 309 de relleno en todos los materiales, y 101, 102 y 261 en retornables. El cartón conserva 101, 102, 261 y 601. Se filtra después de los sorteos actuales.
+  7. Sin 101 históricos para retornables. Tabla stock_inicial con la foto de la fecha de arranque, equivalente a MB5B. Flota inicial por empaque = mínimo que deja vacíos en cero o más durante los 18 meses, más una holgura sorteada por empaque. La merma (702) y el scrap (555) la consumen.
+  8. Plan derivado de los 621: embarques semanales por planta, empaque y cliente, repartidos entre partes con pesos fijos; base = promedio de las 13 semanas previas al corte, en piezas; escenario por parte (estable, arranque o fin de serie). Horizonte de 12 semanas, del lunes 2026-07-06 al domingo 2026-09-27, sin feriados. Tres tablas en data/raw: partes, instruccion_empaque y plan_produccion.
+  9. emit_plant_movements conserva sus sorteos y su orden. El ciclo interno corre después, con un generador aleatorio propio por planta: default_rng([random_seed, indice_planta, 1]); el plan usa [random_seed, indice_planta, 2]. Las reglas de Lgort (621 desde LLEN, 622 a SUCI, 702 V sin Lgort) no usan azar. Mblnr se asigna al final con un solo rango.
+  10. Antes de tocar el generador se guarda la huella (hash) de las filas 621, 622 y 702 ordenadas, con Werks, Matnr, Budat, Cpudt, Menge y Kunnr. test_ciclo_cliente_intacto la compara en cada corrida.
+  11. Parámetros que solo existen porque los datos son sintéticos van en config.py. Parámetros de política (días de cobertura, lead time) van en el seed parametros_flota.csv por tipo de empaque.
+  12. Necesidad por empaque y semana = d × (ciclo en cliente + ciclo interno) + d × días de cobertura, con d = contenedores por día que pide el plan. El ciclo en cliente usa el promedio, no la mediana: la fórmula es la ley de Little.
+- **Supuestos (práctica de industria, sin datos de empleador):** las tasas usan el punto medio del rango; los tiempos se sortean en días enteros dentro del rango.
+  - Tiempo en RECF: 3 días (1–5), inspección de entrada.
+  - Tiempo en LINE: 1 día (0–2), el surtido cubre uno o dos turnos.
+  - Tiempo en LLEN: KLT 1 día, Rack 2 días (0–3), entrega justo a tiempo.
+  - Tiempo en SUCI: KLT 2 días de lavado (1–3, ADR-016); Rack 1 día de inspección (0–2).
+  - Tiempo en REPA: KLT 1–2 días; Rack 5–15 días (ADR-016).
+  - Baja con 555: mensual (rango mensual a trimestral), por aprobación y cierre contable.
+  - Reparación por retorno: KLT 2% (1–3%), Rack 5.5% (3–8%) (ADR-016).
+  - Scrap anual: KLT 1.25% (0.5–2%), Rack 2% (1–3%) (ADR-016). Con ~12 viajes al año (~31 días de ciclo total) sale ~5% de lo que entra a reparación en KLT y ~3% en Rack.
+  - Holgura de flota inicial: 0–30% por empaque, 15% en promedio. Las plantas sobredimensionan la flota en el lanzamiento, y no todas igual.
+  - Días de cobertura: KLT 3, Rack 5 (2–7) (ADR-016).
+  - Lead time de compra: KLT 4 semanas (2–6), es de catálogo y sin herramental dedicado; Rack 12 semanas (8–16) (ADR-016).
+  - Partes por empaque: Rack 2 (1–3), dedicado a un cliente; KLT 5 (3–8), puede cruzar clientes de la planta.
+  - Piezas por contenedor: Rack 12 (4–24), KLT 40 (12–120). Se cancelan al pasar de piezas a contenedores: no mueven la necesidad y no llevan sensibilidad.
+  - Ventana base del plan: 13 semanas (8–26), un trimestre, igual que la conciliación.
+  - Escenario por parte: 80% estable (70–90%); 10% arranque, +30% (+20–50%) desde la semana 4–8; 10% fin de serie, −50% (−30–100%) desde la semana 4–8.
+- **Consecuencias:**
+  - Las cifras de Fase 1 y 2 no cambian. Si cambian, es un bug y lo detectan la huella, test_readme.py y dbt build.
+  - Los Mblnr de las filas existentes cambian; ninguna métrica depende de ellos. Dos 621 del mismo día y la misma cuenta tienen la misma edad: el FIFO da los mismos días en cualquier orden.
+  - El conteo de filas cambia. Medido en PLNT_MX01: de 2,048,341 se quedan ~676k, salen ~1.37M de ruido y entran ~1.37M de 311 internos. Estimado para 14 plantas: 20M a 23M filas, el mismo orden de hoy.
+  - Sin compras históricas de flota. En una planta real sí las hay; aquí la merma y el scrap quedan a la vista contra la holgura. La reposición entra en 3b como acción de escalamiento.
+  - El notebook de Fase 3 muestra sensibilidad a holgura, mezcla de arranque y fin de serie, días de cobertura, lavado de KLT y reparación de Rack.
+  - Reglas de calidad de datos para datos reales: parte en el plan sin instrucción de empaque; instrucción que apunta a cartón o a un Matnr fuera de la planta; Rack con partes de más de un cliente; parte con plan sin embarques en las 13 semanas previas; Bwart o Lgort fuera de los seeds.
+  - Al cierre de Fase 3 se decide si la fase de calidad de datos sobre MB51 y master data va antes que el simulador de Fase 4.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -502,13 +561,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
 - [x] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 - [x] **Semana 14** · Hardening: ruff format y check en CI, mart_rutas como universo de rutas (ADR-015), unit tests de int_tramos_fifo, test de cuadre del README, desempate en el top 15. Alcance de Fase 3 y simulador en Fase 4 (ADR-016).
-- [ ] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque y parámetros con rango (ADR de diseño).
+- [x] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque, flota inicial, parámetros con rango y generadores aleatorios propios (ADR-017).
 - [ ] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador.
 - [ ] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard.
 
 ---
 
 ## 6. Worklog
+
+### 2026-09-30 · Sesión 34 — Semana 15
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - Corrida de una planta (PLNT_MX01, seed 42) para medir el generador antes de diseñar: volumen de 621, ruido por clase de movimiento y Lgort actuales.
+  - Diagrama de estados dentro de la planta: siete almacenes y sus movimientos (311, 344, 325, 343, 555, 621, 622, 702 V).
+  - Plan de producción derivado de los embarques: partes, instrucción de empaque y plan de 12 semanas posteriores al corte.
+  - Parámetros del ciclo interno con valor y rango; flota inicial con holgura y foto de stock inicial.
+  - Estrategia para no mover cifras de Fase 1 y 2: generadores aleatorios propios por planta y huella de 621, 622 y 702.
+  - Charter: el pipeline se diseña para recibir un MB51 real cambiando seeds.
+- **Decisiones tomadas:** ADR-017.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - 344 cambia el tipo de stock, no el almacén. Mover stock bloqueado entre almacenes es 325.
+  - El stock especial V no tiene almacén (MSKU): el 702 V va con Lgort vacío.
+  - Con un solo generador aleatorio compartido, cualquier fila de más en una planta cambia los datos de todas las siguientes.
+  - Las piezas por contenedor se cancelan si el plan sale de contenedores embarcados; sirven para la forma del pipeline y para calidad de datos, no para la necesidad.
+  - El estimado de ~35M filas del registro diario no restaba el ruido que sale; medido, el dataset queda en el mismo orden de hoy.
+  - Disco y RAM revisados: ~245 GB libres y 16 GB de RAM. El dataset de Fase 3 cabe sin cambiar hardware.
+- **Próximo paso:** Semana 16, Fase 3a: huella de 621, 622 y 702 sobre el generador actual, después ciclo interno en el generador.
 
 ### 2026-09-30 · Sesión 33 — Semana 14
 
@@ -1050,8 +1130,15 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **RTP** — Returnable Transport Packaging. Proceso estándar SD para empaque retornable con cliente: 621 salida, 622 recogida, 623 el cliente se queda el empaque.
 - **344** — Traspaso de libre utilización a stock bloqueado.
 - **555** — Baja (desecho) desde stock bloqueado.
+- **343** — Traspaso de stock bloqueado a libre utilización, dentro del mismo almacén.
+- **325** — Traslado de stock bloqueado a stock bloqueado entre almacenes de la misma planta.
+- **Tipo de stock** — Libre utilización, control de calidad o bloqueado. 344 y 343 cambian el tipo sin cambiar de almacén.
+- **MSKU** — Tabla SAP del stock especial en cliente (V). Se lleva por planta, cliente y material, sin almacén: el 702 V no lleva Lgort.
 - **PSA** — Production Supply Area. Punto de surtido de material junto a la línea.
 - **STO** — Stock Transport Order. Pedido de traslado entre plantas.
+- **MB5B** — Transacción SAP: stock a una fecha. Da el stock inicial que MB51 no trae; movimientos más foto inicial reconstruyen el stock.
+- **MD61 / PBED** — Transacción y tabla SAP de necesidades independientes: el plan de producción por material y periodo.
+- **POP1** — Transacción SAP de instrucción de empaque. Alternativa en SD: registro info cliente-material (VD51).
 
 ### Términos de dominio (RPL)
 
@@ -1075,6 +1162,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Instrucción de empaque** — Define para cada parte y cliente qué empaque se usa y cuántas piezas lleva (Packvorschrift / PI).
 - **Días de cobertura** — Stock expresado en días de demanda que alcanza a cubrir.
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
+- **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
+- **Arranque / fin de serie (EOP)** — Inicio y fin de producción de un programa del cliente. Mueven la necesidad de empaque antes de que la flota pueda reaccionar.
 
 ### Términos técnicos
 
