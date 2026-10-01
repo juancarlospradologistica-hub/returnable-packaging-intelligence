@@ -1,0 +1,94 @@
+version: 2
+
+# Casos conocidos del FIFO con resultado calculado a mano. Los tests singulares
+# (assert_fifo_conserva_cantidad, assert_tramos_fifo_validos) cuidan invariantes
+# sobre el dataset completo; estos cuidan que el emparejamiento sea el correcto.
+unit_tests:
+  - name: fifo_recogida_exacta
+    description: Una salida y una recogida de la misma cantidad dan un solo tramo cerrado.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 5}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-30, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 5}
+    expect:
+      rows:
+        - {doc_salida: '0000000001', tipo_cierre: '622', cantidad: 5, dias: 25}
+
+  - name: fifo_recogida_parcial
+    description: Lo que no se recoge queda como tramo abierto, sin fecha de cierre ni días.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 5}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-20, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 3}
+    expect:
+      rows:
+        - {doc_salida: '0000000001', tipo_cierre: '622', cantidad: 3, dias: 15}
+        - {doc_salida: '0000000001', tipo_cierre: null, cantidad: 2, dias: null}
+
+  - name: fifo_cierre_cruza_dos_salidas
+    description: >
+      Una recogida de 5 consume primero las 3 de la salida más vieja y luego 2 de
+      la siguiente. Las 2 restantes de la segunda salida quedan abiertas.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: RACK, mov_type: '621', fecha_contab: 2026-01-01, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 3}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: RACK, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 4}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: RACK, mov_type: '622', fecha_contab: 2026-01-20, anio_contable: 2026, doc_material: '0000000003', posicion: 1, cantidad_abs: 5}
+    expect:
+      rows:
+        - {doc_salida: '0000000001', tipo_cierre: '622', cantidad: 3, dias: 19}
+        - {doc_salida: '0000000002', tipo_cierre: '622', cantidad: 2, dias: 15}
+        - {doc_salida: '0000000002', tipo_cierre: null, cantidad: 2, dias: null}
+
+  - name: fifo_faltante_702
+    description: >
+      Una recogida y un faltante 702 cierran la misma salida en orden de fecha:
+      el 622 toma lo más viejo y el 702 lo que sigue.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-01, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 6}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-25, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 4}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2026-03-31, anio_contable: 2026, doc_material: '0000000003', posicion: 1, cantidad_abs: 2}
+    expect:
+      rows:
+        - {doc_salida: '0000000001', tipo_cierre: '622', cantidad: 4, dias: 24}
+        - {doc_salida: '0000000001', tipo_cierre: '702', cantidad: 2, dias: 89}
+
+  - name: fifo_cuentas_aisladas
+    description: >
+      Una recogida de otro material o de otro cliente no cierra saldo ajeno:
+      el FIFO se particiona por planta × cliente × material.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-01, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 2}
+          - {planta: P1, cliente: C1, material: M2, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-10, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 2}
+          - {planta: P1, cliente: C2, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-10, anio_contable: 2026, doc_material: '0000000003', posicion: 1, cantidad_abs: 2}
+    expect:
+      rows:
+        - {cliente: C1, material: M1, doc_salida: '0000000001', tipo_cierre: null, cantidad: 2, dias: null}
+
+  - name: fifo_desempate_mismo_dia
+    description: >
+      Dos salidas el mismo día se ordenan por documento: la recogida cierra
+      primero la de documento menor.
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000009', posicion: 1, cantidad_abs: 2}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000004', posicion: 1, cantidad_abs: 2}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-15, anio_contable: 2026, doc_material: '0000000010', posicion: 1, cantidad_abs: 2}
+    expect:
+      rows:
+        - {doc_salida: '0000000004', tipo_cierre: '622', cantidad: 2, dias: 10}
+        - {doc_salida: '0000000009', tipo_cierre: null, cantidad: 2, dias: null}

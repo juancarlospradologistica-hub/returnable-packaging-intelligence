@@ -82,8 +82,7 @@ def test_rutas_rotas_cumplen_criterio(con):
           AND (ciclo_promedio_dias IS NULL OR ciclo_promedio_dias <= 45)
     """).fetchone()[0]
     assert sin_criterio == 0, (
-        f"{sin_criterio} rutas en mart_rutas_rotas que no cumplen "
-        "ningún criterio de clasificación"
+        f"{sin_criterio} rutas en mart_rutas_rotas que no cumplen ningún criterio de clasificación"
     )
 
 

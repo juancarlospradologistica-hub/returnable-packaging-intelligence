@@ -47,12 +47,13 @@ flowchart LR
     stg --> mov[int_mov_cuenta]
     stg --> tcoi[int_tco_por_material]
     stg --> perd[mart_perdidas_usd]
-    stg --> rutas[mart_rutas_rotas]
+    stg --> mrutas[mart_rutas]
     mov --> fifo[int_tramos_fifo]
     fifo --> sup[int_supervivencia_retorno]
     mov --> cuenta[int_cuenta_mensual]
     sup --> cuenta
-    fifo --> rutas
+    fifo --> mrutas
+    mrutas --> rutas[mart_rutas_rotas]
     mov --> rot[mart_rotacion_planta]
     fifo --> rot
     sup --> rot
@@ -133,7 +134,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (12 modelos, 87 tests):
+Construir modelos y correr los tests de dbt (13 modelos, 96 tests de datos y 6 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -175,6 +176,7 @@ returnable-packaging-intelligence/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
 │       ├── mart_ciclo_cohortes.sql
+│       ├── mart_rutas.sql
 │       ├── mart_rutas_rotas.sql
 │       ├── mart_exceso_saldo_ruta.sql
 │       └── mart_tco_comparativo.sql
@@ -189,7 +191,7 @@ returnable-packaging-intelligence/
 │   ├── db.py                   # Ingesta Parquet → DuckDB
 │   ├── generator.py            # Generador sintético MB51
 │   └── schema.py               # Schema Pandera 22 columnas
-├── tests/                      # pytest: generador, schema y marts
+├── tests/                      # pytest: generador, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -311,7 +313,9 @@ Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. 
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 12 modelos dbt con 87 tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt con 96 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
+
+Siguiente: Fase 3, necesidad de flota por planta y semana contra el plan de producción, con el ciclo del empaque dentro de la planta (vacíos, línea, lavado, reparación).
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

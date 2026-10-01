@@ -100,8 +100,7 @@ class MB51Schema(pa.DataFrameModel):
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
         description=(
-            "Proveedor. Nullable: solo aplica en movimientos "
-            "101/102/461/462/501/502 con socio."
+            "Proveedor. Nullable: solo aplica en movimientos 101/102/461/462/501/502 con socio."
         ),
     )
     Kunnr: Series[str] = pa.Field(
@@ -156,4 +155,3 @@ class MB51Schema(pa.DataFrameModel):
     class Config:
         strict = False
         coerce = False
-
