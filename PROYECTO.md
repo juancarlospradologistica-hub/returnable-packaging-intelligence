@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-09-26
+**Última actualización:** 2026-09-30
 
 ---
 
@@ -41,10 +41,14 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 
 TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. Cerrado en semana 11.
 
+### Alcance IN — Fase 3 (en diseño)
+
+Necesidad de flota retornable por planta, empaque y semana contra el plan de producción, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en Semana 15.
+
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Fase 3: Forecast de necesidad de packaging vs plan de producción MRP.
-- Fase 4: Cuello de botella del ciclo lavado / reparación.
+- Fase 4: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca solo cuando se cumplan los criterios de ADR-016.
+- EDI del cliente (DELFOR/DELJIT), S&OP mensual, HU/EWM y empaque alterno.
 
 ### Criterios de completitud
 
@@ -393,6 +397,43 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - count_if() en DuckDB devuelve HUGEINT, igual que sum() sobre enteros: al contar rutas en un consumidor hay que castear.
   - Las rutas sanas quedan disponibles para comparar contra las rotas sin reconstruir la tasa.
 
+### ADR-016 · Alcance de Fase 3 y simulador en Fase 4
+
+- **Fecha:** 2026-09-30
+- **Estado:** Accepted. Fija alcance y los insumos de dominio; los valores puntuales y el modelo de datos se deciden en el ADR de diseño de Semana 15.
+- **Contexto:** El Charter dejó Fase 3 como "forecast de necesidad de packaging vs plan MRP" sin alcance. Al revisarlo encontré que el generador solo modela el tramo planta ↔ cliente (621/622/702). Dentro de la planta el empaque no tiene estado: los traslados 311 van de TR01 a TR02, almacenes sin significado. Sin almacén de vacíos no hay flota disponible contra la cual comparar la demanda. En paralelo surgió la idea de un simulador visual de la red, con cada paso registrado como movimiento MB51.
+- **Alternativas evaluadas:**
+  - Cambiar Fase 3 a Data Quality sobre MB51: menor costo, pero el Charter ya comprometía el forecast y es la pregunta que conecta con Fase 1. Queda como candidata para una fase futura.
+  - Forecast sin ciclo interno, contra un número de flota fijo: compara demanda contra una cifra sin origen en los datos.
+  - Simulador dentro de Fase 3: duplica el alcance y se construiría sobre una base que todavía cambia (ADR-011 a ADR-015 en dos semanas).
+- **Decisión:**
+  1. Fase 3 contesta: ¿cuántos contenedores necesita cada empaque, por planta y semana, para cubrir el plan de producción, y cuánto cuesta en USD la brecha contra la flota real? La merma de Fase 1 reduce la flota real; ahí se conectan las fases.
+  2. Dos bloques. 3a: ciclo interno en el generador (almacenes, 311 entre ellos, lavado, reparación, scrap). 3b: plan de producción, instrucción de empaque, necesidad contra flota y brecha en USD.
+  3. Insumos de dominio para el diseño, todos de práctica estándar de la industria:
+     - Stock de seguridad: cantidad mínima dentro del almacén de vacíos, sin Lgort propio. Se calcula en días de cobertura.
+     - Almacenes del ciclo: recepción de flota nueva, vacíos limpios, línea (PSA), llenos o embarque, sucios por lavar, reparación (stock bloqueado) y scrap pendiente. En cliente sigue el stock especial V.
+     - Surtido a línea con 311: el retornable no se consume. El 261 queda solo para el cartón.
+     - Contenedor lleno con stock propio, sin HU: el proyecto es MM/IM.
+     - Baja con 555 desde stock bloqueado, viniendo de reparación.
+     - Plan interno nivelado, semanal, 12 semanas.
+     - Una parte, un empaque, cantidad fija por contenedor (instrucción de empaque).
+     - Rack dedicado a pocas partes de un cliente; KLT compartido (confirma ADR-011).
+     - Escalamiento modelado en tres niveles: préstamo entre plantas, desechable de emergencia y compra de flota.
+  4. Fuera de Fase 3: EDI del cliente, S&OP mensual, HU/EWM, empaque alterno, plan diario.
+  5. Fase 4: simulador de la red RPL (plantas, clientes y almacenes internos) en modo simulado y en replay de MB51, más el cuello de botella de lavado y reparación. Arranca cuando se cumplan los tres: Fase 3 cerrada; dos semanas seguidas sin ADR que cambie cifras de Fase 1 o 2; test de cuadre del README verde sin tocar cifras. HTML/JS entra al stack con ADR propio en ese momento.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Lavado: KLT siempre, 1–3 días contando cola y secado. Rack solo inspección y limpieza si está sucio.
+  - Reparación por retorno: KLT 1–3%, 1–2 días; Rack 3–8%, 5–15 días.
+  - Scrap anual: KLT 0.5–2%; Rack 1–3%.
+  - Días de cobertura del stock de seguridad: KLT 3, Rack 5 (rango 2–7).
+  - Compra de Rack: 8–16 semanas de lead time.
+  - El diseño usa el punto medio de cada rango y el notebook muestra sensibilidad al rango completo.
+- **Consecuencias:**
+  - 622 sigue como recogida (pedido LA, categoría LAN). El 632 es de consignación (stock especial W), no de empaque retornable. El 623 (el cliente se queda el empaque y se factura) queda fuera de alcance.
+  - El generador cambia: almacenes con significado, 311 entre ellos, cambio a stock bloqueado al entrar a reparación y 555 en la baja. El conteo de filas cambia y test_readme.py lo detecta.
+  - Si el ciclo interno consume la misma secuencia aleatoria, las cifras de Fase 1 y 2 se mueven. El ADR de diseño decide si usa un generador aleatorio propio para no tocarlas.
+  - Fase 3 pasa de un bloque a dos: ~1.5–2 semanas para 3a y ~2 para 3b.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -460,10 +501,42 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 11** · Dashboard Marimo con pestaña TCO. README con resultados Fase 2. Fase 2 cerrada.
 - [x] **Semana 12** · Generador corregido (ADR-011): 621/622/702, reference_date, Mblnr secuencial, clientes, Menge por tipo, merma heterogénea por cuenta, pool de 1,200 Matnr.
 - [x] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
+- [x] **Semana 14** · Hardening: ruff format y check en CI, mart_rutas como universo de rutas (ADR-015), unit tests de int_tramos_fifo, test de cuadre del README, desempate en el top 15. Alcance de Fase 3 y simulador en Fase 4 (ADR-016).
+- [ ] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque y parámetros con rango (ADR de diseño).
+- [ ] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador.
+- [ ] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard.
 
 ---
 
 ## 6. Worklog
+
+### 2026-09-30 · Sesión 33 — Semana 14
+
+- **Duración:** ~5 h (28 al 30 de septiembre)
+- **Hecho:**
+  - ruff format sobre src, tests y notebooks: 12 archivos, sin cambio de lógica. El generador produce el mismo dataset fila por fila.
+  - CI con ruff format --check. .git-blame-ignore-revs en la raíz con el commit de formato.
+  - mart_rutas como universo de rutas: 71 rutas con tasa, ciclo y marcas de rota. mart_rutas_rotas pasa a ser un filtro. Test singular assert_rutas_universo (ADR-015).
+  - Dashboard y notebook 01 toman el "12 de 71" y la marca de ruta rota de mart_rutas.
+  - Top 15 de materiales con desempate por material: la gráfica cambiaba entre ejecuciones.
+  - Seis unit tests de dbt para int_tramos_fifo con casos calculados a mano. Verificados rompiendo el modelo: LIFO y partición sin material los hacen fallar.
+  - tests/test_readme.py: cuadre de cifras del README contra los marts. Se salta con dataset reducido.
+  - README: 13 modelos, 96 tests de datos y 6 unit tests; mart_rutas en linaje y estructura; siguiente fase en Estado.
+  - Sesión de dominio para Fase 3: ciclo del empaque dentro de la planta. Alcance de Fase 3 y simulador en Fase 4 (ADR-016).
+  - dbt build 115/115, pytest 31 en local (26 y 5 saltados en CI).
+- **Decisiones tomadas:** ADR-015, ADR-016.
+- **Bloqueos:**
+  - El commit de formato quedó en main local. Movido a semana-14-hardening con git branch -f antes del push.
+  - .git-blame-ignore-revs se creó dentro de .github/workflows; movido a la raíz.
+  - Descargas que no llegaban a Descargas. Revisar con Ctrl+J y Test-Path antes de expandir.
+- **Notas de la sesión:**
+  - COUNT_IF() en DuckDB devuelve HUGEINT, igual que sum(); castear al contar en un consumidor.
+  - ORDER BY sin desempate seguido de LIMIT no es reproducible en DuckDB: el orden de los empates depende del paralelismo.
+  - Un unit test de dbt necesita que el modelo de arriba exista en la base; dbt build lo resuelve por orden del DAG.
+  - Un test vale si falla con el modelo roto: probar rompiéndolo a propósito.
+  - En VS Code, New File con una carpeta seleccionada crea el archivo dentro de ella.
+  - 632 es consignación, no empaque retornable; la recogida RTP es 622.
+- **Próximo paso:** Semana 15, diseño de Fase 3.
 
 ### 2026-09-26 · Sesión 32 — Semana 13
 
@@ -974,6 +1047,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **LEIH** — Grupo de tipos de posición estándar SAP para empaque retornable.
 - **Pedido LA** — Pedido de recogida de empaque retornable; su entrada contabiliza 622.
 - **OMJJ** — Transacción SAP: configuración de clases de movimiento.
+- **RTP** — Returnable Transport Packaging. Proceso estándar SD para empaque retornable con cliente: 621 salida, 622 recogida, 623 el cliente se queda el empaque.
+- **344** — Traspaso de libre utilización a stock bloqueado.
+- **555** — Baja (desecho) desde stock bloqueado.
+- **PSA** — Production Supply Area. Punto de surtido de material junto a la línea.
+- **STO** — Stock Transport Order. Pedido de traslado entre plantas.
 
 ### Términos de dominio (RPL)
 
@@ -994,6 +1072,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Saldo vencido** — Contenedores en cliente con más de 120 días de antigüedad. Riesgo de merma, todavía no pérdida.
 - **Vida esperada** — Ciclos promedio que dura un contenedor considerando la merma: (1 − (1 − p)^V) / p.
 - **Ventana conciliada** — Salidas con antigüedad suficiente para haber pasado por una conciliación: Budat ≤ última conciliación − 120 días. Denominador de la tasa de merma.
+- **Instrucción de empaque** — Define para cada parte y cliente qué empaque se usa y cuántas piezas lleva (Packvorschrift / PI).
+- **Días de cobertura** — Stock expresado en días de demanda que alcanza a cubrir.
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 
 ### Términos técnicos
@@ -1010,6 +1090,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
 - **HUGEINT** — entero de 128 bits de DuckDB; es lo que devuelve sum() sobre enteros. Polars no lo maneja bien. Los marts castean a BIGINT (ADR-013).
+- **Unit test (dbt)** — Test con datos de entrada y salida definidos a mano que valida la lógica de un modelo sin depender del dataset.
+- **.git-blame-ignore-revs** — Lista de commits que git blame y GitHub ignoran; se usa para commits de solo formato.
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
 - **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
 
