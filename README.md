@@ -134,7 +134,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (13 modelos, 96 tests de datos y 6 unit tests):
+Construir modelos y correr los tests de dbt (13 modelos, 2 seeds, 104 tests de datos y 6 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -313,7 +313,7 @@ Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. 
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt con 96 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt y 2 seeds con 104 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
 Siguiente: Fase 3, necesidad de flota por planta y semana contra el plan de producción, con el ciclo del empaque dentro de la planta (vacíos, línea, lavado, reparación).
 
