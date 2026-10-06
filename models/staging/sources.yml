@@ -16,12 +16,13 @@ sources:
           - name: bwart
             description: >
               Clase de movimiento. 621/622/702 con stock especial V para el ciclo
-              con cliente; 601 solo para cartón desechable.
+              con cliente; 601 solo para cartón desechable; 311, 325, 343, 344 y 555
+              para el ciclo dentro de la planta (ADR-017).
             tests:
               - not_null
               - accepted_values:
                   arguments:
-                    values: ['101','102','261','309','311','411','501','502','601','621','622','702']
+                    values: ['101','102','261','309','311','325','343','344','411','501','502','555','601','621','622','702']
           - name: budat
             description: Fecha de contabilización.
             tests:
