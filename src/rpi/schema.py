@@ -1,4 +1,4 @@
-﻿"""
+"""
 Schema Pandera del dataset MB51 sintetico.
 
 Define el contrato de las 22 columnas (16 core + 6 opcionales) que produce
@@ -83,7 +83,7 @@ class MB51Schema(pa.DataFrameModel):
         description="Hora de registro en formato HHMMSS (convencion SAP).",
     )
     Menge: Series[int] = pa.Field(
-                description=(
+        description=(
             "Cantidad del movimiento con signo SAP: salidas negativas "
             "(102, 261, 502, 555, 601, 621, 702), entradas positivas. "
             "Traslados 309/311/325/343/344/411 en dos posiciones que suman cero."
