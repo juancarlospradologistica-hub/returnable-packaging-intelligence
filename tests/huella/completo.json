@@ -1,0 +1,254 @@
+{
+  "mb51_PLNT_MX01": {
+    "filas": 503107,
+    "sha256": "f8091affada60715c0095a1061e5b67b25b0d93f94f150688e0b7f5fecbd9293",
+    "por_bwart": {
+      "621": {
+        "filas": 297234,
+        "menge": -1084075
+      },
+      "622": {
+        "filas": 203275,
+        "menge": 1029132
+      },
+      "702": {
+        "filas": 2598,
+        "menge": -4275
+      }
+    }
+  },
+  "mb51_PLNT_MX02": {
+    "filas": 524254,
+    "sha256": "0ddb1d43da43c686888dea4865223a5c3a4fd1fef12f16526149be3cb47ae23e",
+    "por_bwart": {
+      "621": {
+        "filas": 303321,
+        "menge": -1109654
+      },
+      "622": {
+        "filas": 218620,
+        "menge": 1054172
+      },
+      "702": {
+        "filas": 2313,
+        "menge": -3195
+      }
+    }
+  },
+  "mb51_PLNT_MX03": {
+    "filas": 563163,
+    "sha256": "91ec223ec53e2de4beeb4e33c8d12b03b43b7db83f779c76eb9af97a1cf8fc85",
+    "por_bwart": {
+      "621": {
+        "filas": 327286,
+        "menge": -1198304
+      },
+      "622": {
+        "filas": 232464,
+        "menge": 1136469
+      },
+      "702": {
+        "filas": 3413,
+        "menge": -5282
+      }
+    }
+  },
+  "mb51_PLNT_MX04": {
+    "filas": 497918,
+    "sha256": "6cf4e816a009a7ad9c8c2e259ef3d4b0299b1e3cd0b6cff0ef5d8316e778f99f",
+    "por_bwart": {
+      "621": {
+        "filas": 307061,
+        "menge": -1124421
+      },
+      "622": {
+        "filas": 189510,
+        "menge": 1070350
+      },
+      "702": {
+        "filas": 1347,
+        "menge": -1556
+      }
+    }
+  },
+  "mb51_PLNT_MX05": {
+    "filas": 321781,
+    "sha256": "f815c0d2158734696d2f54c46749ce32291230c3f573e83858da0b6e44e37efc",
+    "por_bwart": {
+      "621": {
+        "filas": 181769,
+        "menge": -664178
+      },
+      "622": {
+        "filas": 138248,
+        "menge": 630540
+      },
+      "702": {
+        "filas": 1764,
+        "menge": -2485
+      }
+    }
+  },
+  "mb51_PLNT_MX06": {
+    "filas": 552338,
+    "sha256": "f27b125dd5000921bc9143bf45a160e598d7ce766e94464f1df8a598ff3545d9",
+    "por_bwart": {
+      "621": {
+        "filas": 346475,
+        "menge": -1268722
+      },
+      "622": {
+        "filas": 204267,
+        "menge": 1208367
+      },
+      "702": {
+        "filas": 1596,
+        "menge": -1895
+      }
+    }
+  },
+  "mb51_PLNT_NI01": {
+    "filas": 480566,
+    "sha256": "59053de1d9294124917fea60c0c7d4fe1999ad7ba6d6827cb553ae1bc21db6ff",
+    "por_bwart": {
+      "621": {
+        "filas": 282401,
+        "menge": -1039806
+      },
+      "622": {
+        "filas": 195708,
+        "menge": 988232
+      },
+      "702": {
+        "filas": 2457,
+        "menge": -4079
+      }
+    }
+  },
+  "mb51_PLNT_NI02": {
+    "filas": 545278,
+    "sha256": "078b41851b691b4fec100c9a0b6e5b703b6e82bef3cd4c55e47941f2d80893ea",
+    "por_bwart": {
+      "621": {
+        "filas": 331012,
+        "menge": -1219357
+      },
+      "622": {
+        "filas": 212719,
+        "menge": 1161064
+      },
+      "702": {
+        "filas": 1547,
+        "menge": -1749
+      }
+    }
+  },
+  "mb51_PLNT_US01": {
+    "filas": 532235,
+    "sha256": "514364b1c636e27c0ba8e7780a3b8ad2592d999288a0111f1223978bc4419725",
+    "por_bwart": {
+      "621": {
+        "filas": 307093,
+        "menge": -1130290
+      },
+      "622": {
+        "filas": 221796,
+        "menge": 1071516
+      },
+      "702": {
+        "filas": 3346,
+        "menge": -5196
+      }
+    }
+  },
+  "mb51_PLNT_US02": {
+    "filas": 377012,
+    "sha256": "761cef70867384f83ae143b5038727dc6e515959f9f6dbe39fd935ea5eb91909",
+    "por_bwart": {
+      "621": {
+        "filas": 216324,
+        "menge": -789537
+      },
+      "622": {
+        "filas": 158663,
+        "menge": 748927
+      },
+      "702": {
+        "filas": 2025,
+        "menge": -3017
+      }
+    }
+  },
+  "mb51_PLNT_US03": {
+    "filas": 502536,
+    "sha256": "5f1b7f0835745df40a6dfecb50af16e3db65b1fe62ba2ffb191e6fbe8524dc05",
+    "por_bwart": {
+      "621": {
+        "filas": 310511,
+        "menge": -1136758
+      },
+      "622": {
+        "filas": 190626,
+        "menge": 1082620
+      },
+      "702": {
+        "filas": 1399,
+        "menge": -1645
+      }
+    }
+  },
+  "mb51_PLNT_US04": {
+    "filas": 583268,
+    "sha256": "ab36fb0cc64b694c242eda1b0671f69c50b2e0a71795095a623fb11d0137e9be",
+    "por_bwart": {
+      "621": {
+        "filas": 357205,
+        "menge": -1307594
+      },
+      "622": {
+        "filas": 223249,
+        "menge": 1239935
+      },
+      "702": {
+        "filas": 2814,
+        "menge": -5662
+      }
+    }
+  },
+  "mb51_PLNT_US05": {
+    "filas": 373931,
+    "sha256": "d1893ae5f5a0934054759d37cb0ed8e192ed77c8da28ab162f48b047635a67a6",
+    "por_bwart": {
+      "621": {
+        "filas": 213770,
+        "menge": -780480
+      },
+      "622": {
+        "filas": 157182,
+        "menge": 738901
+      },
+      "702": {
+        "filas": 2979,
+        "menge": -4854
+      }
+    }
+  },
+  "mb51_PLNT_US06": {
+    "filas": 331042,
+    "sha256": "8cb8722f38a4d696f1b4d0f759147b05020ea8d280a47416d97ab7e74d704617",
+    "por_bwart": {
+      "621": {
+        "filas": 187792,
+        "menge": -689073
+      },
+      "622": {
+        "filas": 142351,
+        "menge": 656850
+      },
+      "702": {
+        "filas": 899,
+        "menge": -963
+      }
+    }
+  }
+}
