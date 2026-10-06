@@ -1,0 +1,13 @@
+bwart,evento,descripcion
+101,entrada_compra,Entrada por orden de compra
+102,storno_compra,Storno de la entrada por compra
+261,consumo,Consumo a orden; solo cartón
+311,traslado,Traslado entre almacenes de la planta
+325,traslado_bloqueado,Traslado de stock bloqueado entre almacenes
+343,desbloqueo,Bloqueado a libre utilización en el mismo almacén
+344,bloqueo,Libre utilización a bloqueado en el mismo almacén
+555,baja,Baja desde stock bloqueado
+601,salida_desechable,Salida del cartón a cliente
+621,salida_cliente,Salida a stock especial V
+622,recogida_cliente,Recogida desde stock especial V
+702,faltante_cliente,Faltante en conciliación de stock especial V

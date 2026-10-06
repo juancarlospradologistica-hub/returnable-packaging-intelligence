@@ -1,0 +1,10 @@
+lgort,estado,descripcion
+RECF,recepcion,Recepción de flota nueva
+VACI,vacios,Vacíos limpios; incluye el stock de seguridad
+LINE,linea,Línea de producción (PSA)
+LLEN,llenos,Llenos listos para embarque
+SUCI,sucios,Sucios por lavar e inspección de retorno
+REPA,reparacion,Reparación en stock bloqueado
+SCRP,scrap,Scrap pendiente de baja en stock bloqueado
+RM01,fuera_ciclo,Almacén general del cartón
+EXPE,fuera_ciclo,Embarque del cartón
