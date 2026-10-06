@@ -268,3 +268,5 @@ Desktop.ini
 .pytest_cache/
 htmlcov/
 .coverage.*
+data/huella_ci/
+data/huella_check.json
