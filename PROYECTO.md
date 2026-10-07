@@ -569,6 +569,34 @@ Marcar con `[x]` al cerrar.
 
 ## 6. Worklog
 
+### 2026-10-05 · Sesión 35 — Semana 16
+
+- **Duración:** ~4 h (4 y 5 de octubre)
+- **Hecho:**
+  - Branch semana-16-fase-3a y PR #4 en borrador contra main.
+  - src/rpi/huella.py: sha256 sobre las filas 621, 622 y 702 ordenadas, por planta, con filas y Menge por Bwart. sha256 sobre el CSV y no hash_rows de Polars, que no es estable entre versiones.
+  - Baselines en tests/huella/: completo.json (14 plantas, 18 meses, seed 42) y ci.json (2 plantas, 6 meses, seed 42). Seis meses para que haya 702 en las dos plantas.
+  - Generador reproducible en el ciclo con cliente: dos corridas completas dan la misma huella con 22,970,200 filas.
+  - tests/test_ciclo_cliente_intacto.py: la corrida reducida llama al CLI con flags fijos, sin depender de cfg_ci. El completo se salta si data/raw no tiene las 14 plantas o si el primer Budat es posterior a enero de 2025. Probado rompiendo la baseline: el mensaje dice planta, Bwart, filas y Menge.
+  - Fase 3a.1: schema con 325, 343, 344 y 555 y Lgort nulo en 702 V; accepted_values del source alineado; seeds almacenes y clases_movimiento con column_types varchar y 8 tests.
+  - README: 13 modelos, 2 seeds, 104 tests de datos y 6 unit tests.
+  - dbt build 125/125, pytest 33.
+- **Decisiones tomadas:** ninguna nueva. Punto 10 de ADR-017 precisado: Costo_usd entra a la huella; Lgort, Cputm y Mblnr quedan fuera.
+- **Bloqueos:**
+  - Carpeta seeds creada dentro de src/rpi y archivos en 0 bytes. Movida a la raíz y archivos llenados desde VS Code, verificando Length.
+  - Un tab viejo de clases_movimientos.csv se guardó y devolvió el nombre en plural; dbt lo cargó sin column_types. Renombrado y DROP de la tabla vieja en DuckDB.
+  - schema.py sin formato llegó al push. Corregido en commit aparte.
+- **Notas de la sesión:**
+  - Hora, minuto y referencia se sortean con n = filas de la planta, y generate reusa el mismo rng entre plantas. En 3a.2 el ruido se filtra después de ese sorteo y nada nuevo usa el rng compartido.
+  - dbt infiere el tipo de columna de un seed: sin column_types, 621 entra como entero.
+  - El seed toma su nombre del archivo. Si no coincide con seeds.yml, la config y los tests no se aplican; solo avisa dbt ls con un warning.
+  - StopIteration al compilar un seed = CSV vacío.
+  - Set-Content -Encoding utf8 en PowerShell 5.1 escribe BOM; un CSV con BOM rompe el nombre de la primera columna.
+  - En python -c desde PowerShell 5.1 un SQL con comillas se rompe; usar describe o show tables.
+  - Un push a un branch sin PR no dispara CI: el workflow corre en pull_request y en push a main.
+  - Un test vale si falla con la baseline rota. Aquí reveló que el diagnóstico salía vacío cuando solo cambiaban los conteos.
+- **Próximo paso:** Fase 3a.2: quitar el ruido al final de emit_plant_movements y reglas nuevas de Lgort (621 desde LLEN, 622 a SUCI, 702 V sin Lgort). Huella en verde; test_readme.py falla por conteo de filas hasta 3a.3. Test de Lgort y Bwart contra los seeds.
+
 ### 2026-09-30 · Sesión 34 — Semana 15
 
 - **Duración:** ~3 h
