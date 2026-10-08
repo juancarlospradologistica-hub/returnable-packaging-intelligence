@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_stock_inicial
+    description: >
+      Vista tipada sobre raw_stock_inicial. Un registro = stock de un material
+      en un almacén al abrir la ventana. Llave y cantidad se validan en el source.
+    columns:
+      - name: tipo_material
+        description: >
+          Derivado del prefijo de Matnr. Solo retornables: el cartón no tiene
+          flota que contar.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
