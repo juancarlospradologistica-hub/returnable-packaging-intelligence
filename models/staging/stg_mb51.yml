@@ -19,6 +19,16 @@ models:
         tests:
           - not_null
 
+      - name: almacen
+        description: >
+          Lgort. Uno fuera del seed almacenes se perdería en el join de
+          int_mov_stock sin aviso; el 702 V no lleva almacén (MSKU).
+        tests:
+          - relationships:
+              arguments:
+                to: ref('almacenes')
+                field: lgort
+
       - name: tipo_material
         description: Derivado del prefijo de Matnr (KLT, RCK, CTN).
         tests:
