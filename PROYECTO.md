@@ -569,6 +569,24 @@ Marcar con `[x]` al cerrar.
 
 ## 6. Worklog
 
+### 2026-10-08 · Sesión 36 — Semana 16
+
+**Duración:** ~3 h (6 al 8 de octubre)
+**Hecho:**
+Fase 3a.2 en el generador: fuera 501, 502 y los 311, 411 y 309 de relleno en todos los materiales, y 101, 102 y 261 en retornables. El filtro va después del sorteo de hora, minuto y referencia, así que el generador aleatorio llega igual a la siguiente planta (ADR-017, punto 6).
+Lgort por clase de movimiento con un mapa fijo: 621 desde LLEN, 622 a SUCI, 702 V sin Lgort; el cartón conserva RM01 (101, 102, 261) y EXPE (601). Fuera las ramas TR01, TR02 y RECP.
+Tests nuevos en test_generator.py: clases por tipo de material, pares Bwart-Lgort exactos, y Bwart y Lgort contra los seeds almacenes.csv y clases_movimiento.csv.
+Dataset completo: de 22,970,200 a 7,310,858 filas. Huella de 621, 622 y 702 igual en las 14 plantas. dbt build 125/125, pytest 36.
+test_readme.py: pasan KPIs de Fase 1, ciclo, TCO por tipo y equilibrio del Rack; falla solo test_filas_del_dataset por el conteo de filas.
+Decisiones tomadas: ninguna nueva; implementa ADR-017, puntos 2 y 6.
+Bloqueos: ninguno.
+Notas de la sesión:
+Las parejas de traslado de relleno se siguen emitiendo aunque se descarten: no sortean nada, pero suben df.height y con eso el tamaño del sorteo de hora, minuto y referencia.
+test_filas_dentro_de_rango baja el piso de 50k a 20k: con el fixture de CI quedan 49,954 filas. Los 311 internos de 3a.3 lo regresan arriba de 100k.
+Los tests de clases y de pares Bwart-Lgort comparan contra el conjunto exacto. En 3a.3 se les agrega el 311 y los pares de VACI, LINE y LLEN.
+README sigue con 22,970,200 movimientos a propósito: se actualiza una sola vez al cerrar 3a.3. Sin merge a main entre 3a.2 y 3a.3.
+Próximo paso: Fase 3a.3: 311 de VACI a LINE y de LINE a LLEN antes de cada 621, con default_rng([seed, idx, 1]), y tabla stock_inicial.
+
 ### 2026-10-05 · Sesión 35 — Semana 16
 
 - **Duración:** ~4 h (4 y 5 de octubre)
