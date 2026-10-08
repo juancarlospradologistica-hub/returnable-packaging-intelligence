@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: int_mov_stock
+    description: >
+      Movimientos de retornables con su efecto sobre el stock de una ubicación:
+      almacén del ciclo o stock especial V en cliente. Estado sale del seed
+      almacenes, evento del seed clases_movimiento y tipo de stock de evento y
+      signo (ADR-017, puntos 3 y 5). La foto inicial entra como evento apertura.
+    columns:
+      - name: estado
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['recepcion', 'vacios', 'linea', 'llenos', 'sucios', 'reparacion', 'scrap', 'cliente']
+      - name: tipo_stock
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['libre', 'bloqueado']
+      - name: delta
+        tests: [not_null]
+
+  - name: int_stock_diario
+    description: >
+      Stock por planta, material, ubicación y tipo de stock al cierre de cada
+      día en que cambia (ADR-020). El saldo de una llave en cualquier fecha es
+      el de su última fila en o antes de esa fecha. Base del stock semanal, del
+      ciclo interno de 3b y del replay de Fase 4.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: estado
+        tests: [not_null]
+      - name: tipo_stock
+        tests: [not_null]
+      - name: fecha
+        tests: [not_null]
+      - name: saldo
+        tests: [not_null]
