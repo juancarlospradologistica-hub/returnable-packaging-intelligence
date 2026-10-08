@@ -629,7 +629,9 @@ Marcar con `[x]` al cerrar.
   - Si ruff format --check marca un archivo y el diff se ve idéntico, la diferencia es invisible: BOM al inicio o espacio al final de la línea. VS Code puede guardar "UTF-8 with BOM"; se ve en la barra de estado.
   - Un ruff format --check local en rojo no se deja pasar al commit: CI corre el mismo paso y se detiene ahí.
   - CI en rojo en formato: schema.py con BOM y una línea de test_contrato_bwart.py. Corregido con ruff format en commit aparte.
+  - Orden para cerrar un PR: CI verde, Merged en morado en GitHub, git pull en main, git log con el merge arriba. Solo después se borran branches. El warning "not yet merged to HEAD" de git branch -d es para detenerse, no para seguir.
 - **Próximo paso:** Fase 3a.4: daño con 344/325 desde SUCI, reparación 343/311 a VACI, scrap 325 y baja 555 mensual, con los sub-streams 2 y 3. stock_inicial se recalcula.
+  - PR #4 cerrado sin mergear: el branch se borró en local y en GitHub antes de confirmar el merge, y borrar el branch remoto cierra el PR. Recuperado desde el hash ee12bae: Restore branch, Reopen, Ready for review y merge (c6d2a1b).
 
 
 ### 2026-10-08 · Sesión 36 — Semana 16
