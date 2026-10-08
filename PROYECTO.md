@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-09-30
+**Última actualización:** 2026-10-08
 
 ---
 
@@ -493,6 +493,43 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Reglas de calidad de datos para datos reales: parte en el plan sin instrucción de empaque; instrucción que apunta a cartón o a un Matnr fuera de la planta; Rack con partes de más de un cliente; parte con plan sin embarques en las 13 semanas previas; Bwart o Lgort fuera de los seeds.
   - Al cierre de Fase 3 se decide si la fase de calidad de datos sobre MB51 y master data va antes que el simulador de Fase 4.
 
+  ### ADR-018 · Ciclo de salida y retorno a vacíos en el generador, y cálculo de stock_inicial
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Precisa ADR-017: puntos 4, 7 y 9, y los supuestos de tiempo en LINE, LLEN y SUCI. Cambia el orden de sub-bloques de Fase 3a.
+- **Contexto:** Antes de escribir 3a.3 prototipé los 311 internos sobre las filas 621 y 622 del dataset completo (14 plantas, seed 42). Encontré:
+  - Sin el 311 de SUCI a VACI, vacíos solo baja: la flota que lo deja en cero o más es todo lo que sale en 18 meses. Con el orden original, stock_inicial no se puede calcular en 3a.3.
+  - Con los tres tramos (VACI→LINE, LINE→LLEN, SUCI→VACI) salen 5,659,943 documentos y 11,319,886 filas. El dataset pasa de 7,310,858 a ~18.6M filas.
+  - Los 621 de los primeros días piden 311 con fecha anterior al primer día hábil de la ventana (2025-01-06): 37,341 contenedores en LINE y 43,314 en LLEN.
+  - Un 622 registrado después del corte no existe a la fecha de extracción; si su 311 a VACI sí existiera, SUCI quedaría negativo.
+  - Con un solo generador aleatorio para todo el ciclo interno, los sorteos de daño de 3a.4 moverían las fechas de los 311 de 3a.3. Es el problema del generador compartido entre plantas, un nivel abajo.
+  - Flota mínima en VACI: 1,271,300 contenedores; con holgura, 1,462,262. El mínimo cae tarde en la ventana (p50 2025-11-25): lo empuja la merma acumulada, no la subida inicial del saldo en cliente.
+- **Alternativas evaluadas:**
+  - stock_inicial en 3a.4, cuando cierre el ciclo: 3a.3 llega a main con vacíos negativo en todos los empaques.
+  - 311 SUCI→VACI con daño en 3a.3: junta dos sub-bloques y retrasa el cierre de 3a.3.
+  - Tiempos en días naturales: aparecen 311 en fin de semana en un dataset donde 621 y 622 solo caen en día hábil y el cierre es hábil (ADR-012, punto 8).
+  - Tiempos uniformes dentro del rango: el Rack en LLEN promedia 1.5 días contra los 2 del supuesto.
+  - Recorrer los 311 de antes de la ventana al primer día hábil: concentra una semana de movimientos en un día y deja la foto inicial sin LINE ni LLEN.
+- **Decisión:**
+  1. El 311 de SUCI a VACI entra en 3a.3 sin daño: todo lo que se recoge regresa a VACI. 3a.4 desvía la fracción dañada con 344 y 325.
+  2. emit_internal_cycle corre después de emit_plant_movements y del filtro de Cpudt, y antes de _assign_document_numbers. Solo ve lo que existe a la fecha de extracción. doc_id sigue después del máximo de la planta.
+  3. Un generador por tramo: default_rng([random_seed, indice_planta, 1, k]). k = 0 salida (VACI→LINE→LLEN), 1 retorno (SUCI→VACI), 2 daño y reparación, 3 scrap y baja, 8 registro, 9 holgura. Si random_seed es None, la base sale de SeedSequence().entropy, una vez por corrida.
+  4. Tiempos en días hábiles, sorteados con binomial para que la media sea el punto del supuesto y el soporte su rango: LINE Bin(2, 1/2); LLEN KLT Bin(3, 1/3), Rack Bin(3, 2/3); SUCI KLT 1 + Bin(2, 1/2), Rack Bin(2, 1/2). config.py guarda media y máximo por tramo y tipo.
+  5. Fechas: LINE→LLEN = Budat del 621 − t_LLEN; VACI→LINE = esa fecha − t_LINE; SUCI→VACI = Budat del 622 + t_SUCI.
+  6. Registro: Cpudt = Budat (conteo al cierre de turno), Cputm sorteado de 06 a 22, Xblnr, Lifnr y Kunnr nulos. Posición 1 sale del origen, posición 2 entra al destino.
+  7. Un 311 con Budat anterior al primer día hábil no se emite; su cantidad queda en stock_inicial en LINE o LLEN. Un 311 a VACI con Budat después del corte no se emite; el contenedor se queda en SUCI.
+  8. stock_inicial en data/raw/stock_inicial.parquet con Werks, Lgort, Matnr, Kunnr, Menge y Fecha, al cierre del día anterior a la ventana (equivalente a MB5B). VACI = ceil(flota mínima × (1 + h)), h ~ U(0, 0.30) por planta y material. Flota mínima = mayor faltante de VACI tomando saldo al cierre anterior menos salidas del día, antes de entradas. Solo KLT y Rack, sin filas en cero. Stock V inicial vacío: el generador no tiene 621 antes de la ventana.
+  9. El stock se valida al cierre del día por Budat. El orden dentro del día no se modela.
+- **Consecuencias:**
+  - Las cifras de Fase 1 y 2 no cambian: ningún sorteo nuevo usa el generador compartido y el filtro de Cpudt no sortea. La huella lo valida.
+  - Cambian los Mblnr de las filas existentes; ninguna métrica depende de ellos.
+  - El dataset queda en ~18.6M filas al cerrar 3a.3.
+  - Por construcción, el sintético nunca se queda sin vacíos. La escasez se mide en 3b contra el plan.
+  - 3a.4 recalcula stock_inicial, porque reparación y scrap cambian el mínimo. Las fechas de los 311 de 3a.3 no se mueven.
+  - Un día en LLEN un viernes son tres naturales. El ciclo interno que use 3b sale del mart en días naturales, no de los supuestos.
+  - Sub-bloques: 3a.3 = salida y retorno a vacíos más stock_inicial; 3a.4 = daño 344/325, reparación 343/311, scrap 325 y baja 555.
+  - Dos tests fijan stock_inicial: test_stock_no_negativo_por_dia (la flota alcanza) y test_holgura_en_rango (el peor saldo de VACI entre el inicial cae entre 0 y 0.30/1.30, más una unidad por redondeo: la flota no sobra).
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -530,7 +567,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 - **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales repartidos sin repetir (51 o 52 por planta): 531 o 532 Matnr por planta.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
 - **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
-- **Volumen:** ~40-80k movimientos base por planta/mes; con traslados en pareja y recogidas, ~22M filas totales.
+- **Volumen:** ~40-80k movimientos base por planta/mes, de los que se escriben el ciclo con cliente y el cartón; con los 311 internos, 18,630,450 filas totales.
 - **Clientes:** 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido.
 - **Menge por línea:** KLT 1–12, Rack 1–4, Cartón 1–6. Signo SAP: salidas negativas.
 - **Ciclo 621→622:** log-normal, media 25 días, cola larga.
@@ -539,7 +576,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
 - **Cartón:** desechable, sale con 601 y no regresa.
 - **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
-- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet). Cada corrida borra los mb51_*.parquet previos del directorio. Pico de memoria ~1.1 GB.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet) y la foto data/raw/stock_inicial.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
 
@@ -568,6 +605,78 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-08 · Sesión 37 — Semana 16
+
+- **Duración:** ~1.5 h
+- **Hecho:**
+  - Diseño de 3a.3 con prototipo sobre el dataset completo antes de escribir código: sin el 311 de SUCI a VACI, stock_inicial no se puede calcular. El retorno a vacíos sube a 3a.3, sin daño (ADR-018).
+  - tests/test_contrato_bwart.py: BWART_VALIDOS, accepted_values del source y clases_movimiento.csv tienen que ser el mismo conjunto. En la primera corrida encontró 309, 411, 501 y 502 todavía en schema y source desde 3a.2. Corregidos, junto con assert_signo_sap.sql.
+  - InternalCycleConfig en config.py: tiempos en LINE, LLEN y SUCI por tipo, con min, media y máximo, y holgura máxima de flota.
+  - emit_internal_cycle: 311 VACI→LINE→LLEN antes de cada 621 y SUCI→VACI después de cada 622, un documento por día, material y tramo, en días hábiles, con un generador por tramo. Corre después del filtro de Cpudt.
+  - stock_inicial al 2025-01-05: 1,462,534 en VACI, 37,111 en LINE y 43,099 en LLEN. Ingesta a raw_stock_inicial, source con not_null y relationships contra almacenes, y test singular de llave y cantidad.
+  - tests/test_ciclo_interno.py: pareja y suma cero, documento por día, registro, contrato de stock_inicial, stock no negativo por día y holgura en rango. Verificados rompiendo el generador tres veces: 311 a LLEN después del 621, flota al doble y flota al 90% del mínimo.
+  - Dataset completo: 18,630,450 filas, 11,319,592 de 311. Huella de 621, 622 y 702 igual en las 14 plantas. dbt build 132/132, pytest 44. README con el conteo nuevo; test_readme en verde.
+- **Decisiones tomadas:** ADR-018.
+- **Bloqueos:**
+  - El zip de GitHub bajó main y no el branch. Para el branch: git archive --format=zip -o ..\rpi-semana16.zip HEAD.
+  - sources.yml se fue al commit sin el '311' después de la prueba de romper el test. Lo detectó el mismo test; corregido en commit aparte.
+- **Notas de la sesión:**
+  - Un contrato que acepta clases que el generador ya no emite deja de validar: un 501 que regrese por bug pasa en Pandera y en dbt.
+  - Un test que filtra por una clase que ya no existe pasa vacío. test_traslados_suman_cero se retiró por eso.
+  - Que la flota alcance no prueba que esté bien: hace falta un test que falle si sobra.
+  - Después de romper un archivo para probar un test, regresarlo a mano y revisar git diff antes del commit; git checkout también se lleva los cambios buenos.
+  - Si ruff format --check marca un archivo y el diff se ve idéntico, la diferencia es invisible: BOM al inicio o espacio al final de la línea. VS Code puede guardar "UTF-8 with BOM"; se ve en la barra de estado.
+  - Un ruff format --check local en rojo no se deja pasar al commit: CI corre el mismo paso y se detiene ahí.
+  - CI en rojo en formato: schema.py con BOM y una línea de test_contrato_bwart.py. Corregido con ruff format en commit aparte.
+- **Próximo paso:** Fase 3a.4: daño con 344/325 desde SUCI, reparación 343/311 a VACI, scrap 325 y baja 555 mensual, con los sub-streams 2 y 3. stock_inicial se recalcula.
+
+
+### 2026-10-08 · Sesión 36 — Semana 16
+
+**Duración:** ~3 h (6 al 8 de octubre)
+**Hecho:**
+Fase 3a.2 en el generador: fuera 501, 502 y los 311, 411 y 309 de relleno en todos los materiales, y 101, 102 y 261 en retornables. El filtro va después del sorteo de hora, minuto y referencia, así que el generador aleatorio llega igual a la siguiente planta (ADR-017, punto 6).
+Lgort por clase de movimiento con un mapa fijo: 621 desde LLEN, 622 a SUCI, 702 V sin Lgort; el cartón conserva RM01 (101, 102, 261) y EXPE (601). Fuera las ramas TR01, TR02 y RECP.
+Tests nuevos en test_generator.py: clases por tipo de material, pares Bwart-Lgort exactos, y Bwart y Lgort contra los seeds almacenes.csv y clases_movimiento.csv.
+Dataset completo: de 22,970,200 a 7,310,858 filas. Huella de 621, 622 y 702 igual en las 14 plantas. dbt build 125/125, pytest 36.
+test_readme.py: pasan KPIs de Fase 1, ciclo, TCO por tipo y equilibrio del Rack; falla solo test_filas_del_dataset por el conteo de filas.
+Decisiones tomadas: ninguna nueva; implementa ADR-017, puntos 2 y 6.
+Bloqueos: ninguno.
+Notas de la sesión:
+Las parejas de traslado de relleno se siguen emitiendo aunque se descarten: no sortean nada, pero suben df.height y con eso el tamaño del sorteo de hora, minuto y referencia.
+test_filas_dentro_de_rango baja el piso de 50k a 20k: con el fixture de CI quedan 49,954 filas. Los 311 internos de 3a.3 lo regresan arriba de 100k.
+Los tests de clases y de pares Bwart-Lgort comparan contra el conjunto exacto. En 3a.3 se les agrega el 311 y los pares de VACI, LINE y LLEN.
+README sigue con 22,970,200 movimientos a propósito: se actualiza una sola vez al cerrar 3a.3. Sin merge a main entre 3a.2 y 3a.3.
+Próximo paso: Fase 3a.3: 311 de VACI a LINE y de LINE a LLEN antes de cada 621, con default_rng([seed, idx, 1]), y tabla stock_inicial.
+
+### 2026-10-05 · Sesión 35 — Semana 16
+
+- **Duración:** ~4 h (4 y 5 de octubre)
+- **Hecho:**
+  - Branch semana-16-fase-3a y PR #4 en borrador contra main.
+  - src/rpi/huella.py: sha256 sobre las filas 621, 622 y 702 ordenadas, por planta, con filas y Menge por Bwart. sha256 sobre el CSV y no hash_rows de Polars, que no es estable entre versiones.
+  - Baselines en tests/huella/: completo.json (14 plantas, 18 meses, seed 42) y ci.json (2 plantas, 6 meses, seed 42). Seis meses para que haya 702 en las dos plantas.
+  - Generador reproducible en el ciclo con cliente: dos corridas completas dan la misma huella con 22,970,200 filas.
+  - tests/test_ciclo_cliente_intacto.py: la corrida reducida llama al CLI con flags fijos, sin depender de cfg_ci. El completo se salta si data/raw no tiene las 14 plantas o si el primer Budat es posterior a enero de 2025. Probado rompiendo la baseline: el mensaje dice planta, Bwart, filas y Menge.
+  - Fase 3a.1: schema con 325, 343, 344 y 555 y Lgort nulo en 702 V; accepted_values del source alineado; seeds almacenes y clases_movimiento con column_types varchar y 8 tests.
+  - README: 13 modelos, 2 seeds, 104 tests de datos y 6 unit tests.
+  - dbt build 125/125, pytest 33.
+- **Decisiones tomadas:** ninguna nueva. Punto 10 de ADR-017 precisado: Costo_usd entra a la huella; Lgort, Cputm y Mblnr quedan fuera.
+- **Bloqueos:**
+  - Carpeta seeds creada dentro de src/rpi y archivos en 0 bytes. Movida a la raíz y archivos llenados desde VS Code, verificando Length.
+  - Un tab viejo de clases_movimientos.csv se guardó y devolvió el nombre en plural; dbt lo cargó sin column_types. Renombrado y DROP de la tabla vieja en DuckDB.
+  - schema.py sin formato llegó al push. Corregido en commit aparte.
+- **Notas de la sesión:**
+  - Hora, minuto y referencia se sortean con n = filas de la planta, y generate reusa el mismo rng entre plantas. En 3a.2 el ruido se filtra después de ese sorteo y nada nuevo usa el rng compartido.
+  - dbt infiere el tipo de columna de un seed: sin column_types, 621 entra como entero.
+  - El seed toma su nombre del archivo. Si no coincide con seeds.yml, la config y los tests no se aplican; solo avisa dbt ls con un warning.
+  - StopIteration al compilar un seed = CSV vacío.
+  - Set-Content -Encoding utf8 en PowerShell 5.1 escribe BOM; un CSV con BOM rompe el nombre de la primera columna.
+  - En python -c desde PowerShell 5.1 un SQL con comillas se rompe; usar describe o show tables.
+  - Un push a un branch sin PR no dispara CI: el workflow corre en pull_request y en push a main.
+  - Un test vale si falla con la baseline rota. Aquí reveló que el diagnóstico salía vacío cuando solo cambiaban los conteos.
+- **Próximo paso:** Fase 3a.2: quitar el ruido al final de emit_plant_movements y reglas nuevas de Lgort (621 desde LLEN, 622 a SUCI, 702 V sin Lgort). Huella en verde; test_readme.py falla por conteo de filas hasta 3a.3. Test de Lgort y Bwart contra los seeds.
 
 ### 2026-09-30 · Sesión 34 — Semana 15
 

@@ -16,12 +16,13 @@ sources:
           - name: bwart
             description: >
               Clase de movimiento. 621/622/702 con stock especial V para el ciclo
-              con cliente; 601 solo para cartón desechable.
+              con cliente; 601 solo para cartón desechable; 311, 325, 343, 344 y 555
+              para el ciclo dentro de la planta (ADR-017).
             tests:
               - not_null
               - accepted_values:
                   arguments:
-                    values: ['101','102','261','309','311','411','501','502','601','621','622','702']
+                    values: ['101','102','261','311','325','343','344','555','601','621','622','702']
           - name: budat
             description: Fecha de contabilización.
             tests:
@@ -36,5 +37,32 @@ sources:
               - not_null
           - name: menge
             description: Cantidad con signo SAP. Salidas negativas, entradas positivas.
+            tests:
+              - not_null
+
+      - name: raw_stock_inicial
+        description: >
+          Foto de stock por planta, almacén y material al cierre del día anterior
+          a la ventana, equivalente a MB5B (ADR-017, punto 7; ADR-018, punto 8).
+          MB51 no trae el stock con el que abre la ventana. Kunnr queda para el
+          stock especial V de un extracto real; en el sintético va vacío.
+        columns:
+          - name: werks
+            tests:
+              - not_null
+          - name: lgort
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('almacenes')
+                    field: lgort
+          - name: matnr
+            tests:
+              - not_null
+          - name: menge
+            tests:
+              - not_null
+          - name: fecha
             tests:
               - not_null

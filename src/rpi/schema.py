@@ -18,11 +18,11 @@ BWART_VALIDOS = [
     "101",
     "102",
     "261",
-    "309",
     "311",
-    "411",
-    "501",
-    "502",
+    "325",
+    "343",
+    "344",
+    "555",
     "601",
     "621",
     "622",
@@ -48,7 +48,8 @@ class MB51Schema(pa.DataFrameModel):
     )
     Lgort: Series[str] = pa.Field(
         str_length={"min_value": 4, "max_value": 12},
-        description="Almacen. SAP siempre 4 caracteres.",
+        nullable=True,
+        description="Almacen. Nulo en 702 con stock especial V: MSKU no lleva almacen.",
     )
     Matnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 18},
@@ -80,8 +81,8 @@ class MB51Schema(pa.DataFrameModel):
     Menge: Series[int] = pa.Field(
         description=(
             "Cantidad del movimiento con signo SAP: salidas negativas "
-            "(102, 261, 502, 601, 621, 702), entradas positivas. "
-            "Traslados 309/311/411 en dos posiciones que suman cero."
+            "(102, 261, 555, 601, 621, 702, 311), entradas positivas. "
+            "Traslados 311 en dos posiciones que suman cero."
         ),
     )
     Meins: Series[str] = pa.Field(
@@ -99,9 +100,7 @@ class MB51Schema(pa.DataFrameModel):
     Lifnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
-        description=(
-            "Proveedor. Nullable: solo aplica en movimientos 101/102/461/462/501/502 con socio."
-        ),
+        description=("Proveedor. Nullable: solo aplica en movimientos 101/102 del cartón."),
     )
     Kunnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},

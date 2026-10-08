@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 22,970,200 movimientos.
+Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 18,630,450 movimientos.
 
 El objetivo es llegar a KPIs que un equipo de gobernanza de RPL pueda usar: cuánto se pierde en USD, qué rutas planta × cliente concentran la pérdida, qué rutas acumulan saldo en cliente antes de que la conciliación lo reconozca y cuánto ahorra el retornable contra un desechable equivalente.
 
@@ -65,18 +65,21 @@ flowchart LR
     tcoi --> tco[mart_tco_comparativo]
 ```
 
-Ciclo de un contenedor retornable con el cliente:
+Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> EnPlanta : Entrada (101 / 501)
-    EnPlanta --> EnCliente : 621, salida a stock especial V
-    EnCliente --> EnPlanta : 622, recogida
-    EnCliente --> Faltante : 702 en conciliación trimestral
+    [*] --> VACI : Stock inicial
+    VACI --> LINE : 311
+    LINE --> LLEN : 311
+    LLEN --> Cliente : 621, salida a stock especial V
+    Cliente --> SUCI : 622, recogida
+    SUCI --> VACI : 311, después de lavado o inspección
+    Cliente --> Faltante : 702 en conciliación trimestral
     Faltante --> [*] : Pérdida reconocida en USD
 ```
 
-Los traslados 311/411/309 mueven contenedores entre almacenes de la misma planta y no cambian su estado con el cliente. El cartón es desechable: sale con 601 y no regresa, así que no entra al ciclo ni al TCO.
+Dentro de la planta el contenedor se mueve con 311 entre vacíos (VACI), línea (LINE), llenos (LLEN) y sucios (SUCI), un documento por día, material y tramo. MB51 no trae el stock con el que abre la ventana, así que la flota arranca de una foto al 2025-01-05, equivalente a MB5B: el mínimo que deja vacíos sin quedar negativo durante los 18 meses, más una holgura de 0 a 30% por material. Reparación, scrap y baja entran en el siguiente bloque. El cartón es desechable: sale con 601 y no regresa, así que no entra al ciclo ni al TCO.
 
 El generador produce los movimientos con reglas explícitas: ciclo 621→622 log-normal con cola larga, merma de 0.5% por viaje concentrada en ~20% de las cuentas, conciliación trimestral y lag Cpudt/Budat con distribución 92/6/2. Los parámetros están en `PROYECTO.md` sección 4.
 
@@ -88,7 +91,7 @@ Elegí este stack apuntando a un pipeline analítico reproducible sin depender d
 
 | Capa | Herramienta | Por qué |
 |------|-------------|---------|
-| DataFrames | Polars | Lazy y multihilo; el generador escribe 22M filas sin salir del laptop. |
+| DataFrames | Polars | Lazy y multihilo; el generador escribe 18.6M filas sin salir del laptop. |
 | Warehouse local | DuckDB | Motor OLAP embebido. Cero infraestructura. |
 | Modelado analítico | dbt-duckdb | Linaje, tests y docs auto-generados. |
 | Validación de schemas | Pandera | Contrato explícito sobre las 22 columnas MB51. |
@@ -119,7 +122,7 @@ cd returnable-packaging-intelligence
 uv sync
 ```
 
-Generar el dataset sintético (14 plantas, 18 meses, 22,970,200 filas):
+Generar el dataset sintético (14 plantas, 18 meses, 18,630,450 filas y la foto de stock inicial):
 
 ```bash
 uv run python -m rpi
@@ -127,14 +130,14 @@ uv run python -m rpi
 
 `uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed y directorio de salida.
 
-Ingestar a DuckDB:
+Ingestar a DuckDB (MB51 y stock inicial):
 
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (13 modelos, 96 tests de datos y 6 unit tests):
+Construir modelos y correr los tests de dbt (13 modelos, 2 seeds, 111 tests de datos y 6 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -159,7 +162,7 @@ returnable-packaging-intelligence/
 ├── .github/workflows/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
-│   └── raw/                    # Parquet por planta (excluido de Git)
+│   └── raw/                    # Parquet por planta y stock inicial (excluido de Git)
 ├── docs/
 │   └── img/                    # Gráficas que escriben los notebooks
 ├── models/
@@ -180,6 +183,7 @@ returnable-packaging-intelligence/
 │       ├── mart_rutas_rotas.sql
 │       ├── mart_exceso_saldo_ruta.sql
 │       └── mart_tco_comparativo.sql
+├── seeds/                      # almacenes y clases de movimiento → estado y evento del ciclo
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -189,9 +193,10 @@ returnable-packaging-intelligence/
 │   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
-│   ├── generator.py            # Generador sintético MB51
+│   ├── generator.py            # Generador sintético MB51 y stock inicial
+│   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   └── schema.py               # Schema Pandera 22 columnas
-├── tests/                      # pytest: generador, schema, marts y cuadre del README
+├── tests/                      # pytest: generador, ciclo interno, huella, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -313,9 +318,11 @@ Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. 
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt con 96 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt y 2 seeds con 111 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
-Siguiente: Fase 3, necesidad de flota por planta y semana contra el plan de producción, con el ciclo del empaque dentro de la planta (vacíos, línea, lavado, reparación).
+En curso: Fase 3a, ciclo del empaque dentro de la planta. Ya están los traslados 311 de vacíos a línea, a llenos y de sucios a vacíos, y la foto de stock inicial; faltan reparación, scrap y baja. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
+
+Siguiente: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

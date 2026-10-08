@@ -169,6 +169,63 @@ class MengeConfig(BaseModel):
         }[mat_type]
 
 
+class DwellDays(BaseModel):
+    """
+    Días hábiles que un contenedor pasa en un almacén. Se sortea
+    min + Binomial(max − min, (mean − min) / (max − min)): la media cae en el
+    punto del supuesto y nunca sale del rango (ADR-018, punto 4).
+    """
+
+    min: int = Field(ge=0)
+    mean: float = Field(ge=0.0)
+    max: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def media_dentro_del_rango(self) -> DwellDays:
+        if not self.min <= self.mean <= self.max:
+            raise ValueError(f"mean {self.mean} fuera de [{self.min}, {self.max}]")
+        return self
+
+
+class InternalDwell(BaseModel):
+    """Tiempos de un tipo de empaque en línea, llenos y sucios."""
+
+    line: DwellDays
+    full: DwellDays
+    dirty: DwellDays
+
+
+class InternalCycleConfig(BaseModel):
+    """
+    Ciclo dentro de la planta (ADR-017, supuestos; ADR-018). Solo KLT y Rack:
+    el cartón no regresa.
+    """
+
+    klt: InternalDwell = Field(
+        default_factory=lambda: InternalDwell(
+            line=DwellDays(min=0, mean=1, max=2),
+            full=DwellDays(min=0, mean=1, max=3),
+            dirty=DwellDays(min=1, mean=2, max=3),
+        )
+    )
+    rack: InternalDwell = Field(
+        default_factory=lambda: InternalDwell(
+            line=DwellDays(min=0, mean=1, max=2),
+            full=DwellDays(min=0, mean=2, max=3),
+            dirty=DwellDays(min=0, mean=1, max=2),
+        )
+    )
+    fleet_slack_max: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Holgura de flota inicial: U(0, fleet_slack_max) por planta y material.",
+    )
+
+    def for_type(self, mat_type: MaterialType) -> InternalDwell:
+        return {MaterialType.KLT: self.klt, MaterialType.RACK: self.rack}[mat_type]
+
+
 def _default_plants() -> list[PlantConfig]:
     """14 plantas canónicas: MX01-06, US01-06, NI01-02."""
     plants: list[PlantConfig] = []
@@ -221,6 +278,7 @@ class GeneratorConfig(BaseModel):
     cycle: CycleConfig = Field(default_factory=CycleConfig)
     cpudt_lag: CpudtLagConfig = Field(default_factory=CpudtLagConfig)
     cost: MaterialCost = Field(default_factory=MaterialCost)
+    internal: InternalCycleConfig = Field(default_factory=InternalCycleConfig)
     random_seed: int | None = Field(
         default=42,
         description="Semilla para reproducibilidad. None = no fijar.",

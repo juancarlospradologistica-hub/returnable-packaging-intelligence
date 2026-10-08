@@ -1,0 +1,38 @@
+{
+  "mb51_PLNT_MX01": {
+    "filas": 193203,
+    "sha256": "e791f4296ad1f7421b6b2cb4c3858826b1fdde9aaea7cc0f238d6ba9b83614c8",
+    "por_bwart": {
+      "621": {
+        "filas": 116025,
+        "menge": -416968
+      },
+      "622": {
+        "filas": 76740,
+        "menge": 358563
+      },
+      "702": {
+        "filas": 438,
+        "menge": -602
+      }
+    }
+  },
+  "mb51_PLNT_MX02": {
+    "filas": 142793,
+    "sha256": "c836f2b371c87ae466cfdf7b56e46dec5ff004e86fa9edc5f487f483d2ee131a",
+    "por_bwart": {
+      "621": {
+        "filas": 82533,
+        "menge": -297421
+      },
+      "622": {
+        "filas": 59946,
+        "menge": 255784
+      },
+      "702": {
+        "filas": 314,
+        "menge": -385
+      }
+    }
+  }
+}

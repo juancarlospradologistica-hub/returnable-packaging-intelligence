@@ -1,0 +1,34 @@
+version: 2
+
+seeds:
+  - name: almacenes
+    description: Lgort → estado del ciclo del empaque (ADR-017). Un MB51 real se mapea aquí.
+    config:
+      column_types:
+        lgort: varchar
+    columns:
+      - name: lgort
+        tests:
+          - not_null
+          - unique
+      - name: estado
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['recepcion', 'vacios', 'linea', 'llenos', 'sucios', 'reparacion', 'scrap', 'fuera_ciclo']
+
+  - name: clases_movimiento
+    description: Bwart → evento del ciclo (ADR-017). Un MB51 real se mapea aquí.
+    config:
+      column_types:
+        bwart: varchar
+    columns:
+      - name: bwart
+        tests:
+          - not_null
+          - unique
+      - name: evento
+        tests:
+          - not_null
+          - unique
