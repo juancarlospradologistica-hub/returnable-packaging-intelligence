@@ -530,6 +530,42 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Sub-bloques: 3a.3 = salida y retorno a vacíos más stock_inicial; 3a.4 = daño 344/325, reparación 343/311, scrap 325 y baja 555.
   - Dos tests fijan stock_inicial: test_stock_no_negativo_por_dia (la flota alcanza) y test_holgura_en_rango (el peor saldo de VACI entre el inicial cae entre 0 y 0.30/1.30, más una unidad por redondeo: la flota no sobra).
 
+### ADR-019 · Daño, reparación, scrap y baja, con scrap calibrado a la rotación medida
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Precisa ADR-017 (punto 2 y supuesto de scrap) y cierra lo que ADR-018 dejó para 3a.4. Reemplaza la fracción irreparable de ADR-017 (~5% en KLT, ~3% en Rack).
+- **Contexto:** Antes de escribir 3a.4 simulé daño, reparación y scrap sobre el dataset completo (14 plantas, seed 42) con los sub-streams 2 y 3. Encontré:
+  - Entran a REPA 233,520 KLT y 113,479 Rack en 18 meses.
+  - ADR-017 derivó la fracción irreparable suponiendo ~12 viajes al año. La flota del sintético rota 6.3: el mínimo de VACI se calcula por material, la suma de los picos individuales pesa más que el pico de la suma, y encima va la holgura. Con 5% y 3%, el scrap anual sale 0.62% en KLT y 1.04% en Rack: en el piso del rango del supuesto y a la mitad del punto medio.
+  - Con la fracción de ADR-017 el mínimo de VACI sube 0.65% en KLT y 2.55% en Rack. El Rack pesa más por los 10 días en REPA.
+  - WIP promedio en REPA: 914 KLT y 2,928 Rack.
+- **Alternativas evaluadas:**
+  - Dejar 5% y 3%, y documentar el scrap en el piso: el supuesto que se defiende es el scrap anual, no la fracción de REPA. El dataset contradiría su propio ADR.
+  - Acortar el ciclo para llegar a 12 viajes: mueve cifras de Fase 1 y 2.
+  - Sortear el daño por documento 311 SUCI→VACI: mezcla 622 de varios días y clientes, y cierra la puerta a una tasa de daño por cuenta.
+  - 344 el día del 622: el KLT se lava antes de inspeccionarse, y cambia el tiempo en SUCI de lo dañado.
+  - REPA y SCRP en stock_inicial: sin 622 antes de la ventana no hay daño que los origine.
+- **Decisión:**
+  1. Fracción irreparable calibrada contra el scrap anual del supuesto con la rotación medida: KLT 10%, Rack 6%. scrap_share vive en InternalCycleConfig junto con damage_rate y el tiempo en REPA.
+  2. Daño por línea 622: Binomial(Menge, damage_rate) con el sub-stream 2. t_SUCI se sigue sorteando para todas las líneas con el sub-stream 1: ninguna fecha de 3a.3 se mueve, solo baja la Menge del 311 SUCI→VACI.
+  3. 344 en SUCI y 325 de SUCI a REPA en la fecha de salida de SUCI. t_REPA en días hábiles con el sub-stream 2: KLT 1 + Bin(1, ½), Rack 5 + Bin(10, ½). Al terminar: 343 en REPA y 311 a VACI, o 325 a SCRP. El irreparable se sortea con el sub-stream 3 sobre lo dañado de la línea, así que cambiar scrap_share no mueve el daño ni las fechas de reparación.
+  4. 555 en un documento por planta y mes, el último día hábil, una posición por material, por todo lo que llegó a SCRP en el mes.
+  5. Un movimiento que caería después del corte no se emite y el contenedor se queda donde estaba (SUCI, REPA o SCRP), igual que ADR-018, punto 7.
+  6. stock_inicial sin REPA ni SCRP.
+  7. Signo: 311, 325, 343 y 344 con posición 1 negativa y posición 2 positiva; 555 en una sola posición, negativa. assert_signo_sap lo valida por posición.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Daño y tiempo en REPA: los de ADR-016 y ADR-017, punto medio.
+  - Scrap anual en el punto medio del supuesto: KLT 1.25% (0.5–2%), Rack 2% (1–3%).
+  - La fracción irreparable que resulta (10% y 6%) no es un supuesto de dominio: depende de la rotación del sintético y se recalibra si la rotación cambia.
+- **Consecuencias:**
+  - Las cifras de Fase 1 y 2 no cambian. Huella igual en las 14 plantas.
+  - Dataset de 20,981,396 filas: 311 11,849,540; 344 596,612; 325 655,654; 343 542,766; 555 25,966.
+  - Medido: daño 1.99% de lo recogido en KLT y 5.46% en Rack; scrap anual 1.18% y 1.91% de la flota.
+  - stock_inicial en VACI 1,485,765 (+23,231, +1.6%): KLT +1.26%, Rack +3.55%. LINE y LLEN sin cambio.
+  - Las bajas suman 29,927 contenedores en 18 meses, contra 45,853 de merma reconocida. En 3b la flota real pierde por los dos lados.
+  - test_dano_y_scrap_en_rango valida el rango del supuesto, no el punto medio: con la fracción de ADR-017 el KLT seguiría en verde (0.6%). La calibración queda fija en config.py y en este ADR.
+  - Cambian Cputm y Mblnr de los 311 existentes; ninguna métrica depende de ellos.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -542,7 +578,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 | Lgort | Almacén | Distingue racks piso / tránsito / cuarentena |
 | Matnr | Material (código empaque) | Rack, contenedor, KLT |
 | Maktx | Texto breve del material | Lectura rápida sin cruzar MAKT |
-| Bwart | Clase de movimiento | Separar 621/622 (ciclo con cliente), 702 con stock especial V (faltante), 501/502, 311/411, 101/102, 261, 309 |
+| Bwart | Clase de movimiento | Separar 621/622 (ciclo con cliente), 702 con stock especial V (faltante), 311/344/325/343/555 (ciclo interno), 101/102/261/601 (cartón) |
 | Mjahr / Budat | Año contable y fecha contabilización | Cortes mensuales / semanales |
 | Cpudt / Cputm | Fecha y hora de registro en sistema | Auditar registros tardíos |
 | Menge + Meins | Cantidad y unidad de medida base | PC normalmente en empaques |
@@ -567,11 +603,12 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 - **Matnr:** 1,200 únicos. 480 globales en todas las plantas + 720 locales repartidos sin repetir (51 o 52 por planta): 531 o 532 Matnr por planta.
 - **Mix por tipo:** 60% KLT plástico, 30% racks metálicos, 10% cartón + tarima madera.
 - **Horizonte:** 18 meses con fecha de corte fija 2026-06-30. Nada se emite después del corte.
-- **Volumen:** ~40-80k movimientos base por planta/mes, de los que se escriben el ciclo con cliente y el cartón; con los 311 internos, 18,630,450 filas totales.
+- **Volumen:** ~40-80k movimientos base por planta/mes, de los que se escriben el ciclo con cliente y el cartón; con el ciclo interno, 20,981,396 filas totales.
 - **Clientes:** 40 cuentas globales, de 3 a 8 por planta. Rack dedicado a un cliente; KLT compartido.
 - **Menge por línea:** KLT 1–12, Rack 1–4, Cartón 1–6. Signo SAP: salidas negativas.
 - **Ciclo 621→622:** log-normal, media 25 días, cola larga.
 - **Merma:** 0.5% por viaje, heterogénea por cuenta (~20% de las cuentas concentran ~70%). Faltante registrado con 702 en conciliación trimestral.
+- **Reparación:** entra a REPA el 2% de los KLT y el 5.5% de los Rack recogidos; KLT 1–2 días hábiles, Rack 5–15. Irreparable: KLT 10%, Rack 6%, calibrado a un scrap anual de 1.25% y 2% (ADR-019). Baja 555 mensual.
 - **Documento:** Mblnr secuencial por planta y año.
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
 - **Cartón:** desechable, sale con 601 y no regresa.
@@ -605,6 +642,26 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-08 · Sesión 38 — Semana 16
+
+- **Duración:** ~1 h
+- **Hecho:**
+  - Medición de 3a.4 sobre el dataset completo antes de escribir código: con la fracción irreparable de ADR-017 el scrap anual salía a la mitad del supuesto, porque la flota rota 6.3 viajes al año y no 12. Fracción recalibrada a 10% en KLT y 6% en Rack (ADR-019).
+  - config.py: tiempo en REPA, damage_rate y scrap_share por tipo en InternalDwell.
+  - emit_internal_cycle: 344 en SUCI y 325 a REPA en la fecha de salida de SUCI; 343 y 311 a VACI, o 325 a SCRP, al terminar la reparación; 555 en lote mensual el último día hábil. Sub-streams 2 (daño y reparación) y 3 (irreparable).
+  - stock_inicial recalculado: 1,485,765 en VACI (+1.6%), LINE y LLEN sin cambio.
+  - tests/test_ciclo_interno.py: pareja y suma cero para 311, 325, 343 y 344; baja en lote mensual; stock no negativo por almacén y tipo de stock; bloqueado solo en REPA y SCRP al cierre del día; SCRP vacío después de cada baja; baja que cuadra con el scrap; daño y scrap anual dentro del rango del supuesto. Verificados rompiendo el generador cuatro veces: 344 un día tarde, baja de la mitad, reparado sin 311 a VACI y daño de Rack al 10%.
+  - assert_signo_sap por posición en los traslados internos y 555 negativo.
+  - Dataset completo: 20,981,396 filas. Huella de 621, 622 y 702 igual en las 14 plantas. dbt build 132/132, pytest 53. README con el conteo nuevo y el diagrama de estados con REPA y SCRP; test_readme en verde.
+- **Decisiones tomadas:** ADR-019.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Un parámetro derivado de otro arrastra los supuestos de la derivación. La fracción irreparable salía de un scrap anual con 12 viajes al año; medir la rotación antes de fijarlo.
+  - Un test de rango no detecta un parámetro mal calibrado que cae dentro del rango: con 5% el scrap del KLT seguía en verde.
+  - Sortear todos los tiempos antes de desviar cantidades deja las fechas estables: lo dañado sale de la Menge, no del sorteo.
+  - Mblnr se reinicia por año: n_unique de Mblnr no cuenta documentos; contar por Mjahr y Mblnr.
+- **Próximo paso:** PR de semana-16-fase-3a4 con CI verde y merge. Después Fase 3a.5: dbt de stock por almacén, stock no negativo y conservación de flota.
 
 ### 2026-10-08 · Sesión 37 — Semana 16
 
@@ -1260,6 +1317,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ciclo 621→622** — Tiempo entre salida del empaque a stock especial del cliente (621) y su recogida (622).
 - **Merma** — Empaque que sale y no vuelve. Se convierte en pérdida contable.
 - **Flota fantasma** — Empaques registrados como activos pero perdidos en la práctica.
+- **Rotación de flota** — Viajes por contenedor al año: salidas 621 entre la flota. En el sintético, ~6.3.
 - **TCO** — Total Cost of Ownership. Costo total de operar un contenedor en su vida útil: compra amortizada, mantenimiento y merma.
 - **Payback** — Ciclos que tarda un retornable en recuperar su costo de compra contra el desechable equivalente.
 - **Desechable equivalente** — Empaque de un solo uso que haría el mismo trabajo que un retornable en un embarque.
