@@ -1,4 +1,4 @@
-﻿"""
+"""
 Schema Pandera del dataset MB51 sintetico.
 
 Define el contrato de las 22 columnas (16 core + 6 opcionales) que produce
@@ -100,9 +100,7 @@ class MB51Schema(pa.DataFrameModel):
     Lifnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
         nullable=True,
-        description=(
-            "Proveedor. Nullable: solo aplica en movimientos 101/102 del cartón."
-        ),
+        description=("Proveedor. Nullable: solo aplica en movimientos 101/102 del cartón."),
     )
     Kunnr: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 12},
