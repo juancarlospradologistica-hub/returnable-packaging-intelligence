@@ -49,7 +49,23 @@ _KIND_PROBS = np.array([_KIND_WEIGHTS[k] for k in _KINDS]) / sum(_KIND_WEIGHTS.v
 # Traslados: se emiten en pareja (sale de un almacén, entra a otro) con el mismo documento.
 _TRANSFERS = {"311", "411", "309"}
 # Signo SAP: salidas negativas, entradas positivas.
-_NEGATIVE = {"502", "102", "261", "601", "621", "702"}
+_NEGATIVE = {"102", "261", "601", "621", "702"}
+
+# Ruido de Fase 1 (ADR-017, punto 6). Se sigue sorteando para no mover los 621,
+# 622 y 702, y se descarta antes de escribir: no conserva stock por almacén.
+_RUIDO = {"501", "502", "311", "411", "309"}
+_RUIDO_RETORNABLE = {"101", "102", "261"}
+
+# Almacén por clase de movimiento (ADR-017, punto 2). El 702 V no lleva Lgort:
+# el stock especial V se lleva por planta, cliente y material, sin almacén.
+_LGORT = {
+    "621": "LLEN",
+    "622": "SUCI",
+    "601": "EXPE",
+    "101": "RM01",
+    "102": "RM01",
+    "261": "RM01",
+}
 
 _OVERDUE_DAYS = 120
 
@@ -213,7 +229,7 @@ def emit_plant_movements(
     rng: np.random.Generator,
     n_movements: int,
 ) -> pl.DataFrame:
-    """Movimientos MB51 de una planta: ruido operativo + ciclo con cliente."""
+    """Movimientos MB51 de una planta: ciclo con cliente y cartón."""
     tipo_by_matnr = dict(zip(pool["Matnr"], pool["tipo"], strict=True))
     matnr_arr = np.array(plant_matnrs)
     tipo_arr = np.array([tipo_by_matnr[m] for m in plant_matnrs])
@@ -346,18 +362,19 @@ def emit_plant_movements(
             pl.col("Cputm").first().over("doc_id"),
             pl.col("_ref").first().over("doc_id"),
         )
+        # Después de los sorteos de hora, minuto y referencia: n incluye el ruido.
+        .filter(
+            ~pl.col("Bwart").is_in(list(_RUIDO))
+            & ~(
+                (pl.col("tipo") != MaterialType.CARTON.value)
+                & pl.col("Bwart").is_in(list(_RUIDO_RETORNABLE))
+            )
+        )
         .with_columns(
-            pl.when(pl.col("Bwart").is_in(["601", "621"]))
-            .then(pl.lit("EXPE"))
-            .when(pl.col("Bwart").is_in(["622", "702"]))
-            .then(pl.lit("RECP"))
-            .when(pl.col("Bwart").is_in(list(_TRANSFERS)) & (pl.col("Zeile") == 1))
-            .then(pl.lit("TR01"))
-            .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
-            .then(pl.lit("TR02"))
-            .otherwise(pl.lit("RM01"))
+            pl.col("Bwart")
+            .replace_strict(_LGORT, default=None, return_dtype=pl.String)
             .alias("Lgort"),
-            pl.when(pl.col("Bwart").is_in(["101", "102", "501", "502"]))
+            pl.when(pl.col("Bwart").is_in(["101", "102"]))
             .then(pl.format("PROV-{}", (pl.col("_ref") % 9000 + 1000).cast(pl.String)))
             .alias("Lifnr"),
             pl.when(pl.col("Bwart").is_in(["601", "621"]))
@@ -370,8 +387,6 @@ def emit_plant_movements(
             .alias("Xblnr"),
             pl.when(pl.col("Bwart").is_in(list(_NEGATIVE)))
             .then(-pl.col("Menge").abs())
-            .when(pl.col("Bwart").is_in(list(_TRANSFERS)))
-            .then(pl.col("Menge"))
             .otherwise(pl.col("Menge").abs())
             .alias("Menge"),
         )

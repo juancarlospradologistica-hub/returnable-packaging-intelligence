@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -6,10 +7,19 @@ import pytest
 from rpi.config import GeneratorConfig
 from rpi.generator import generate, reconciliation_dates
 
+SEEDS = Path(__file__).parents[1] / "seeds"
+RETORNABLE = ~pl.col("Matnr").str.starts_with("CTN")
+
+
+def _llaves_seed(nombre: str) -> set[str]:
+    # La llave es la primera columna. infer_schema=False deja "101" como texto.
+    return set(pl.read_csv(SEEDS / nombre, infer_schema=False).to_series(0))
+
 
 def test_filas_dentro_de_rango(df_ci: pl.DataFrame) -> None:
+    # Con 2 plantas y 12 meses quedan ~50k filas; los 311 internos de 3a.3 suben de 100k.
     n = df_ci.height
-    assert 50_000 < n < 300_000, f"Volumen fuera de rango: {n}"
+    assert 20_000 < n < 300_000, f"Volumen fuera de rango: {n}"
 
 
 def test_plantas_en_df(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
@@ -107,3 +117,33 @@ def test_saldo_en_cliente_nunca_negativo(df_ci: pl.DataFrame) -> None:
         .min()
     )
     assert minimo >= 0, f"Saldo en cliente negativo: {minimo}"
+
+
+def test_clases_por_tipo_de_material(df_ci: pl.DataFrame) -> None:
+    # ADR-017, punto 6. En 3a.3 entra el 311 a los retornables.
+    retornable = set(df_ci.filter(RETORNABLE)["Bwart"].unique())
+    carton = set(df_ci.filter(~RETORNABLE)["Bwart"].unique())
+    assert retornable == {"621", "622", "702"}, f"Retornables: {sorted(retornable)}"
+    assert carton == {"101", "102", "261", "601"}, f"Cartón: {sorted(carton)}"
+
+
+def test_lgort_por_bwart(df_ci: pl.DataFrame) -> None:
+    # El 702 V va sin almacén: SAP lleva ese stock por cliente en MSKU.
+    pares = set(df_ci.select("Bwart", "Lgort").unique().iter_rows())
+    assert pares == {
+        ("621", "LLEN"),
+        ("622", "SUCI"),
+        ("702", None),
+        ("601", "EXPE"),
+        ("101", "RM01"),
+        ("102", "RM01"),
+        ("261", "RM01"),
+    }, f"Pares Bwart-Lgort: {sorted(pares, key=str)}"
+
+
+def test_bwart_y_lgort_en_seeds(df_ci: pl.DataFrame) -> None:
+    # Un código fuera del seed llega a los modelos sin estado ni evento.
+    bwart = set(df_ci["Bwart"].unique()) - _llaves_seed("clases_movimiento.csv")
+    lgort = set(df_ci["Lgort"].drop_nulls().unique()) - _llaves_seed("almacenes.csv")
+    assert not bwart, f"Bwart fuera de clases_movimiento.csv: {sorted(bwart)}"
+    assert not lgort, f"Lgort fuera de almacenes.csv: {sorted(lgort)}"
