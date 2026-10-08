@@ -28,6 +28,7 @@ dev = [
     "ipykernel>=6.29",
     "jupyter>=1.0",
     "dbt-duckdb>=1.8",
+    "pyyaml>=6.0.3",
 ]
 
 [build-system]
