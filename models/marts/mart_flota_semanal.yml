@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: mart_flota_semanal
+    description: >
+      Una fila por planta, material y semana con la flota al cierre repartida
+      por estado (ADR-020). flota = en_planta + cliente; bloqueado cuenta el
+      stock bloqueado de cualquier almacén. En la semana del corte LINE y LLEN
+      quedan en cero porque los 621 posteriores al corte no existen: para
+      comparar contra necesidad usar flota o vacíos + línea + llenos, no vacíos
+      solo.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: semana
+        description: Lunes de la semana.
+        tests: [not_null]
+      - name: fecha_cierre
+        description: Domingo de la semana, o la fecha de corte en la última.
+        tests: [not_null]
+      - name: cliente
+        description: Stock especial V, suma de las cuentas de la planta.
+        tests: [not_null]
+      - name: flota
+        tests: [not_null]
