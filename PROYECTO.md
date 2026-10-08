@@ -626,8 +626,11 @@ Marcar con `[x]` al cerrar.
   - Un test que filtra por una clase que ya no existe pasa vacío. test_traslados_suman_cero se retiró por eso.
   - Que la flota alcance no prueba que esté bien: hace falta un test que falle si sobra.
   - Después de romper un archivo para probar un test, regresarlo a mano y revisar git diff antes del commit; git checkout también se lleva los cambios buenos.
-  - ruff format --check local puede marcar archivos con CRLF que en el repo están en LF; CI ve la versión normalizada.
+  - Si ruff format --check marca un archivo y el diff se ve idéntico, la diferencia es invisible: BOM al inicio o espacio al final de la línea. VS Code puede guardar "UTF-8 with BOM"; se ve en la barra de estado.
+  - Un ruff format --check local en rojo no se deja pasar al commit: CI corre el mismo paso y se detiene ahí.
+  - CI en rojo en formato: schema.py con BOM y una línea de test_contrato_bwart.py. Corregido con ruff format en commit aparte.
 - **Próximo paso:** Fase 3a.4: daño con 344/325 desde SUCI, reparación 343/311 a VACI, scrap 325 y baja 555 mensual, con los sub-streams 2 y 3. stock_inicial se recalcula.
+
 
 ### 2026-10-08 · Sesión 36 — Semana 16
 
