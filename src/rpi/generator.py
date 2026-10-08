@@ -6,7 +6,8 @@ Ciclo del retornable con cliente como stock especial V:
 621 salida, 622 recogida, 702 faltante reconocido en conciliación.
 El cartón es desechable: sale con 601 y no regresa.
 Dentro de la planta el retornable se mueve con 311 entre VACI, LINE, LLEN
-y SUCI, y la flota arranca de una foto de stock inicial (ADR-017, ADR-018).
+y SUCI; lo dañado pasa por REPA y lo irreparable por SCRP hasta la baja 555.
+La flota arranca de una foto de stock inicial (ADR-017 a ADR-019).
 Ningún movimiento se emite después de cfg.reference_date.
 """
 
@@ -404,6 +405,8 @@ def emit_plant_movements(
 # las fechas de los demás (ADR-018, punto 3).
 _SUB_SALIDA = 0
 _SUB_RETORNO = 1
+_SUB_DANO = 2
+_SUB_SCRAP = 3
 _SUB_REGISTRO = 8
 _SUB_HOLGURA = 9
 
@@ -430,11 +433,19 @@ def _dwell_days(
     return out
 
 
+def _rate(cfg: GeneratorConfig, tipos: np.ndarray, campo: str) -> np.ndarray:
+    out = np.zeros(len(tipos))
+    for mat_type in _RETORNABLES:
+        out[tipos == mat_type.value] = getattr(cfg.internal.for_type(mat_type), campo)
+    return out
+
+
 def _legs(
     tipo: pl.Series,
     matnr: pl.Series,
     budat: np.ndarray,
     menge: np.ndarray,
+    bwart: str,
     origen: str,
     destino: str,
 ) -> pl.DataFrame:
@@ -442,6 +453,7 @@ def _legs(
         {"Matnr": matnr, "tipo": tipo, "Budat": budat, "Menge": menge.astype(np.int64)}
     ).with_columns(
         pl.col("Budat").cast(pl.Date),
+        pl.lit(bwart).alias("Bwart"),
         pl.lit(origen).alias("origen"),
         pl.lit(destino).alias("destino"),
     )
@@ -471,6 +483,24 @@ def _vaci_minimo(tramos: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _bajas(tramos: pl.DataFrame, cutoff: date) -> pl.DataFrame:
+    """
+    555 en lote el último día hábil del mes por todo lo que llegó a SCRP en el
+    mes (ADR-017, punto 2). Un lote que caería después del corte no se emite.
+    """
+    scrap = tramos.filter(pl.col("destino") == "SCRP")
+    fin_mes = np.busday_offset(
+        scrap["Budat"].dt.month_end().to_numpy().astype("datetime64[D]"), 0, roll="backward"
+    )
+    return (
+        scrap.with_columns(pl.Series("Budat", fin_mes).cast(pl.Date))
+        .filter(pl.col("Budat") <= cutoff)
+        .group_by("Matnr", "tipo", "Budat")
+        .agg(pl.col("Menge").sum())
+        .sort("Budat", "Matnr")
+    )
+
+
 def emit_internal_cycle(
     df: pl.DataFrame,
     cfg: GeneratorConfig,
@@ -479,12 +509,14 @@ def emit_internal_cycle(
     idx: int,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
-    Traslados 311 dentro de la planta y foto de stock inicial.
+    Movimientos dentro de la planta y foto de stock inicial.
 
     Salida: VACI → LINE → LLEN antes de cada 621. Retorno: SUCI → VACI después
-    de cada 622. df es la planta ya filtrada por Cpudt: el ciclo interno solo
-    ve lo que existe a la fecha de extracción. Un documento por día, material
-    y tramo (ADR-017, punto 4).
+    de cada 622. Lo dañado se bloquea en SUCI (344) y pasa a REPA (325); de ahí
+    regresa a VACI (343 y 311) o va a SCRP (325) y se da de baja (555).
+    df es la planta ya filtrada por Cpudt: el ciclo interno solo ve lo que
+    existe a la fecha de extracción. Un documento por día, material, clase y
+    tramo (ADR-017, punto 4); la baja, un documento por mes.
     """
     werks = df["Werks"][0]
     cutoff = cfg.reference_date
@@ -502,58 +534,100 @@ def emit_internal_cycle(
     rng = _internal_rng(seed, idx, _SUB_RETORNO)
     tipos = s622["tipo"].to_numpy()
     budat = s622["Budat"].to_numpy().astype("datetime64[D]")
-    a_vaci = np.busday_offset(budat, _dwell_days(cfg, tipos, "dirty", rng), roll="forward")
+    sale_suci = np.busday_offset(budat, _dwell_days(cfg, tipos, "dirty", rng), roll="forward")
+    recogido = s622["Menge"].to_numpy()
 
+    # El daño se detecta en la inspección de retorno y sale de SUCI el mismo día
+    # que lo sano. t_SUCI ya se sorteó para todas las líneas: las fechas del
+    # retorno no dependen del daño (ADR-019).
+    rng = _internal_rng(seed, idx, _SUB_DANO)
+    danado = rng.binomial(recogido, _rate(cfg, tipos, "damage_rate"))
+    sale_repa = np.busday_offset(sale_suci, _dwell_days(cfg, tipos, "repair", rng), roll="forward")
+    irreparable = _internal_rng(seed, idx, _SUB_SCRAP).binomial(
+        danado, _rate(cfg, tipos, "scrap_share")
+    )
+    reparado = danado - irreparable
+
+    m622, t622 = s622["Matnr"], s622["tipo"]
     tramos = pl.concat(
         [
-            _legs(s621["tipo"], s621["Matnr"], a_line, sale, "VACI", "LINE"),
-            _legs(s621["tipo"], s621["Matnr"], a_llen, sale, "LINE", "LLEN"),
-            _legs(s622["tipo"], s622["Matnr"], a_vaci, s622["Menge"].to_numpy(), "SUCI", "VACI"),
+            _legs(s621["tipo"], s621["Matnr"], a_line, sale, "311", "VACI", "LINE"),
+            _legs(s621["tipo"], s621["Matnr"], a_llen, sale, "311", "LINE", "LLEN"),
+            _legs(t622, m622, sale_suci, recogido - danado, "311", "SUCI", "VACI"),
+            # 344 cambia el tipo de stock sin cambiar de almacén; 325 mueve bloqueado.
+            _legs(t622, m622, sale_suci, danado, "344", "SUCI", "SUCI"),
+            _legs(t622, m622, sale_suci, danado, "325", "SUCI", "REPA"),
+            _legs(t622, m622, sale_repa, reparado, "343", "REPA", "REPA"),
+            _legs(t622, m622, sale_repa, reparado, "311", "REPA", "VACI"),
+            _legs(t622, m622, sale_repa, irreparable, "325", "REPA", "SCRP"),
         ]
-    )
+    ).filter(pl.col("Menge") > 0)
 
     # Lo que pasó antes de la ventana ya está en la foto inicial; lo que caería
-    # después del corte no se ha registrado y el contenedor sigue en SUCI.
+    # después del corte no se ha registrado y el contenedor sigue donde estaba.
     previos = tramos.filter(pl.col("Budat") < first_day)
     tramos = tramos.filter(pl.col("Budat").is_between(first_day, cutoff))
+    bajas = _bajas(tramos, cutoff)
 
     docs = (
-        tramos.group_by("Matnr", "tipo", "Budat", "origen", "destino")
+        tramos.group_by("Matnr", "tipo", "Budat", "Bwart", "origen", "destino")
         .agg(pl.col("Menge").sum())
-        .sort("Budat", "origen", "destino", "Matnr")
+        .sort("Budat", "Bwart", "origen", "destino", "Matnr")
     )
-    n = docs.height
+    n_docs = docs.height
+    lotes = bajas.with_columns(
+        (pl.col("Budat").rank("dense").cast(pl.Int64) - 1 + n_docs).alias("doc_id"),
+        (pl.int_range(pl.len(), dtype=pl.Int64).over("Budat") + 1).alias("Zeile"),
+    )
+    n = n_docs + lotes["doc_id"].n_unique()
+
     rng = _internal_rng(seed, idx, _SUB_REGISTRO)
-    cputm = pl.format(
-        "{}:{}:00",
-        pl.Series(rng.integers(6, 22, n)).cast(pl.String).str.zfill(2),
-        pl.Series(rng.integers(0, 60, n)).cast(pl.String).str.zfill(2),
+    cputm = pl.DataFrame(
+        {
+            "doc_id": np.arange(n, dtype=np.int64),
+            "_h": rng.integers(6, 22, n),
+            "_m": rng.integers(0, 60, n),
+        }
+    ).select(
+        "doc_id",
+        pl.format(
+            "{}:{}:00",
+            pl.col("_h").cast(pl.String).str.zfill(2),
+            pl.col("_m").cast(pl.String).str.zfill(2),
+        ).alias("Cputm"),
     )
-    docs = docs.with_columns(
-        pl.int_range(n, dtype=pl.Int64).alias("doc_id"),
-        cputm.alias("Cputm"),
-    )
-    # Posición 1 sale del origen, posición 2 entra al destino.
-    rows = pl.concat(
-        [
-            docs.with_columns(
-                pl.lit(1, dtype=pl.Int64).alias("Zeile"),
-                pl.col("origen").alias("Lgort"),
-                -pl.col("Menge"),
-            ),
-            docs.with_columns(
-                pl.lit(2, dtype=pl.Int64).alias("Zeile"),
-                pl.col("destino").alias("Lgort"),
-            ),
-        ]
-    ).with_columns(
-        pl.lit(werks).alias("Werks"),
-        pl.lit("311").alias("Bwart"),
-        # Conteo al cierre de turno: se registra el mismo día.
-        pl.col("Budat").alias("Cpudt"),
-        pl.lit(None, dtype=pl.String).alias("Kunnr"),
-        pl.lit(None, dtype=pl.String).alias("Lifnr"),
-        pl.lit(None, dtype=pl.String).alias("Xblnr"),
+    docs = docs.with_columns(pl.int_range(n_docs, dtype=pl.Int64).alias("doc_id"))
+    cols = ["doc_id", "Zeile", "Matnr", "tipo", "Bwart", "Budat", "Menge", "Lgort"]
+    # Posición 1 sale del origen, posición 2 entra al destino. En 344 y 343 los dos
+    # son el mismo almacén: el signo indica el tipo de stock (ADR-017, punto 3).
+    rows = (
+        pl.concat(
+            [
+                docs.with_columns(
+                    pl.lit(1, dtype=pl.Int64).alias("Zeile"),
+                    pl.col("origen").alias("Lgort"),
+                    -pl.col("Menge"),
+                ).select(cols),
+                docs.with_columns(
+                    pl.lit(2, dtype=pl.Int64).alias("Zeile"),
+                    pl.col("destino").alias("Lgort"),
+                ).select(cols),
+                lotes.with_columns(
+                    pl.lit("555").alias("Bwart"),
+                    pl.lit("SCRP").alias("Lgort"),
+                    -pl.col("Menge"),
+                ).select(cols),
+            ]
+        )
+        .join(cputm, on="doc_id", how="left")
+        .with_columns(
+            pl.lit(werks).alias("Werks"),
+            # Conteo al cierre de turno: se registra el mismo día.
+            pl.col("Budat").alias("Cpudt"),
+            pl.lit(None, dtype=pl.String).alias("Kunnr"),
+            pl.lit(None, dtype=pl.String).alias("Lifnr"),
+            pl.lit(None, dtype=pl.String).alias("Xblnr"),
+        )
     )
 
     minimo = _vaci_minimo(tramos)
@@ -567,6 +641,7 @@ def emit_internal_cycle(
     )
     # Un tramo previo suma en su destino y resta en su origen. VACI sale del
     # mínimo: lo que dejó VACI antes de la ventana no forma parte de la foto.
+    # Antes de la ventana solo hay salidas: sin 622 previos no hay daño ni scrap.
     en_proceso = (
         pl.concat(
             [
