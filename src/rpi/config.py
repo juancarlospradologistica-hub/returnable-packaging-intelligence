@@ -188,11 +188,28 @@ class DwellDays(BaseModel):
 
 
 class InternalDwell(BaseModel):
-    """Tiempos de un tipo de empaque en línea, llenos y sucios."""
+    """
+    Ciclo interno de un tipo de empaque: tiempos en línea, llenos, sucios y
+    reparación, y las tasas de daño y de scrap (ADR-019).
+    """
 
     line: DwellDays
     full: DwellDays
     dirty: DwellDays
+    repair: DwellDays
+    damage_rate: float = Field(
+        gt=0.0,
+        lt=1.0,
+        description="Fracción de los contenedores recogidos que entra a reparación.",
+    )
+    scrap_share: float = Field(
+        gt=0.0,
+        lt=1.0,
+        description=(
+            "Fracción de lo que entra a reparación que sale irreparable. Calibrada "
+            "contra el scrap anual del supuesto con la rotación medida (ADR-019)."
+        ),
+    )
 
 
 class InternalCycleConfig(BaseModel):
@@ -206,6 +223,9 @@ class InternalCycleConfig(BaseModel):
             line=DwellDays(min=0, mean=1, max=2),
             full=DwellDays(min=0, mean=1, max=3),
             dirty=DwellDays(min=1, mean=2, max=3),
+            repair=DwellDays(min=1, mean=1.5, max=2),
+            damage_rate=0.02,
+            scrap_share=0.10,
         )
     )
     rack: InternalDwell = Field(
@@ -213,6 +233,9 @@ class InternalCycleConfig(BaseModel):
             line=DwellDays(min=0, mean=1, max=2),
             full=DwellDays(min=0, mean=2, max=3),
             dirty=DwellDays(min=0, mean=1, max=2),
+            repair=DwellDays(min=5, mean=10, max=15),
+            damage_rate=0.055,
+            scrap_share=0.06,
         )
     )
     fleet_slack_max: float = Field(
