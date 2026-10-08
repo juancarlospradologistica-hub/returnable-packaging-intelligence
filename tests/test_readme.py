@@ -171,3 +171,63 @@ def test_equilibrio_del_rack(con, readme):
         f"por debajo de ${e['flota']:.2f} por embarque en la flota "
         f"y de ${e['peor_planta']:.2f} en la planta con más merma"
     ) in readme
+
+
+def test_flota_fase3a(con, readme):
+    # Flota del mart y pérdidas de staging por evento, igual que assert_conservacion_flota.
+    tipos = {
+        r["tipo_material"]: r
+        for r in con.execute(
+            """
+            WITH limites AS (
+                SELECT MIN(fecha_cierre) AS inicio, MAX(fecha_cierre) AS corte
+                FROM mart_flota_semanal
+            ),
+            flota AS (
+                SELECT
+                    tipo_material,
+                    SUM(flota) FILTER (WHERE fecha_cierre = l.inicio)::BIGINT    AS inicial,
+                    SUM(flota) FILTER (WHERE fecha_cierre = l.corte)::BIGINT     AS al_corte,
+                    SUM(cliente) FILTER (WHERE fecha_cierre = l.corte)::BIGINT   AS cliente,
+                    ANY_VALUE(l.inicio)                                         AS inicio,
+                    ANY_VALUE(l.corte)                                          AS corte
+                FROM mart_flota_semanal, limites l
+                GROUP BY tipo_material
+            ),
+            perdidas AS (
+                SELECT
+                    m.tipo_material,
+                    SUM(ABS(m.cantidad)) FILTER (WHERE c.evento = 'faltante_cliente')::BIGINT
+                        AS faltante,
+                    SUM(ABS(m.cantidad)) FILTER (WHERE c.evento = 'baja')::BIGINT AS baja
+                FROM stg_mb51 m
+                JOIN clases_movimiento c ON c.bwart = m.mov_type
+                GROUP BY m.tipo_material
+            )
+            SELECT * FROM flota JOIN perdidas USING (tipo_material)
+            """
+        )
+        .pl()
+        .iter_rows(named=True)
+    }
+    klt, rack = tipos["KLT"], tipos["RACK"]
+    campos = ("inicial", "faltante", "baja", "al_corte", "cliente")
+    total = {c: klt[c] + rack[c] for c in campos}
+
+    etiquetas = {
+        f"Inicial al {klt['inicio']}": "inicial",
+        "Faltante en cliente (702)": "faltante",
+        "Baja por scrap (555)": "baja",
+        f"Al corte, {klt['corte']}": "al_corte",
+        "En cliente al corte (stock V)": "cliente",
+    }
+    for etiqueta, c in etiquetas.items():
+        assert f"| {klt[c]:,} | {rack[c]:,} | {total[c]:,} |" in fila(readme, etiqueta)
+
+    def pierde(t: dict) -> str:
+        return f"{(t['faltante'] + t['baja']) * 100 / t['inicial']:.1f}%"
+
+    assert (
+        f"la flota pierde {pierde(total)}: {pierde(klt)} en KLT y {pierde(rack)} en Rack"
+    ) in readme
+    assert f"({rack['baja']:,} contra {rack['faltante']:,})" in readme
