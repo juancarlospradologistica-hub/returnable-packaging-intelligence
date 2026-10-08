@@ -112,10 +112,12 @@ def test_saldo_en_cliente_nunca_negativo(df_ci: pl.DataFrame) -> None:
 
 
 def test_clases_por_tipo_de_material(df_ci: pl.DataFrame) -> None:
-    # ADR-017, punto 6. El 311 de los retornables es el ciclo interno (ADR-018).
+    # ADR-017, punto 6. 311, 325, 343, 344 y 555 son el ciclo interno (ADR-018, ADR-019).
     retornable = set(df_ci.filter(RETORNABLE)["Bwart"].unique())
     carton = set(df_ci.filter(~RETORNABLE)["Bwart"].unique())
-    assert retornable == {"311", "621", "622", "702"}, f"Retornables: {sorted(retornable)}"
+    assert retornable == {"311", "325", "343", "344", "555", "621", "622", "702"}, (
+        f"Retornables: {sorted(retornable)}"
+    )
     assert carton == {"101", "102", "261", "601"}, f"Cartón: {sorted(carton)}"
 
 
@@ -127,6 +129,13 @@ def test_lgort_por_bwart(df_ci: pl.DataFrame) -> None:
         ("311", "LINE"),
         ("311", "LLEN"),
         ("311", "SUCI"),
+        ("311", "REPA"),
+        ("344", "SUCI"),
+        ("325", "SUCI"),
+        ("325", "REPA"),
+        ("325", "SCRP"),
+        ("343", "REPA"),
+        ("555", "SCRP"),
         ("621", "LLEN"),
         ("622", "SUCI"),
         ("702", None),
