@@ -39,3 +39,30 @@ sources:
             description: Cantidad con signo SAP. Salidas negativas, entradas positivas.
             tests:
               - not_null
+
+      - name: raw_stock_inicial
+        description: >
+          Foto de stock por planta, almacén y material al cierre del día anterior
+          a la ventana, equivalente a MB5B (ADR-017, punto 7; ADR-018, punto 8).
+          MB51 no trae el stock con el que abre la ventana. Kunnr queda para el
+          stock especial V de un extracto real; en el sintético va vacío.
+        columns:
+          - name: werks
+            tests:
+              - not_null
+          - name: lgort
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('almacenes')
+                    field: lgort
+          - name: matnr
+            tests:
+              - not_null
+          - name: menge
+            tests:
+              - not_null
+          - name: fecha
+            tests:
+              - not_null
