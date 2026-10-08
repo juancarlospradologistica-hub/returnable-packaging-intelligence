@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 18,630,450 movimientos.
+Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 20,981,396 movimientos.
 
 El objetivo es llegar a KPIs que un equipo de gobernanza de RPL pueda usar: cuánto se pierde en USD, qué rutas planta × cliente concentran la pérdida, qué rutas acumulan saldo en cliente antes de que la conciliación lo reconozca y cuánto ahorra el retornable contra un desechable equivalente.
 
@@ -75,11 +75,15 @@ stateDiagram-v2
     LLEN --> Cliente : 621, salida a stock especial V
     Cliente --> SUCI : 622, recogida
     SUCI --> VACI : 311, después de lavado o inspección
+    SUCI --> REPA : 344 y 325, dañado en la inspección
+    REPA --> VACI : 343 y 311, reparado
+    REPA --> SCRP : 325, irreparable
+    SCRP --> [*] : 555, baja mensual
     Cliente --> Faltante : 702 en conciliación trimestral
     Faltante --> [*] : Pérdida reconocida en USD
 ```
 
-Dentro de la planta el contenedor se mueve con 311 entre vacíos (VACI), línea (LINE), llenos (LLEN) y sucios (SUCI), un documento por día, material y tramo. MB51 no trae el stock con el que abre la ventana, así que la flota arranca de una foto al 2025-01-05, equivalente a MB5B: el mínimo que deja vacíos sin quedar negativo durante los 18 meses, más una holgura de 0 a 30% por material. Reparación, scrap y baja entran en el siguiente bloque. El cartón es desechable: sale con 601 y no regresa, así que no entra al ciclo ni al TCO.
+Dentro de la planta el contenedor se mueve con 311 entre vacíos (VACI), línea (LINE), llenos (LLEN) y sucios (SUCI), un documento por día, material y tramo. Lo que sale dañado de la inspección se bloquea con 344 y pasa a reparación (REPA) con 325; de ahí regresa a vacíos con 343 y 311, o va a scrap (SCRP) y se da de baja con 555 el último día hábil del mes. Entra a reparación el 2% de los KLT recogidos y el 5.5% de los Rack; el scrap anual queda en 1.18% y 1.91% de la flota. MB51 no trae el stock con el que abre la ventana, así que la flota arranca de una foto al 2025-01-05, equivalente a MB5B: el mínimo que deja vacíos sin quedar negativo durante los 18 meses, más una holgura de 0 a 30% por material. El cartón es desechable: sale con 601 y no regresa, así que no entra al ciclo ni al TCO.
 
 El generador produce los movimientos con reglas explícitas: ciclo 621→622 log-normal con cola larga, merma de 0.5% por viaje concentrada en ~20% de las cuentas, conciliación trimestral y lag Cpudt/Budat con distribución 92/6/2. Los parámetros están en `PROYECTO.md` sección 4.
 
@@ -91,7 +95,7 @@ Elegí este stack apuntando a un pipeline analítico reproducible sin depender d
 
 | Capa | Herramienta | Por qué |
 |------|-------------|---------|
-| DataFrames | Polars | Lazy y multihilo; el generador escribe 18.6M filas sin salir del laptop. |
+| DataFrames | Polars | Lazy y multihilo; el generador escribe 21M filas sin salir del laptop. |
 | Warehouse local | DuckDB | Motor OLAP embebido. Cero infraestructura. |
 | Modelado analítico | dbt-duckdb | Linaje, tests y docs auto-generados. |
 | Validación de schemas | Pandera | Contrato explícito sobre las 22 columnas MB51. |
@@ -122,7 +126,7 @@ cd returnable-packaging-intelligence
 uv sync
 ```
 
-Generar el dataset sintético (14 plantas, 18 meses, 18,630,450 filas y la foto de stock inicial):
+Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas y la foto de stock inicial):
 
 ```bash
 uv run python -m rpi
@@ -320,7 +324,7 @@ Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. 
 
 Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt y 2 seeds con 111 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
-En curso: Fase 3a, ciclo del empaque dentro de la planta. Ya están los traslados 311 de vacíos a línea, a llenos y de sucios a vacíos, y la foto de stock inicial; faltan reparación, scrap y baja. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
+En curso: Fase 3a, ciclo del empaque dentro de la planta. Ya están los traslados entre vacíos, línea, llenos y sucios, la reparación, el scrap con baja mensual y la foto de stock inicial; faltan los modelos dbt de stock por almacén. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
 Siguiente: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha.
 
