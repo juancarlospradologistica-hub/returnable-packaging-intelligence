@@ -5,6 +5,8 @@ Generador sintético de movimientos MB51 (ADR-011).
 Ciclo del retornable con cliente como stock especial V:
 621 salida, 622 recogida, 702 faltante reconocido en conciliación.
 El cartón es desechable: sale con 601 y no regresa.
+Dentro de la planta el retornable se mueve con 311 entre VACI, LINE, LLEN
+y SUCI, y la flota arranca de una foto de stock inicial (ADR-017, ADR-018).
 Ningún movimiento se emite después de cfg.reference_date.
 """
 
@@ -395,6 +397,204 @@ def emit_plant_movements(
 
 
 # ---------------------------------------------------------------------------
+# Ciclo dentro de la planta (ADR-017, ADR-018)
+# ---------------------------------------------------------------------------
+
+# Un generador aleatorio por tramo: un sorteo nuevo en un tramo no mueve
+# las fechas de los demás (ADR-018, punto 3).
+_SUB_SALIDA = 0
+_SUB_RETORNO = 1
+_SUB_REGISTRO = 8
+_SUB_HOLGURA = 9
+
+_RETORNABLES = (MaterialType.KLT, MaterialType.RACK)
+
+
+def _internal_rng(seed: int, idx: int, sub: int) -> np.random.Generator:
+    return np.random.default_rng([seed, idx, 1, sub])
+
+
+def _dwell_days(
+    cfg: GeneratorConfig,
+    tipos: np.ndarray,
+    tramo: str,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    out = np.zeros(len(tipos), dtype=np.int64)
+    for mat_type in _RETORNABLES:
+        mask = tipos == mat_type.value
+        d = getattr(cfg.internal.for_type(mat_type), tramo)
+        span = d.max - d.min
+        p = (d.mean - d.min) / span if span else 0.0
+        out[mask] = d.min + rng.binomial(span, p, int(mask.sum()))
+    return out
+
+
+def _legs(
+    tipo: pl.Series,
+    matnr: pl.Series,
+    budat: np.ndarray,
+    menge: np.ndarray,
+    origen: str,
+    destino: str,
+) -> pl.DataFrame:
+    return pl.DataFrame(
+        {"Matnr": matnr, "tipo": tipo, "Budat": budat, "Menge": menge.astype(np.int64)}
+    ).with_columns(
+        pl.col("Budat").cast(pl.Date),
+        pl.lit(origen).alias("origen"),
+        pl.lit(destino).alias("destino"),
+    )
+
+
+def _vaci_minimo(tramos: pl.DataFrame) -> pl.DataFrame:
+    """
+    Flota mínima por material para que VACI no quede negativo. Toma el peor
+    orden del día: saldo al cierre anterior menos las salidas del día, antes
+    de las entradas. Así cabe cualquier orden de registro dentro del día.
+    """
+    return (
+        tramos.filter((pl.col("origen") == "VACI") | (pl.col("destino") == "VACI"))
+        .group_by("Matnr", "Budat")
+        .agg(
+            pl.col("Menge").filter(pl.col("destino") == "VACI").sum().alias("entra"),
+            pl.col("Menge").filter(pl.col("origen") == "VACI").sum().alias("sale"),
+        )
+        .sort("Matnr", "Budat")
+        .with_columns((pl.col("entra") - pl.col("sale")).cum_sum().over("Matnr").alias("cierre"))
+        .with_columns(
+            (pl.col("cierre").shift(1).over("Matnr").fill_null(0) - pl.col("sale")).alias("peor")
+        )
+        .group_by("Matnr")
+        .agg((-pl.col("peor").min()).clip(lower_bound=0).alias("minimo"))
+        .sort("Matnr")
+    )
+
+
+def emit_internal_cycle(
+    df: pl.DataFrame,
+    cfg: GeneratorConfig,
+    first_day: date,
+    seed: int,
+    idx: int,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """
+    Traslados 311 dentro de la planta y foto de stock inicial.
+
+    Salida: VACI → LINE → LLEN antes de cada 621. Retorno: SUCI → VACI después
+    de cada 622. df es la planta ya filtrada por Cpudt: el ciclo interno solo
+    ve lo que existe a la fecha de extracción. Un documento por día, material
+    y tramo (ADR-017, punto 4).
+    """
+    werks = df["Werks"][0]
+    cutoff = cfg.reference_date
+
+    s621 = df.filter(pl.col("Bwart") == "621").select("Matnr", "tipo", "Budat", "Menge")
+    s622 = df.filter(pl.col("Bwart") == "622").select("Matnr", "tipo", "Budat", "Menge")
+
+    rng = _internal_rng(seed, idx, _SUB_SALIDA)
+    tipos = s621["tipo"].to_numpy()
+    budat = s621["Budat"].to_numpy().astype("datetime64[D]")
+    a_llen = np.busday_offset(budat, -_dwell_days(cfg, tipos, "full", rng), roll="backward")
+    a_line = np.busday_offset(a_llen, -_dwell_days(cfg, tipos, "line", rng), roll="backward")
+    sale = -s621["Menge"].to_numpy()
+
+    rng = _internal_rng(seed, idx, _SUB_RETORNO)
+    tipos = s622["tipo"].to_numpy()
+    budat = s622["Budat"].to_numpy().astype("datetime64[D]")
+    a_vaci = np.busday_offset(budat, _dwell_days(cfg, tipos, "dirty", rng), roll="forward")
+
+    tramos = pl.concat(
+        [
+            _legs(s621["tipo"], s621["Matnr"], a_line, sale, "VACI", "LINE"),
+            _legs(s621["tipo"], s621["Matnr"], a_llen, sale, "LINE", "LLEN"),
+            _legs(s622["tipo"], s622["Matnr"], a_vaci, s622["Menge"].to_numpy(), "SUCI", "VACI"),
+        ]
+    )
+
+    # Lo que pasó antes de la ventana ya está en la foto inicial; lo que caería
+    # después del corte no se ha registrado y el contenedor sigue en SUCI.
+    previos = tramos.filter(pl.col("Budat") < first_day)
+    tramos = tramos.filter(pl.col("Budat").is_between(first_day, cutoff))
+
+    docs = (
+        tramos.group_by("Matnr", "tipo", "Budat", "origen", "destino")
+        .agg(pl.col("Menge").sum())
+        .sort("Budat", "origen", "destino", "Matnr")
+    )
+    n = docs.height
+    rng = _internal_rng(seed, idx, _SUB_REGISTRO)
+    cputm = pl.format(
+        "{}:{}:00",
+        pl.Series(rng.integers(6, 22, n)).cast(pl.String).str.zfill(2),
+        pl.Series(rng.integers(0, 60, n)).cast(pl.String).str.zfill(2),
+    )
+    docs = docs.with_columns(
+        pl.int_range(n, dtype=pl.Int64).alias("doc_id"),
+        cputm.alias("Cputm"),
+    )
+    # Posición 1 sale del origen, posición 2 entra al destino.
+    rows = pl.concat(
+        [
+            docs.with_columns(
+                pl.lit(1, dtype=pl.Int64).alias("Zeile"),
+                pl.col("origen").alias("Lgort"),
+                -pl.col("Menge"),
+            ),
+            docs.with_columns(
+                pl.lit(2, dtype=pl.Int64).alias("Zeile"),
+                pl.col("destino").alias("Lgort"),
+            ),
+        ]
+    ).with_columns(
+        pl.lit(werks).alias("Werks"),
+        pl.lit("311").alias("Bwart"),
+        # Conteo al cierre de turno: se registra el mismo día.
+        pl.col("Budat").alias("Cpudt"),
+        pl.lit(None, dtype=pl.String).alias("Kunnr"),
+        pl.lit(None, dtype=pl.String).alias("Lifnr"),
+        pl.lit(None, dtype=pl.String).alias("Xblnr"),
+    )
+
+    minimo = _vaci_minimo(tramos)
+    holgura = _internal_rng(seed, idx, _SUB_HOLGURA).uniform(
+        0.0, cfg.internal.fleet_slack_max, minimo.height
+    )
+    vaci = minimo.select(
+        "Matnr",
+        pl.lit("VACI").alias("Lgort"),
+        (pl.col("minimo") * (1 + pl.Series(holgura))).ceil().cast(pl.Int64).alias("Menge"),
+    )
+    # Un tramo previo suma en su destino y resta en su origen. VACI sale del
+    # mínimo: lo que dejó VACI antes de la ventana no forma parte de la foto.
+    en_proceso = (
+        pl.concat(
+            [
+                previos.select("Matnr", pl.col("destino").alias("Lgort"), "Menge"),
+                previos.select("Matnr", pl.col("origen").alias("Lgort"), -pl.col("Menge")),
+            ]
+        )
+        .filter(pl.col("Lgort") != "VACI")
+        .group_by("Matnr", "Lgort")
+        .agg(pl.col("Menge").sum())
+    )
+    stock = (
+        pl.concat([vaci, en_proceso])
+        .filter(pl.col("Menge") > 0)
+        .select(
+            pl.lit(werks).alias("Werks"),
+            "Lgort",
+            "Matnr",
+            pl.lit(None, dtype=pl.String).alias("Kunnr"),
+            "Menge",
+            pl.lit(first_day - timedelta(days=1)).alias("Fecha"),
+        )
+        .sort("Lgort", "Matnr")
+    )
+    return rows, stock
+
+
+# ---------------------------------------------------------------------------
 # Orquestador
 # ---------------------------------------------------------------------------
 
@@ -431,6 +631,20 @@ def _assign_document_numbers(
     ).drop("_seq", "doc_id")
 
 
+STOCK_INICIAL = "stock_inicial.parquet"
+
+
+def _complete(df: pl.DataFrame, pool: pl.DataFrame) -> pl.DataFrame:
+    """Texto y costo del material, tipos de fecha y año contable."""
+    return df.join(pool.select("Matnr", "Maktx", "Costo_usd"), on="Matnr", how="left").with_columns(
+        pl.col("Budat").cast(pl.Date),
+        pl.col("Cpudt").cast(pl.Date),
+        pl.col("Budat").dt.year().cast(pl.Int64).alias("Mjahr"),
+        pl.col("Menge").cast(pl.Int64),
+        pl.lit("PC").alias("Meins"),
+    )
+
+
 _OUTPUT_COLUMNS = [
     "Werks",
     "Lgort",
@@ -464,12 +678,17 @@ def generate(
     """
     cfg = cfg or GeneratorConfig()
     rng = np.random.default_rng(cfg.random_seed)
+    # Base de los generadores por planta (ADR-017, punto 9). Sin seed fija,
+    # una sola entropía por corrida.
+    seed = cfg.random_seed
+    if seed is None:
+        seed = int(np.random.SeedSequence().entropy)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     # El directorio es del generador: una corrida no se mezcla con restos de otra.
-    for old in out.glob("mb51_*.parquet"):
-        old.unlink()
+    for old in [*out.glob("mb51_*.parquet"), out / STOCK_INICIAL]:
+        old.unlink(missing_ok=True)
 
     pool = build_matnr_pool(cfg)
     assignment = assign_matnr_to_plants(cfg, pool, rng)
@@ -478,8 +697,9 @@ def generate(
     recon = reconciliation_dates(cfg)
     offsets: dict[int, int] = {}
     total_rows = 0
+    stocks: list[pl.DataFrame] = []
 
-    for plant in cfg.plants:
+    for idx, plant in enumerate(cfg.plants):
         monthly = int(rng.integers(plant.monthly_movements_min, plant.monthly_movements_max))
         df = emit_plant_movements(
             werks=plant.werks,
@@ -493,28 +713,25 @@ def generate(
             rng=rng,
             n_movements=monthly * cfg.horizon_months,
         )
-        df = (
-            df.join(pool.select("Matnr", "Maktx", "Costo_usd"), on="Matnr", how="left")
-            .with_columns(
-                pl.col("Budat").cast(pl.Date),
-                pl.col("Cpudt").cast(pl.Date),
-                pl.col("Budat").dt.year().cast(pl.Int64).alias("Mjahr"),
-                pl.col("Menge").cast(pl.Int64),
-                pl.lit("PC").alias("Meins"),
-            )
-            # Documentos registrados después del corte todavía no existen
-            # a la fecha de extracción.
-            .filter(pl.col("Cpudt") <= cfg.reference_date)
-        )
+        # Documentos registrados después del corte todavía no existen
+        # a la fecha de extracción.
+        df = _complete(df, pool).filter(pl.col("Cpudt") <= cfg.reference_date)
+        internos, stock = emit_internal_cycle(df, cfg, dates[0], seed, idx)
+        internos = _complete(
+            internos.with_columns(pl.col("doc_id") + df["doc_id"].max() + 1), pool
+        ).select(df.columns)
+        df = pl.concat([df, internos])
         df = (
             _assign_document_numbers(df, offsets)
             .select(_OUTPUT_COLUMNS)
             .sort(["Budat", "Mblnr", "Zeile"])
         )
         df.write_parquet(out / f"mb51_{plant.werks}.parquet")
+        stocks.append(stock)
         total_rows += df.height
         print(f"  {plant.werks}: {df.height:,} filas")
-        del df
+        del df, internos
 
+    pl.concat(stocks).write_parquet(out / STOCK_INICIAL)
     print(f"Parquet escrito en {out}: {len(cfg.plants)} archivos, {total_rows:,} filas")
     return pl.scan_parquet(out / "mb51_*.parquet")
