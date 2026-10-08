@@ -22,7 +22,7 @@ sources:
               - not_null
               - accepted_values:
                   arguments:
-                    values: ['101','102','261','309','311','325','343','344','411','501','502','555','601','621','622','702']
+                    values: ['101','102','261','325','343','344','555','601','621','622','702']
           - name: budat
             description: Fecha de contabilización.
             tests:
