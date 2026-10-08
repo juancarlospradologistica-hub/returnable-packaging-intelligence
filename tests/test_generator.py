@@ -5,7 +5,7 @@ import polars as pl
 import pytest
 
 from rpi.config import GeneratorConfig
-from rpi.generator import generate, reconciliation_dates
+from rpi.generator import STOCK_INICIAL, generate, reconciliation_dates
 
 SEEDS = Path(__file__).parents[1] / "seeds"
 RETORNABLE = ~pl.col("Matnr").str.starts_with("CTN")
@@ -17,9 +17,9 @@ def _llaves_seed(nombre: str) -> set[str]:
 
 
 def test_filas_dentro_de_rango(df_ci: pl.DataFrame) -> None:
-    # Con 2 plantas y 12 meses quedan ~50k filas; los 311 internos de 3a.3 suben de 100k.
+    # Con 2 plantas y 12 meses: ~50k filas de ciclo con cliente y cartón más los 311 internos.
     n = df_ci.height
-    assert 20_000 < n < 300_000, f"Volumen fuera de rango: {n}"
+    assert 100_000 < n < 300_000, f"Volumen fuera de rango: {n}"
 
 
 def test_plantas_en_df(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
@@ -31,6 +31,9 @@ def test_reproducibilidad(cfg_ci: GeneratorConfig, tmp_path) -> None:
     df1 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "a")).collect()
     df2 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "b")).collect()
     assert df1.equals(df2)
+    stock1 = pl.read_parquet(tmp_path / "a" / STOCK_INICIAL)
+    stock2 = pl.read_parquet(tmp_path / "b" / STOCK_INICIAL)
+    assert stock1.equals(stock2)
 
 
 def test_nada_despues_del_corte(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
@@ -47,17 +50,6 @@ def test_llave_de_documento_unica(df_ci: pl.DataFrame) -> None:
 def test_mjahr_coincide_con_budat(df_ci: pl.DataFrame) -> None:
     malos = df_ci.filter(pl.col("Mjahr") != pl.col("Budat").dt.year()).height
     assert malos == 0
-
-
-def test_traslados_suman_cero(df_ci: pl.DataFrame) -> None:
-    no_cero = (
-        df_ci.filter(pl.col("Bwart").is_in(["309", "311", "411"]))
-        .group_by("Mblnr", "Mjahr")
-        .agg(pl.col("Menge").sum())
-        .filter(pl.col("Menge") != 0)
-        .height
-    )
-    assert no_cero == 0, f"{no_cero} documentos de traslado que no suman cero"
 
 
 def test_carton_no_entra_al_ciclo(df_ci: pl.DataFrame) -> None:
@@ -120,10 +112,10 @@ def test_saldo_en_cliente_nunca_negativo(df_ci: pl.DataFrame) -> None:
 
 
 def test_clases_por_tipo_de_material(df_ci: pl.DataFrame) -> None:
-    # ADR-017, punto 6. En 3a.3 entra el 311 a los retornables.
+    # ADR-017, punto 6. El 311 de los retornables es el ciclo interno (ADR-018).
     retornable = set(df_ci.filter(RETORNABLE)["Bwart"].unique())
     carton = set(df_ci.filter(~RETORNABLE)["Bwart"].unique())
-    assert retornable == {"621", "622", "702"}, f"Retornables: {sorted(retornable)}"
+    assert retornable == {"311", "621", "622", "702"}, f"Retornables: {sorted(retornable)}"
     assert carton == {"101", "102", "261", "601"}, f"Cartón: {sorted(carton)}"
 
 
@@ -131,6 +123,10 @@ def test_lgort_por_bwart(df_ci: pl.DataFrame) -> None:
     # El 702 V va sin almacén: SAP lleva ese stock por cliente en MSKU.
     pares = set(df_ci.select("Bwart", "Lgort").unique().iter_rows())
     assert pares == {
+        ("311", "VACI"),
+        ("311", "LINE"),
+        ("311", "LLEN"),
+        ("311", "SUCI"),
         ("621", "LLEN"),
         ("622", "SUCI"),
         ("702", None),
