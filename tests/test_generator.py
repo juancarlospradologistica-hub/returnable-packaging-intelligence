@@ -5,7 +5,14 @@ import polars as pl
 import pytest
 
 from rpi.config import GeneratorConfig
-from rpi.generator import STOCK_INICIAL, generate, reconciliation_dates
+from rpi.generator import (
+    INSTRUCCION,
+    PARTES,
+    PLAN,
+    STOCK_INICIAL,
+    generate,
+    reconciliation_dates,
+)
 
 SEEDS = Path(__file__).parents[1] / "seeds"
 RETORNABLE = ~pl.col("Matnr").str.starts_with("CTN")
@@ -31,9 +38,10 @@ def test_reproducibilidad(cfg_ci: GeneratorConfig, tmp_path) -> None:
     df1 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "a")).collect()
     df2 = generate(cfg=cfg_ci, output_dir=str(tmp_path / "b")).collect()
     assert df1.equals(df2)
-    stock1 = pl.read_parquet(tmp_path / "a" / STOCK_INICIAL)
-    stock2 = pl.read_parquet(tmp_path / "b" / STOCK_INICIAL)
-    assert stock1.equals(stock2)
+    for archivo in (STOCK_INICIAL, PARTES, INSTRUCCION, PLAN):
+        uno = pl.read_parquet(tmp_path / "a" / archivo)
+        dos = pl.read_parquet(tmp_path / "b" / archivo)
+        assert uno.equals(dos), archivo
 
 
 def test_nada_despues_del_corte(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:

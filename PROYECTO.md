@@ -599,6 +599,77 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - La semana del corte no sirve para medir el reparto por estado ni la cobertura de VACI. Las primeras ~13 semanas tampoco, por el arranque del stock V.
   - En 18 meses la flota pierde 4.8% (KLT 4.7%, Rack 5.8%). En el Rack la baja por scrap ya es casi igual al faltante: 6,659 contra 7,048.
 
+### ADR-021 · Necesidad de flota con stock de seguridad por variabilidad
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Reemplaza ADR-017, punto 12. El stock de seguridad de ADR-016 deja de calcularse solo en días de cobertura: los días quedan como piso de política y como unidad de lectura.
+- **Contexto:** Antes de diseñar 3b medí demanda, ciclo y flota sobre el dataset completo (14 plantas, seed 42):
+  - La demanda es estacionaria. 621 por semana en la base de 13 semanas: KLT 159,648 y Rack 28,364; en las 51 semanas anteriores, 159,631 y 28,238.
+  - A nivel material es ruidosa: CV semanal mediano de 0.42 en KLT y 0.39 en Rack. Una planta nivelada real anda en 0.1–0.2. El ruido es del generador y no se toca: lo amarra la huella de Fase 1 y 2.
+  - Ciclo total por ley de Little en días naturales, ventana estable: KLT 31.4 (cliente 25.95, interno 5.43), Rack 32.3 (cliente 25.96, interno 6.29). Por planta va de 31 a 33. Vacíos tiene hoy 25.8 días de demanda en KLT y 24.7 en Rack.
+  - Backtest: necesidad estimada con abril 2025 a enero 2026, quiebres contados de enero a junio 2026 (días en que el stock en uso de un material supera la necesidad: VACI negativo).
+
+    | Fórmula | Necesidad KLT | Días con quiebre KLT | Materiales con quiebre KLT | Días con quiebre Rack |
+    |---|---:|---:|---:|---:|
+    | d × (T + 3/5 días), ADR-017 | 783,762 | 32.7% | 97.9% | 23.4% |
+    | d × T + 1.65σ | 941,632 | 9.4% | 70.2% | 9.7% |
+    | d × T + 2.33σ | 1,034,885 | 3.9% | 43.6% | 3.9% |
+    | d × T + 3σ | 1,126,766 | 1.5% | 23.2% | 1.5% |
+
+  - Con σ medida en 13 semanas, 1.65σ da 16% de días con quiebre y no 5%: la ventana corta subestima la variabilidad.
+  - Pendiente de log σ contra log volumen entre materiales: 0.39 en KLT y 0.43 en Rack. La variabilidad crece como la raíz del volumen (Poisson, 0.5), no en proporción (1.0).
+- **Alternativas evaluadas:**
+  - Días de cobertura solos (ADR-017, punto 12): la flota sobraría 38% y, contra la historia, esa misma necesidad se queda corta un día de cada tres. El headline de 3b diría lo contrario de lo que pasó.
+  - σ de la ventana base de 13 semanas: subestima; ver contexto.
+  - σ proporcional al volumen del plan: castiga de más el arranque. La medición da raíz.
+  - Pico histórico del stock en uso: depende del largo de la ventana y no se escala con el plan.
+  - Simulación Monte Carlo del ciclo: es lo que hace Fase 4; aquí basta una fórmula cerrada que se pueda auditar.
+- **Decisión:**
+  1. Necesidad por planta, material y semana = d_plan × T + máx(cobertura × d_plan, z × σ_uso × √(d_plan / d_base)).
+  2. d_plan: contenedores por día natural del plan (piezas entre piezas por contenedor, entre 7). d_base: lo mismo en la ventana base.
+  3. T: ciclo total por planta y tipo de empaque por ley de Little sobre int_stock_diario, en días naturales: stock promedio fuera de vacíos entre 621 por día.
+  4. σ_uso: desviación estándar del stock diario en uso del material (todo menos vacíos) en las 52 semanas completas antes del corte.
+  5. z y días de cobertura por tipo de empaque en el seed parametros_flota, con los demás parámetros de política (ADR-017, punto 11).
+  6. Flota proyectada y escalamiento (préstamo, compra y desechable) se deciden en el ADR de 3b.3, con su propia medición.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - z = 3 (rango 2.33–3). En el backtest deja 1.5% de días con quiebre. La normal promete menos: la cola del stock en uso es más pesada.
+  - Ventana de σ: 52 semanas (rango 26–64). Un año cubre la variación completa sin mezclar el arranque del stock V.
+  - Días de cobertura como piso: KLT 3, Rack 5 (ADR-016).
+- **Consecuencias:**
+  - El stock de seguridad sale en ~18.7 días en KLT y ~17.4 en Rack, contra 3–5 de la industria. Es el ruido del sintético, no una recomendación de política. El notebook de 3b muestra sensibilidad a z y a los días de cobertura.
+  - Medición preliminar con el plan base y la flota al corte, con σ de 64 semanas: necesidad KLT 1,143,440 contra flota 1,268,063, Rack 201,319 contra 222,132. Déficit en 950 materiales KLT (14,519 contenedores) y 410 Rack (2,540); el 91% del déficit está en materiales globales y lo cubre el exceso del mismo material en otras plantas. Las cifras finales salen del mart en 3b.2.
+  - 3b.2 lleva un test de backtest: la necesidad con z del seed no puede dejar más días con quiebre que el umbral del supuesto.
+  - Fase 1 y 2 no cambian.
+
+### ADR-022 · Plan de producción e instrucción de empaque en el generador
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Precisa ADR-017, puntos 8 y 9, y el supuesto de partes por empaque.
+- **Contexto:** Antes de escribir el plan medí los 621 del dataset completo:
+  - Cada Rack sale a un solo cliente en las 1,972 combinaciones planta × material. Cada KLT sale a 3, 4, 5 u 8 clientes (los de su planta), 5.04 en promedio: el supuesto de ADR-017 (5, rango 3–8) ya está en el dato.
+  - Las 23,983 combinaciones planta × material × cliente de KLT y los 1,972 Rack tienen embarques en la ventana base.
+  - El corte cae en martes: la semana del corte está incompleta y sus 621 todavía no se registran todos (lag de Cpudt).
+  - Repartiendo la base del Rack con Dirichlet(1), 20 partes quedan con plan en cero las 12 semanas.
+- **Alternativas evaluadas:**
+  - Sortear de 3 a 8 partes por KLT sin ver los clientes: salen partes de un cliente al que el empaque nunca fue, y la regla de calidad "plan sin embarques" truena por construcción.
+  - Un solo generador aleatorio para el plan ([seed, idx, 2]): cambiar la mezcla de escenarios movería las piezas por contenedor.
+  - Base con la semana del corte: mete una semana incompleta al promedio.
+  - Dirichlet(1) para los pesos del Rack: partes sin volumen.
+- **Decisión:**
+  1. KLT: una parte por material y cliente con 621 en la base. Rack: 1 + Bin(2, ½) partes del cliente dedicado, con la base repartida por pesos Dirichlet(4).
+  2. Base: 621 de las 13 semanas completas, de lunes a domingo, antes del corte (2026-03-30 a 2026-06-28). Horizonte: 12 semanas desde el lunes siguiente al corte (2026-07-06 a 2026-09-27). La semana del corte no entra a ninguna de las dos.
+  3. Piezas por contenedor por parte con el sorteo binomial de ADR-018, punto 4. Escenario por parte; la semana de cambio es 4 + Bin(4, ½).
+  4. Plan por parte y semana = redondeo(base × peso × piezas × factor del escenario).
+  5. Sub-streams default_rng([seed, idx, 2, k]): 0 partes y pesos, 1 escenario, 2 piezas por contenedor. El plan solo lee los 621: no mueve el MB51 ni stock_inicial.
+  6. Tres tablas en data/raw (partes, instruccion_empaque, plan_produccion) con schema Pandera e ingesta a DuckDB. Escenario solo existe en el sintético y acepta nulo: en un extracto real sale del calendario del programa o no viene.
+  7. Staging por tabla y las reglas de calidad de datos de ADR-017 como tests de dbt: llaves únicas, plan sin instrucción o sin parte, instrucción a cartón o a un material sin movimientos en la planta, Rack con partes de más de un cliente y parte sin embarques a su cliente en las semanas base. La ventana es la var ventana_base_semanas.
+- **Supuestos (práctica de industria, sin datos de empleador):** los de ADR-017 para partes, piezas, ventana y escenarios. Dirichlet(4) es parámetro del sintético, no de dominio: reparte sin dejar partes vacías.
+- **Consecuencias:**
+  - 27,934 partes: 23,983 KLT y 3,951 Rack (492 Rack con una parte, 981 con dos, 499 con tres). 335,208 filas de plan, 79.8M piezas. Escenarios: 22,374 estables, 2,831 arranques y 2,729 fines de serie.
+  - Semana 1 del plan = base: 159,649 contenedores KLT y 28,363 Rack. En la semana 12, con todos los cambios aplicados, −1.8% y −1.6%.
+  - MB51 y stock_inicial sin cambios: 20,981,396 filas y huella igual en las 14 plantas.
+  - Las piezas por contenedor salen en un rango angosto (KLT 23–58, Rack 5–19) por el sorteo binomial. Se cancelan al pasar a contenedores y solo cuentan para calidad de datos.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -646,7 +717,8 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
 - **Cartón:** desechable, sale con 601 y no regresa.
 - **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
-- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet) y la foto data/raw/stock_inicial.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
+- **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet y el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
 
@@ -675,6 +747,27 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-08 · Sesión 40 — Semana 16
+
+- **Duración:** ~2.5 h
+- **Hecho:**
+  - Medición antes de diseñar 3b: demanda estacionaria pero ruidosa por material (CV semanal 0.4), ciclo total por ley de Little (KLT 31.4 días, Rack 32.3) y backtest de la fórmula de necesidad. Con días de cobertura la necesidad se queda corta un día de cada tres; con 3σ, 1.5%. Stock de seguridad por variabilidad (ADR-021).
+  - Fase 3b.1 en el generador: partes, instrucción de empaque y plan semanal de 12 semanas derivados de los 621 de la base, con escenario por parte y sub-streams [seed, idx, 2, k] (ADR-022).
+  - IntRange en config.py como base de DwellDays; PlanConfig y ScenarioConfig.
+  - Schemas Pandera de las tres tablas, ingesta a DuckDB y error con el nombre de lo que falta.
+  - Staging del plan y cinco reglas de calidad de datos de ADR-017 como tests de dbt. Verificadas rompiendo los datos seis veces: instrucción repetida, plan sin instrucción, instrucción a cartón, instrucción a un material fuera de la planta, Rack con dos clientes y parte con un cliente sin embarques.
+  - tests/test_plan.py: calendario, mismas partes en las tres tablas, partes por empaque, semana 1 igual a la base, mezcla de escenarios y cambio por escenario. Verificados rompiendo el generador seis veces: cambio una semana tarde, pesos que no suman uno, una pareja material-cliente sin parte, mezcla equivocada, horizonte corto y una parte sin volumen.
+  - Dataset completo: 20,981,396 filas, huella igual en las 14 plantas, 27,934 partes y 335,208 filas de plan. dbt build 191/191, pytest 64. Con el reducido de CI: dbt build 191/191, pytest 57 y 7 saltados.
+- **Decisiones tomadas:** ADR-021 y ADR-022.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Una regla de política (días de cobertura) se valida contra la historia antes de volverla fórmula: un backtest de un día dijo más que el supuesto.
+  - La σ de una ventana corta subestima la cola: con 13 semanas, 1.65σ dejó 16% de días con quiebre.
+  - Partes derivadas del dato y no sorteadas: el supuesto de 5 partes por KLT ya estaba en los clientes de cada material.
+  - Dirichlet(1) deja partes casi vacías; con varias partes por empaque hay que fijar la concentración.
+  - Un invariante que solo falla por azar (parte con plan en cero) se prueba forzando el caso, no esperando que el dataset reducido lo produzca.
+- **Próximo paso:** PR de semana-16-fase-3b1 con CI verde y merge. Después Fase 3b.2: seed parametros_flota, ciclo T por planta y tipo, σ del stock en uso, mart de necesidad y test de backtest.
 
 ### 2026-10-08 · Sesión 39 — Semana 16
 
@@ -1385,6 +1478,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ventana conciliada** — Salidas con antigüedad suficiente para haber pasado por una conciliación: Budat ≤ última conciliación − 120 días. Denominador de la tasa de merma.
 - **Instrucción de empaque** — Define para cada parte y cliente qué empaque se usa y cuántas piezas lleva (Packvorschrift / PI).
 - **Días de cobertura** — Stock expresado en días de demanda que alcanza a cubrir.
+- **Stock de seguridad por variabilidad** — Contenedores de más sobre el uso promedio para cubrir la variación de la demanda: z por la desviación del stock en uso. Aquí se lee en días de cobertura (ADR-021).
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 - **Conservación de flota** — La flota solo cambia por entradas de flota nueva y por salidas definitivas: aquí inicial menos faltantes (702) menos bajas (555) es igual a stock en almacenes más stock V, en cada material y semana.
 - **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
@@ -1408,6 +1502,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Unit test (dbt)** — Test con datos de entrada y salida definidos a mano que valida la lógica de un modelo sin depender del dataset.
 - **.git-blame-ignore-revs** — Lista de commits que git blame y GitHub ignoran; se usa para commits de solo formato.
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
+- **Ley de Little** — En un sistema estable, stock promedio = flujo por tiempo de permanencia (L = λ × W). Con el stock y los 621 por día da el ciclo; con el ciclo y el plan da la flota en uso.
+- **Backtest** — Probar una regla con datos pasados que no se usaron para estimarla: aquí, necesidad estimada con un periodo y quiebres contados en el siguiente.
 - **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
 
 ---

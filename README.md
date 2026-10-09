@@ -45,6 +45,7 @@ Linaje de los modelos dbt:
 flowchart LR
     raw[raw_mb51] --> stg[stg_mb51]
     rawsi[raw_stock_inicial] --> stgsi[stg_stock_inicial]
+    rawplan[raw_partes, raw_instruccion_empaque, raw_plan_produccion] --> stgplan[stg_partes, stg_instruccion_empaque, stg_plan_produccion]
     stg --> mov[int_mov_cuenta]
     stg --> tcoi[int_tco_por_material]
     stg --> perd[mart_perdidas_usd]
@@ -132,7 +133,7 @@ cd returnable-packaging-intelligence
 uv sync
 ```
 
-Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas y la foto de stock inicial):
+Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas, la foto de stock inicial y el plan de producción de 12 semanas):
 
 ```bash
 uv run python -m rpi
@@ -140,14 +141,14 @@ uv run python -m rpi
 
 `uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed y directorio de salida.
 
-Ingestar a DuckDB (MB51 y stock inicial):
+Ingestar a DuckDB (MB51, stock inicial y plan):
 
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (17 modelos, 2 seeds, 137 tests de datos y 8 unit tests):
+Construir modelos y correr los tests de dbt (20 modelos, 2 seeds, 161 tests de datos y 8 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -172,7 +173,7 @@ returnable-packaging-intelligence/
 ├── .github/workflows/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
-│   └── raw/                    # Parquet por planta y stock inicial (excluido de Git)
+│   └── raw/                    # Parquet por planta, stock inicial y plan (excluido de Git)
 ├── docs/
 │   └── img/                    # Gráficas que escriben los notebooks
 ├── macros/                     # tipo_material: una sola regla para los dos staging
@@ -180,7 +181,10 @@ returnable-packaging-intelligence/
 │   ├── staging/
 │   │   ├── sources.yml
 │   │   ├── stg_mb51.sql
-│   │   └── stg_stock_inicial.sql
+│   │   ├── stg_stock_inicial.sql
+│   │   ├── stg_partes.sql
+│   │   ├── stg_instruccion_empaque.sql
+│   │   └── stg_plan_produccion.sql
 │   ├── intermediate/
 │   │   ├── int_mov_cuenta.sql              # movimientos de stock especial V por cuenta
 │   │   ├── int_tramos_fifo.sql             # salida → cierre con antigüedad FIFO
@@ -208,10 +212,10 @@ returnable-packaging-intelligence/
 │   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
-│   ├── generator.py            # Generador sintético MB51 y stock inicial
+│   ├── generator.py            # Generador sintético MB51, stock inicial y plan
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
-│   └── schema.py               # Schema Pandera 22 columnas
-├── tests/                      # pytest: generador, ciclo interno, huella, schema, marts y cuadre del README
+│   └── schema.py               # Schemas Pandera: MB51 y plan
+├── tests/                      # pytest: generador, ciclo interno, plan, huella, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -352,11 +356,11 @@ Dos efectos de borde, del sintético y no de la operación:
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 17 modelos dbt y 2 seeds con 137 tests de datos y 8 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 20 modelos dbt y 2 seeds con 161 tests de datos y 8 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
-Siguiente: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha.
+En curso: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha. Ya está el plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos sobre el plan; faltan la necesidad con stock de seguridad por variabilidad (ADR-021), la brecha en USD, el notebook y el dashboard.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

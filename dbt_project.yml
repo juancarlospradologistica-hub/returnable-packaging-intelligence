@@ -14,3 +14,8 @@ models:
       +materialized: table
     marts:
       +materialized: table
+
+vars:
+  # Semanas completas antes del plan que cuentan como base de embarques.
+  # Igual que PlanConfig.base_weeks del generador (ADR-017, supuestos).
+  ventana_base_semanas: 13

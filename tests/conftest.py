@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 
 from rpi.config import Country, GeneratorConfig, PlantConfig
-from rpi.generator import STOCK_INICIAL, generate
+from rpi.generator import INSTRUCCION, PARTES, PLAN, STOCK_INICIAL, generate
 
 
 @pytest.fixture(scope="session")
@@ -46,3 +46,18 @@ def df_ci(raw_ci: Path) -> pl.DataFrame:
 @pytest.fixture(scope="session")
 def stock_ci(raw_ci: Path) -> pl.DataFrame:
     return pl.read_parquet(raw_ci / STOCK_INICIAL)
+
+
+@pytest.fixture(scope="session")
+def partes_ci(raw_ci: Path) -> pl.DataFrame:
+    return pl.read_parquet(raw_ci / PARTES)
+
+
+@pytest.fixture(scope="session")
+def instruccion_ci(raw_ci: Path) -> pl.DataFrame:
+    return pl.read_parquet(raw_ci / INSTRUCCION)
+
+
+@pytest.fixture(scope="session")
+def plan_ci(raw_ci: Path) -> pl.DataFrame:
+    return pl.read_parquet(raw_ci / PLAN)
