@@ -32,3 +32,29 @@ seeds:
         tests:
           - not_null
           - unique
+
+  - name: parametros_flota
+    description: >
+      Parámetros de política por tipo de empaque (ADR-017, punto 11; ADR-021).
+      Los decide la planta, no el dato: días de cobertura como piso del stock de
+      seguridad, z sobre la variabilidad del stock en uso y lead time de compra.
+    config:
+      column_types:
+        tipo_material: varchar
+        dias_cobertura: integer
+        z_servicio: double
+        lead_time_semanas: integer
+    columns:
+      - name: tipo_material
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: dias_cobertura
+        tests: [not_null]
+      - name: z_servicio
+        tests: [not_null]
+      - name: lead_time_semanas
+        tests: [not_null]
