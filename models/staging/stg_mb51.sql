@@ -12,11 +12,7 @@ cleaned as (
         lgort                                           as almacen,
         matnr                                           as material,
         maktx                                           as material_desc,
-        case
-            when matnr like 'KLT-%' then 'KLT'
-            when matnr like 'RCK-%' then 'RACK'
-            when matnr like 'CTN-%' then 'CARTON'
-        end                                             as tipo_material,
+        {{ tipo_material('matnr') }}                    as tipo_material,
         bwart                                           as mov_type,
         mjahr                                           as anio_contable,
         cast(budat as date)                             as fecha_contab,

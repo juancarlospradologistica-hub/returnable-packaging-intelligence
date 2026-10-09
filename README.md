@@ -44,6 +44,7 @@ Linaje de los modelos dbt:
 ```mermaid
 flowchart LR
     raw[raw_mb51] --> stg[stg_mb51]
+    rawsi[raw_stock_inicial] --> stgsi[stg_stock_inicial]
     stg --> mov[int_mov_cuenta]
     stg --> tcoi[int_tco_por_material]
     stg --> perd[mart_perdidas_usd]
@@ -63,6 +64,11 @@ flowchart LR
     mov --> exceso
     sup --> exceso
     tcoi --> tco[mart_tco_comparativo]
+    seeds[seeds almacenes y clases_movimiento] --> movs[int_mov_stock]
+    stg --> movs
+    stgsi --> movs
+    movs --> diario[int_stock_diario]
+    diario --> flota[mart_flota_semanal]
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -141,7 +147,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (13 modelos, 2 seeds, 111 tests de datos y 6 unit tests):
+Construir modelos y correr los tests de dbt (17 modelos, 2 seeds, 137 tests de datos y 8 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -169,16 +175,20 @@ returnable-packaging-intelligence/
 │   └── raw/                    # Parquet por planta y stock inicial (excluido de Git)
 ├── docs/
 │   └── img/                    # Gráficas que escriben los notebooks
+├── macros/                     # tipo_material: una sola regla para los dos staging
 ├── models/
 │   ├── staging/
 │   │   ├── sources.yml
-│   │   └── stg_mb51.sql
+│   │   ├── stg_mb51.sql
+│   │   └── stg_stock_inicial.sql
 │   ├── intermediate/
 │   │   ├── int_mov_cuenta.sql              # movimientos de stock especial V por cuenta
 │   │   ├── int_tramos_fifo.sql             # salida → cierre con antigüedad FIFO
 │   │   ├── int_supervivencia_retorno.sql   # curva S(edad) por tipo
 │   │   ├── int_cuenta_mensual.sql          # saldo real y esperado por cierre
-│   │   └── int_tco_por_material.sql        # parámetros TCO (fuente única)
+│   │   ├── int_tco_por_material.sql        # parámetros TCO (fuente única)
+│   │   ├── int_mov_stock.sql               # movimiento → ubicación y tipo de stock
+│   │   └── int_stock_diario.sql            # saldo por almacén y tipo al cierre del día
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
@@ -186,7 +196,8 @@ returnable-packaging-intelligence/
 │       ├── mart_rutas.sql
 │       ├── mart_rutas_rotas.sql
 │       ├── mart_exceso_saldo_ruta.sql
-│       └── mart_tco_comparativo.sql
+│       ├── mart_tco_comparativo.sql
+│       └── mart_flota_semanal.sql
 ├── seeds/                      # almacenes y clases de movimiento → estado y evento del ciclo
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
@@ -320,11 +331,30 @@ Son rangos de orden de magnitud, no cotizaciones: cambian por región, volumen y
 
 Payback, sensibilidad y resumen ejecutivo en `notebooks/03_tco_analysis.ipynb`. El dashboard Marimo tiene una pestaña TCO con el detalle por planta.
 
+## Resultados Fase 3a: flota dentro de la planta
+
+La flota se reconstruye como en SAP: foto inicial (MB5B) más movimientos MB51. `int_stock_diario` lleva el saldo por planta, material, almacén y tipo de stock al cierre de cada día con cambio, y `mart_flota_semanal` lo corta por semana. Un test de dbt valida en cada material y semana que la flota solo baja por faltante en cliente (702) y por baja de scrap (555).
+
+| Flota | KLT | Rack | Total |
+|---|---:|---:|---:|
+| Inicial al 2025-01-05 | 1,330,136 | 235,839 | 1,565,975 |
+| Faltante en cliente (702) | 38,805 | 7,048 | 45,853 |
+| Baja por scrap (555) | 23,268 | 6,659 | 29,927 |
+| Al corte, 2026-06-30 | 1,268,063 | 222,132 | 1,490,195 |
+| En cliente al corte (stock V) | 576,621 | 102,700 | 679,321 |
+
+En 18 meses la flota pierde 4.8%: 4.7% en KLT y 5.8% en Rack. En el Rack la baja por scrap ya pesa casi lo mismo que el faltante (6,659 contra 7,048), porque entra a reparación casi tres veces más que el KLT. El sintético no tiene compras de reposición: la pérdida sale de la holgura de la flota inicial. En 3b se mide contra el plan.
+
+Dos efectos de borde, del sintético y no de la operación:
+
+- **Arranque.** El stock V abre en cero porque el generador no tiene 621 antes de la ventana. Llega a régimen en unas 13 semanas.
+- **Corte.** LINE y LLEN quedan en cero el 2026-06-30: los 621 posteriores al corte no existen y sus 311 tampoco. Los ~80k contenedores que normalmente están en línea y llenos aparecen en vacíos. Para comparar contra necesidad uso flota o vacíos + línea + llenos, no vacíos solo.
+
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 13 modelos dbt y 2 seeds con 111 tests de datos y 6 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 17 modelos dbt y 2 seeds con 137 tests de datos y 8 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
-En curso: Fase 3a, ciclo del empaque dentro de la planta. Ya están los traslados entre vacíos, línea, llenos y sucios, la reparación, el scrap con baja mensual y la foto de stock inicial; faltan los modelos dbt de stock por almacén. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
+Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
 Siguiente: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha.
 

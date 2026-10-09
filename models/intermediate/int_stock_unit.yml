@@ -1,0 +1,92 @@
+version: 2
+
+# Una fila por regla de ADR-017, punto 3, con el resultado calculado a mano.
+# Los tests singulares cuidan el dataset completo; estos, que cada clase de
+# movimiento caiga en la ubicación y el tipo de stock correctos.
+unit_tests:
+  - name: mov_stock_por_evento_y_signo
+    description: >
+      Daño, reparación, scrap, baja, salida, recogida, faltante y apertura. El
+      cartón (fuera_ciclo) no entra. El 621 y el 622 tocan almacén y cliente;
+      el 702 solo cliente.
+    model: int_mov_stock
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SUCI, mov_type: '344', fecha_contab: 2026-01-05, cantidad: -2}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SUCI, mov_type: '344', fecha_contab: 2026-01-05, cantidad: 2}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SUCI, mov_type: '325', fecha_contab: 2026-01-05, cantidad: -2}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: REPA, mov_type: '325', fecha_contab: 2026-01-05, cantidad: 2}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: REPA, mov_type: '343', fecha_contab: 2026-01-07, cantidad: -1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: REPA, mov_type: '343', fecha_contab: 2026-01-07, cantidad: 1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: REPA, mov_type: '311', fecha_contab: 2026-01-07, cantidad: -1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: VACI, mov_type: '311', fecha_contab: 2026-01-07, cantidad: 1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: REPA, mov_type: '325', fecha_contab: 2026-01-07, cantidad: -1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SCRP, mov_type: '325', fecha_contab: 2026-01-07, cantidad: 1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SCRP, mov_type: '555', fecha_contab: 2026-01-30, cantidad: -1}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: LLEN, mov_type: '621', fecha_contab: 2026-01-02, cantidad: -5}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: SUCI, mov_type: '622', fecha_contab: 2026-01-02, cantidad: 3}
+          - {planta: P1, material: M1, tipo_material: KLT, almacen: null, mov_type: '702', fecha_contab: 2026-03-31, cantidad: -1}
+          - {planta: P1, material: C1, tipo_material: CARTON, almacen: EXPE, mov_type: '601', fecha_contab: 2026-01-02, cantidad: -4}
+      - input: ref('almacenes')
+        rows:
+          - {lgort: VACI, estado: vacios}
+          - {lgort: LLEN, estado: llenos}
+          - {lgort: SUCI, estado: sucios}
+          - {lgort: REPA, estado: reparacion}
+          - {lgort: SCRP, estado: scrap}
+          - {lgort: EXPE, estado: fuera_ciclo}
+      - input: ref('clases_movimiento')
+        rows:
+          - {bwart: '311', evento: traslado}
+          - {bwart: '325', evento: traslado_bloqueado}
+          - {bwart: '343', evento: desbloqueo}
+          - {bwart: '344', evento: bloqueo}
+          - {bwart: '555', evento: baja}
+          - {bwart: '601', evento: salida_desechable}
+          - {bwart: '621', evento: salida_cliente}
+          - {bwart: '622', evento: recogida_cliente}
+          - {bwart: '702', evento: faltante_cliente}
+      - input: ref('stg_stock_inicial')
+        rows:
+          - {planta: P1, almacen: VACI, material: M1, tipo_material: KLT, cantidad: 10, fecha: 2025-12-31}
+    expect:
+      rows:
+        - {estado: sucios, tipo_stock: libre, evento: bloqueo, fecha: 2026-01-05, delta: -2}
+        - {estado: sucios, tipo_stock: bloqueado, evento: bloqueo, fecha: 2026-01-05, delta: 2}
+        - {estado: sucios, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-05, delta: -2}
+        - {estado: reparacion, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-05, delta: 2}
+        - {estado: reparacion, tipo_stock: bloqueado, evento: desbloqueo, fecha: 2026-01-07, delta: -1}
+        - {estado: reparacion, tipo_stock: libre, evento: desbloqueo, fecha: 2026-01-07, delta: 1}
+        - {estado: reparacion, tipo_stock: libre, evento: traslado, fecha: 2026-01-07, delta: -1}
+        - {estado: vacios, tipo_stock: libre, evento: traslado, fecha: 2026-01-07, delta: 1}
+        - {estado: reparacion, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-07, delta: -1}
+        - {estado: scrap, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-07, delta: 1}
+        - {estado: scrap, tipo_stock: bloqueado, evento: baja, fecha: 2026-01-30, delta: -1}
+        - {estado: llenos, tipo_stock: libre, evento: salida_cliente, fecha: 2026-01-02, delta: -5}
+        - {estado: cliente, tipo_stock: libre, evento: salida_cliente, fecha: 2026-01-02, delta: 5}
+        - {estado: sucios, tipo_stock: libre, evento: recogida_cliente, fecha: 2026-01-02, delta: 3}
+        - {estado: cliente, tipo_stock: libre, evento: recogida_cliente, fecha: 2026-01-02, delta: -3}
+        - {estado: cliente, tipo_stock: libre, evento: faltante_cliente, fecha: 2026-03-31, delta: -1}
+        - {estado: vacios, tipo_stock: libre, evento: apertura, fecha: 2025-12-31, delta: 10}
+
+  - name: stock_diario_saldo_al_cierre
+    description: >
+      Varios movimientos del mismo día dan una fila con su neto y el saldo
+      acumulado. Un bloqueo y su traslado a reparación el mismo día no dejan
+      fila en SUCI bloqueado.
+    model: int_stock_diario
+    given:
+      - input: ref('int_mov_stock')
+        rows:
+          - {planta: P1, material: M1, tipo_material: KLT, estado: vacios, tipo_stock: libre, evento: apertura, fecha: 2025-12-31, delta: 10}
+          - {planta: P1, material: M1, tipo_material: KLT, estado: vacios, tipo_stock: libre, evento: traslado, fecha: 2026-01-02, delta: -4}
+          - {planta: P1, material: M1, tipo_material: KLT, estado: vacios, tipo_stock: libre, evento: traslado, fecha: 2026-01-02, delta: 1}
+          - {planta: P1, material: M1, tipo_material: KLT, estado: vacios, tipo_stock: libre, evento: traslado, fecha: 2026-01-05, delta: 2}
+          - {planta: P1, material: M1, tipo_material: KLT, estado: sucios, tipo_stock: bloqueado, evento: bloqueo, fecha: 2026-01-05, delta: 2}
+          - {planta: P1, material: M1, tipo_material: KLT, estado: sucios, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-05, delta: -2}
+    expect:
+      rows:
+        - {estado: vacios, tipo_stock: libre, fecha: 2025-12-31, delta: 10, saldo: 10}
+        - {estado: vacios, tipo_stock: libre, fecha: 2026-01-02, delta: -3, saldo: 7}
+        - {estado: vacios, tipo_stock: libre, fecha: 2026-01-05, delta: 2, saldo: 9}

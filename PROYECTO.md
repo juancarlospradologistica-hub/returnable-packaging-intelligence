@@ -566,6 +566,39 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - test_dano_y_scrap_en_rango valida el rango del supuesto, no el punto medio: con la fracción de ADR-017 el KLT seguiría en verde (0.6%). La calibración queda fija en config.py y en este ADR.
   - Cambian Cputm y Mblnr de los 311 existentes; ninguna métrica depende de ellos.
 
+### ADR-020 · Stock por almacén y flota semanal en dbt
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Lleva ADR-017, punto 5, a los modelos: stock por almacén y tipo de stock, stock no negativo y conservación de flota. Cierra Fase 3a.
+- **Contexto:** Antes de escribir los modelos medí sobre el dataset completo (14 plantas, seed 42):
+  - 6,696 combinaciones planta × material de retornables y 53,406 llaves planta × material × almacén × tipo de stock. SUCI bloqueado y REPA libre solo existen dentro del día: abren y cierran en cero.
+  - 387 días hábiles con movimiento de 542 naturales; ninguno en fin de semana.
+  - Filas por grano: calendario natural ~32.6M, calendario hábil ~23.3M, solo días en que cambia el saldo 11,650,129, semana con una columna por estado 528,984.
+  - El saldo diario tarda 27 s con memory_limit 4GB y ocupa el límite completo. Con 2GB tarda 24 s y no falla: DuckDB escribe a disco.
+  - Conservación al corte: 1,565,975 − 45,853 (702) − 29,927 (555) = 1,490,195 = 810,874 en almacenes + 679,321 en stock V.
+  - Bordes de la ventana. El stock V abre en cero y llega a régimen en ~13 semanas. En la semana del corte LINE y LLEN bajan de ~81k a cero, porque los 621 posteriores al corte no existen, y esos contenedores quedan en VACI. SUCI cierra en 80,774 contra ~49k en régimen: son 622 cuyo 311 a VACI caería después del corte (ADR-018, punto 7).
+- **Alternativas evaluadas:**
+  - Calendario diario completo: 2 a 3 veces las filas sin información nueva. El saldo de un día sin cambio es el de la última fila.
+  - Mart diario: 11.6M filas para un notebook y un dashboard que leen por semana, igual que el plan de 3b.
+  - Mart semanal largo, con el estado en la llave: ~4.7M filas contra 529k, y la conservación deja de validarse en una sola fila.
+  - stock_inicial como join aparte sobre el saldo: dos caminos para el mismo número. Como apertura entra en la misma suma.
+  - Tipo de stock en columnas nuevas de clases_movimiento: más configurable, pero cambia el seed sin necesidad. ADR-017, punto 3, ya fija la regla por evento y signo.
+  - tipo_material repetido en cada staging: la regla del prefijo queda en dos lugares y se separa con el tiempo.
+- **Decisión:**
+  1. stg_stock_inicial sobre raw_stock_inicial, con los nombres de stg_mb51. tipo_material sale de un macro que usan los dos staging.
+  2. int_mov_stock (view): un renglón por movimiento y ubicación. El estado sale del seed almacenes. El stock especial V entra como estado cliente, sin Lgort (MSKU), con el signo de int_mov_cuenta. Tipo de stock por evento y signo: traslado_bloqueado y baja siempre bloqueado; bloqueo, bloqueado en positivo; desbloqueo, bloqueado en negativo; lo demás libre. La foto inicial entra como evento apertura en su fecha, con tipo de stock por estado (reparación y scrap en bloqueado). fuera_ciclo no entra.
+  3. int_stock_diario (table): planta × material × estado × tipo de stock × fecha, solo en días con delta distinto de cero, con el delta y el saldo al cierre. Es el libro de saldos por ubicación: base del stock semanal, del ciclo interno de 3b y del replay de Fase 4.
+  4. mart_flota_semanal (table): planta × material × semana de lunes a domingo, igual que el plan. Cierra en domingo o en el corte; la semana 0 cierra en la foto inicial. Una columna por estado, más bloqueado, en_planta y flota, en BIGINT. Densa: ceros incluidos.
+  5. Tests: stock no negativo al cierre del día sobre int_stock_diario. Conservación de flota por planta, material y semana contra la foto y los 702 y 555 de staging por evento, sin pasar por int_stock_diario, con llave única. relationships de Lgort contra almacenes en staging. Unit tests de int_mov_stock (una fila por regla) y de int_stock_diario (neto del día y saldo).
+  6. 3b toma la flota real del mart y el ciclo interno en días naturales de int_stock_diario. Contra la necesidad se compara flota o vacíos + línea + llenos, no vacíos solo.
+- **Consecuencias:**
+  - Las cifras de Fase 1 y 2 no cambian: ningún modelo existente cambia de lógica; stg_mb51 solo mueve tipo_material al macro.
+  - dbt build con 17 modelos, 2 seeds, 137 tests de datos y 8 unit tests. El build completo pasa de ~87 s a ~106 s y la base crece ~90 MB.
+  - Un estado nuevo en el seed almacenes necesita su columna en el mart; si falta, la conservación truena.
+  - Un Lgort fuera del seed falla en staging. Antes se perdía en el join interno sin aviso.
+  - La semana del corte no sirve para medir el reparto por estado ni la cobertura de VACI. Las primeras ~13 semanas tampoco, por el arranque del stock V.
+  - En 18 meses la flota pierde 4.8% (KLT 4.7%, Rack 5.8%). En el Rack la baja por scrap ya es casi igual al faltante: 6,659 contra 7,048.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -636,12 +669,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 13** · Modelos dbt por saldo FIFO, TCO con vida esperada, recálculo de Fase 1 y 2, tabla antes/después en ADR-011, README y notebooks alineados.
 - [x] **Semana 14** · Hardening: ruff format y check en CI, mart_rutas como universo de rutas (ADR-015), unit tests de int_tramos_fifo, test de cuadre del README, desempate en el top 15. Alcance de Fase 3 y simulador en Fase 4 (ADR-016).
 - [x] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque, flota inicial, parámetros con rango y generadores aleatorios propios (ADR-017).
-- [ ] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador.
+- [x] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador (ADR-017 a ADR-019) y modelos dbt de stock por almacén y flota semanal (ADR-020).
 - [ ] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard.
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-08 · Sesión 39 — Semana 16
+
+- **Duración:** ~2 h
+- **Hecho:**
+  - Medición antes de diseñar 3a.5: llaves, filas por grano, memoria del saldo diario con 4GB y 2GB, conservación al corte y bordes de la ventana (ADR-020).
+  - Macro tipo_material para stg_mb51 y stg_stock_inicial.
+  - int_mov_stock e int_stock_diario: stock por planta, material, almacén y tipo de stock al cierre de cada día con cambio, 11,650,129 filas.
+  - mart_flota_semanal: flota por estado al cierre de cada semana, 528,984 filas en 79 semanas.
+  - Tests: assert_stock_no_negativo, assert_conservacion_flota, relationships de Lgort contra almacenes y dos unit tests. Verificados rompiendo modelos y datos siete veces: desbloqueo con signo invertido, sin filtro de delta cero, foto inicial a la mitad, faltante sin restar en cliente, materiales repetidos en el mart, un 311 con Lgort fuera del seed y un 702 con Lgort LLEN.
+  - README: linaje con los modelos nuevos y resultados de Fase 3a con la flota al corte. test_flota_fase3a en test_readme, verificado cambiando tres cifras del README.
+  - Dataset completo: 20,981,396 filas, huella igual en las 14 plantas. dbt build 164/164, pytest 54. Con el reducido de CI: dbt build 164/164, pytest 47 y 7 saltados.
+- **Decisiones tomadas:** ADR-020.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Un join interno contra un seed descarta en silencio lo que no está en el seed. El relationships en staging lo vuelve error.
+  - Un test que se calcula con el mismo modelo que valida no prueba nada. La conservación toma la foto y las pérdidas de staging, sin pasar por int_stock_diario.
+  - Con la foto inicial a la mitad la conservación pasa y el stock no negativo truena; con el faltante sin restar en cliente es al revés. Cada test cuida algo distinto.
+  - Después de regresar un archivo roto hay que reconstruir lo que depende de él: una view de DuckDB sigue con la definición rota aunque el archivo ya esté bien.
+  - Para romper un test no sirve un cambio que multiplica filas antes de un cross join: el build no termina.
+  - El borde del corte deja LINE y LLEN en cero y los pasa a VACI. En 3b no se usa vacíos solo ni la semana del corte para el reparto.
+- **Próximo paso:** PR de semana-16-fase-3a5 con CI verde y merge. Después Fase 3b: diseño del plan de producción, instrucción de empaque y necesidad contra flota.
 
 ### 2026-10-08 · Sesión 38 — Semana 16
 
@@ -1331,6 +1386,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Instrucción de empaque** — Define para cada parte y cliente qué empaque se usa y cuántas piezas lleva (Packvorschrift / PI).
 - **Días de cobertura** — Stock expresado en días de demanda que alcanza a cubrir.
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
+- **Conservación de flota** — La flota solo cambia por entradas de flota nueva y por salidas definitivas: aquí inicial menos faltantes (702) menos bajas (555) es igual a stock en almacenes más stock V, en cada material y semana.
 - **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
 - **Arranque / fin de serie (EOP)** — Inicio y fin de producción de un programa del cliente. Mueven la necesidad de empaque antes de que la flota pueda reaccionar.
 
@@ -1348,6 +1404,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
 - **HUGEINT** — entero de 128 bits de DuckDB; es lo que devuelve sum() sobre enteros. Polars no lo maneja bien. Los marts castean a BIGINT (ADR-013).
+- **Macro (dbt)** — Función Jinja reutilizable que genera SQL. Aquí tipo_material, para que la regla viva en un solo lugar.
 - **Unit test (dbt)** — Test con datos de entrada y salida definidos a mano que valida la lógica de un modelo sin depender del dataset.
 - **.git-blame-ignore-revs** — Lista de commits que git blame y GitHub ignoran; se usa para commits de solo formato.
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
