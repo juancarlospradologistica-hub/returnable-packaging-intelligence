@@ -1,8 +1,9 @@
 """
-Schema Pandera del dataset MB51 sintetico.
+Schemas Pandera del dataset sintetico.
 
-Define el contrato de las 22 columnas (16 core + 6 opcionales) que produce
-el generador y que consume el resto del pipeline.
+MB51Schema define el contrato de las 22 columnas (16 core + 6 opcionales) que
+produce el generador y que consume el resto del pipeline. Partes, instruccion de
+empaque y plan de produccion son el contrato de entrada de Fase 3b (ADR-022).
 
 Referencias:
 - PROYECTO.md seccion 4 (diccionario de datos y parametros del generador)
@@ -154,3 +155,52 @@ class MB51Schema(pa.DataFrameModel):
     class Config:
         strict = False
         coerce = False
+
+
+ESCENARIOS_VALIDOS = ["estable", "arranque", "fin_serie"]
+
+
+class PartesSchema(pa.DataFrameModel):
+    """Parte terminada por planta y su cliente. Llave: Werks, Parte."""
+
+    Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Kunnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 12})
+    Escenario: Series[str] = pa.Field(
+        isin=ESCENARIOS_VALIDOS,
+        nullable=True,
+        description=(
+            "Solo sintetico: estable, arranque o fin de serie. En un extracto real "
+            "sale del calendario del programa (SOP/EOP) o va vacio."
+        ),
+    )
+
+    class Config:
+        strict = True
+        unique = ["Werks", "Parte"]
+
+
+class InstruccionEmpaqueSchema(pa.DataFrameModel):
+    """Una parte, un empaque, piezas fijas por contenedor (POP1). Llave: Werks, Parte."""
+
+    Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Piezas: Series[int] = pa.Field(gt=0, description="Piezas por contenedor.")
+
+    class Config:
+        strict = True
+        unique = ["Werks", "Parte"]
+
+
+class PlanProduccionSchema(pa.DataFrameModel):
+    """Plan semanal en piezas (MD61/PBED). Llave: Werks, Parte, Semana (lunes)."""
+
+    Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Semana: Series[date] = pa.Field(description="Lunes de la semana del plan.")
+    Piezas: Series[int] = pa.Field(ge=0)
+
+    class Config:
+        strict = True
+        unique = ["Werks", "Parte", "Semana"]
