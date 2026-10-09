@@ -670,6 +670,38 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - MB51 y stock_inicial sin cambios: 20,981,396 filas y huella igual en las 14 plantas.
   - Las piezas por contenedor salen en un rango angosto (KLT 23–58, Rack 5–19) por el sorteo binomial. Se cancelan al pasar a contenedores y solo cuentan para calidad de datos.
 
+### ADR-023 · Ventanas, fórmula compartida y backtest de la necesidad en dbt
+
+- **Fecha:** 2026-10-08
+- **Estado:** Accepted. Precisa ADR-021, puntos 2 a 5: cómo se calculan en dbt las ventanas, el ciclo, la variabilidad y la prueba de la fórmula.
+- **Contexto:** Antes de escribir los modelos medí sobre el dataset completo y sobre el reducido de CI (2 plantas, 12 meses):
+  - Con σ de 52 semanas la necesidad casi no cambia contra la medición de ADR-021 con 64: KLT 1,138,293 contra 1,143,440.
+  - En el reducido, 52 semanas antes del corte entran al arranque del saldo V: la foto inicial no trae stock en cliente y el saldo tarda ~13 semanas en llenarse (98.6% del régimen a la semana 13 en el completo). Una σ con ese tramo mide el llenado, no la variación.
+  - Backtest con 13 semanas de prueba antes del corte y estimación con las semanas estables previas. Completo (51 semanas de estimación): z = 3 deja 1.34% de días con quiebre, z = 2.33 3.64% y z = 1.65 9.23%. Reducido (25 semanas): 2.16–2.24% con z = 3 y 4.78–5.15% con z = 2.33.
+  - El arranque +30% casi duplica el déficit de los materiales donde cae: en KLT, de 400 a 643 materiales y de 6,461 a 13,604 contenedores en el pico; en Rack, de 75 a 203 y de 461 a 2,617.
+- **Alternativas evaluadas:**
+  - Fechas fijas en el SQL: truenan con otro corte o con un extracto real.
+  - Backtest en pytest: no prueba los modelos que corren en CI y copia la fórmula.
+  - La fórmula escrita en el mart y otra vez en el test: con el tiempo se separan y el backtest deja de probar lo que se publica.
+  - Ciclo por material: con 13 a 52 semanas sale ruidoso; por planta y tipo va de 31 a 33 días.
+  - Calendario de días hábiles para Little: el fin de semana el stock existe y el promedio por día hábil lo subestima.
+- **Decisión:**
+  1. int_calendario_necesidad: una fila con todas las ventanas. Semanas de lunes a domingo que terminan el domingo antes del corte. Si la foto inicial no trae stock en cliente, las primeras semanas_arranque semanas no entran a ninguna ventana.
+  2. int_uso_diario: stock en uso (todo menos vacíos) y salidas a cliente por planta, material y día natural, en calendario completo.
+  3. int_variabilidad_uso: el mismo cálculo en dos ventanas. necesidad: σ y ciclo en las últimas ventana_sigma_semanas estables, d_base en las ventana_base_semanas. backtest: lo mismo antes de las backtest_semanas de prueba.
+  4. Macros stock_seguridad y necesidad_flota: una sola fórmula para el mart y para el backtest.
+  5. mart_necesidad_flota por planta, material y semana del plan. Un material sin historia propia toma el ciclo de su planta y tipo y solo el piso de cobertura (con_historia en falso).
+  6. Seed parametros_flota: z 3.0, días de cobertura KLT 3 y Rack 5, lead time KLT 4 y Rack 12 semanas.
+  7. Tests: backtest con a lo más backtest_quiebre_max_pct de días con quiebre por tipo; ventanas válidas; unit test de la fórmula con un material con historia, uno con el doble de plan y uno sin historia.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Umbral del backtest: 3% de días con quiebre por tipo (rango 2–5%). z = 3 lo cumple en los dos datasets y z = 2.33 lo rompe en los dos: el test detecta que alguien baje la z sin medir.
+  - Arranque del saldo V: 13 semanas (rango 8–16), medido en el completo. Un extracto real con stock V en la foto no descarta nada.
+- **Consecuencias:**
+  - dbt build: 24 modelos, 3 seeds, 188 tests de datos y 9 unit tests. int_uso_diario con 3,629,232 filas; mart_necesidad_flota con 80,352 (6,696 materiales × 12 semanas).
+  - Semana 1 del plan: necesidad KLT 1,140,675 contra flota al corte 1,268,063, con 915 materiales en déficit (14,828 contenedores); Rack 201,411 contra 222,132, con 401 materiales (2,698). Stock de seguridad de 18.5 días en KLT y 17.2 en Rack. Ciclo de 31.0 a 31.9 días en KLT y de 31.8 a 32.9 en Rack.
+  - La brecha contra la flota proyectada, con merma pendiente y escalamiento, sale en 3b.3; estas cifras usan la flota al corte.
+  - En CI el backtest queda a 0.76 puntos del umbral. Si un cambio al generador lo cruza, se revisa el cambio antes que el umbral.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -747,6 +779,26 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-08 · Sesión 41 — Semana 16
+
+- **Duración:** ~1.5 h
+- **Hecho:**
+  - Medición antes de 3b.2: σ de 52 contra 64 semanas, arranque del saldo V en el dataset reducido, backtest en los dos datasets y efecto del arranque +30% sobre el déficit (ADR-023).
+  - Seed parametros_flota y macros stock_seguridad y necesidad_flota.
+  - int_calendario_necesidad, int_uso_diario e int_variabilidad_uso: ventanas en un solo lugar, stock en uso por día natural y ciclo y σ con el mismo cálculo para la necesidad y para el backtest.
+  - mart_necesidad_flota: necesidad por planta, material y semana del plan, 80,352 filas.
+  - Tests: backtest de la necesidad, ventanas válidas y unit test de la fórmula. Verificados rompiendo cuatro veces: z en 2.33, stock de seguridad solo con días de cobertura, σ escalada en proporción y ventana base más larga que la de σ.
+  - Dataset completo: dbt build 224/224, pytest 64. Con el reducido de CI: dbt build 224/224, pytest 57 y 7 saltados.
+- **Decisiones tomadas:** ADR-023.
+- **Bloqueos:**
+  - PR #7 se cerró sin mergear: el branch se borró en local y en GitHub antes del merge, después de un "not yet merged to HEAD". Recuperado con Restore branch y Reopen, y mergeado (d0d2948). Es el mismo caso del PR #4.
+- **Notas de la sesión:**
+  - Orden para cerrar un PR, sin saltos: Merged en morado, git pull, git log con el merge arriba. Solo después se borran branches. El warning de git branch -d es para detenerse.
+  - Una ventana que sirve en el dataset completo puede caer en el arranque del reducido. Las ventanas se calculan contra el dato, no se fijan en el SQL.
+  - El test y el mart usan la misma macro: si la fórmula cambia, el backtest prueba la fórmula nueva.
+  - Un umbral de test se escoge para que separe el parámetro bueno del malo en los dos datasets, no para que pase.
+- **Próximo paso:** PR de semana-16-fase-3b2 con CI verde y merge. Después Fase 3b.3: flota proyectada con merma pendiente, escalamiento (préstamo, compra y desechable) y brecha en USD.
 
 ### 2026-10-08 · Sesión 40 — Semana 16
 
@@ -1478,6 +1530,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ventana conciliada** — Salidas con antigüedad suficiente para haber pasado por una conciliación: Budat ≤ última conciliación − 120 días. Denominador de la tasa de merma.
 - **Instrucción de empaque** — Define para cada parte y cliente qué empaque se usa y cuántas piezas lleva (Packvorschrift / PI).
 - **Días de cobertura** — Stock expresado en días de demanda que alcanza a cubrir.
+- **Stock en uso** — Flota ocupada en el ciclo: línea, llenos, cliente, sucios, reparación y scrap. Todo menos vacíos. Su promedio entre la demanda diaria es el ciclo; su variación pide el stock de seguridad.
 - **Stock de seguridad por variabilidad** — Contenedores de más sobre el uso promedio para cubrir la variación de la demanda: z por la desviación del stock en uso. Aquí se lee en días de cobertura (ADR-021).
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 - **Conservación de flota** — La flota solo cambia por entradas de flota nueva y por salidas definitivas: aquí inicial menos faltantes (702) menos bajas (555) es igual a stock en almacenes más stock V, en cada material y semana.
