@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: int_calendario_necesidad
+    description: >
+      Una fila con las ventanas de la necesidad y del backtest (ADR-023):
+      apertura y corte del dataset, inicio del régimen estable, base del plan,
+      ventana de la variabilidad y ventanas de estimación y prueba del backtest.
+    columns:
+      - name: fin_base
+        description: Domingo anterior al corte. Ninguna ventana entra a la semana del corte.
+        tests: [not_null]
+      - name: inicio_sigma
+        tests: [not_null]
+      - name: inicio_estimacion
+        tests: [not_null]
+
+  - name: int_uso_diario
+    description: >
+      Stock en uso (todo lo que no está en vacíos) y salidas a cliente por
+      planta, material y día natural, en calendario completo desde la foto
+      inicial hasta el corte.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: fecha
+        tests: [not_null]
+      - name: en_uso
+        tests: [not_null]
+
+  - name: int_variabilidad_uso
+    description: >
+      Uso promedio, desviación del stock en uso, demanda diaria y ciclo total
+      por planta y material, en la ventana de la necesidad y en la del backtest
+      (ADR-021, ADR-023). El ciclo es por planta y tipo de empaque.
+    columns:
+      - name: ventana
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['necesidad', 'backtest']
+      - name: sigma_uso
+        tests: [not_null]
+      - name: ciclo_dias
+        tests: [not_null]

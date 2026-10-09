@@ -19,3 +19,10 @@ vars:
   # Semanas completas antes del plan que cuentan como base de embarques.
   # Igual que PlanConfig.base_weeks del generador (ADR-017, supuestos).
   ventana_base_semanas: 13
+  # Necesidad de flota (ADR-021, ADR-023). Ventana de la variabilidad del stock
+  # en uso, semanas que se descartan cuando la foto inicial no trae stock en
+  # cliente (el saldo V tarda en llenarse) y backtest de la fórmula.
+  ventana_sigma_semanas: 52
+  semanas_arranque: 13
+  backtest_semanas: 13
+  backtest_quiebre_max_pct: 3.0

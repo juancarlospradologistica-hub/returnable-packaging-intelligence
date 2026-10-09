@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: mart_necesidad_flota
+    description: >
+      Necesidad de flota por planta, material y semana del plan (ADR-021):
+      d_plan × ciclo más stock de seguridad por variabilidad, con días de
+      cobertura como piso. con_historia en falso marca materiales sin base
+      propia: llevan el ciclo de su planta y tipo y solo el piso.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: semana
+        description: Lunes de la semana del plan.
+        tests: [not_null]
+      - name: d_plan
+        description: Contenedores por día natural que pide el plan.
+        tests: [not_null]
+      - name: ciclo_dias
+        tests: [not_null]
+      - name: stock_seguridad_dias
+        description: Stock de seguridad expresado en días de demanda del plan.
+      - name: necesidad
+        tests: [not_null]
