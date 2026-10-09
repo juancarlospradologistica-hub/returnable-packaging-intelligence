@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-08
+**Última actualización:** 2026-10-09
 
 ---
 
@@ -88,7 +88,7 @@ Necesidad de flota retornable por planta, empaque y semana contra el plan de pro
 - **Pandera** — validación de schemas
 - **Ruff** — linter y formatter
 - **Pytest** — testing
-- **GitHub Actions** — CI/CD
+- **GitHub Actions** — CI/CD en ubuntu-24.04 con actions fijas por SHA (ADR-024)
 
 ### Capa 3 — Opcional (semana 6+)
 
@@ -702,6 +702,31 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - La brecha contra la flota proyectada, con merma pendiente y escalamiento, sale en 3b.3; estas cifras usan la flota al corte.
   - En CI el backtest queda a 0.76 puntos del umbral. Si un cambio al generador lo cruza, se revisa el cambio antes que el umbral.
 
+### ADR-024 · Runner y actions de CI fijos
+
+- **Fecha:** 2026-10-09
+- **Estado:** Accepted.
+- **Contexto:** La corrida 87 de CI dejó dos anotaciones:
+  - ubuntu-latest pasa a Ubuntu 26 a partir del 19 de octubre de 2026.
+  - actions/checkout@v4, astral-sh/setup-uv@v5 y codecov/codecov-action@v4 corren en Node 20, que GitHub ya deprecó y hoy fuerza a Node 24.
+  - El CI depende de que el dataset salga igual en cada corrida: la huella de 621, 622 y 702 se compara bit a bit y el backtest queda a 0.76 puntos de su umbral con el dataset reducido. Un cambio de imagen que nadie pidió puede mover cualquiera de los dos.
+  - Revisé el action.yml de cada versión: checkout v7 y setup-uv v7 corren en node24; codecov-action v7 es composite. setup-uv v8 y v9 salieron sin etiqueta de versión mayor.
+- **Alternativas evaluadas:**
+  - Dejar ubuntu-latest: la imagen cambia cuando GitHub decide y CI en rojo a media fase sería la primera señal.
+  - Etiquetas de versión mayor (@v7): se mueven con cada release; un cambio de la action entra sin pasar por un PR del repo.
+  - Dependabot para las actions: abre PRs automáticos. Con tres actions y una revisión por fase no lo justifica todavía.
+  - setup-uv v9: cambia el default de prune-cache y no tiene etiqueta mayor; v7.6.0 hace lo que el CI necesita.
+- **Decisión:**
+  1. runs-on: ubuntu-24.04.
+  2. Actions fijas por SHA de commit, con la versión en comentario: checkout v7.0.1, setup-uv v7.6.0 y codecov-action v7.1.1.
+  3. uv sigue fijo en 0.12.15.
+  4. Runner y actions se revisan al cerrar cada fase, en un PR propio con CI de prueba.
+- **Consecuencias:**
+  - CI deja de cambiar por decisiones de GitHub y desaparece el aviso de Node 20.
+  - Pasos de CI corridos con uv 0.12.15 en Ubuntu 24.04: dbt build 224/224, pytest 57 y 7 saltados, coverage.xml generado. actionlint sin errores sobre ci.yml.
+  - Actualizar una action ahora es un cambio explícito: nuevo SHA, comentario de versión y CI verde en su PR.
+  - Cuando GitHub anuncie el retiro de ubuntu-24.04, el cambio de runner va con su propio ADR.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -779,6 +804,21 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-09 · Sesión 42 — Semana 16
+
+- **Duración:** ~1 h
+- **Hecho:**
+  - PR #8 (Fase 3b.2) mergeado. La página del PR no mostró el check, pero la corrida 87 de Actions sí corrió y pasó en 1 min.
+  - CI con runner ubuntu-24.04 y checkout, setup-uv y codecov-action fijas por SHA, en versiones que corren en Node 24 (ADR-024).
+  - Verificado con uv 0.12.15 en Ubuntu 24.04: dbt build 224/224, pytest 57 y 7 saltados, coverage.xml. actionlint sin errores.
+- **Decisiones tomadas:** ADR-024.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Si un PR no muestra checks, revisar Actions antes de cerrar y reabrir: la corrida puede existir y solo faltar en la vista del PR.
+  - Las anotaciones de una corrida en verde también se leen; ahí venía la fecha del cambio de imagen.
+  - Una etiqueta de versión mayor se mueve sola; un SHA no.
+- **Próximo paso:** PR de ci-runner-fijo con CI verde y merge. Después Fase 3b.3: flota proyectada con merma pendiente, escalamiento y brecha en USD.
 
 ### 2026-10-08 · Sesión 41 — Semana 16
 
