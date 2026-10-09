@@ -70,6 +70,11 @@ flowchart LR
     stgsi --> movs
     movs --> diario[int_stock_diario]
     diario --> flota[mart_flota_semanal]
+    diario --> uso[int_uso_diario]
+    uso --> var[int_variabilidad_uso]
+    var --> nec[mart_necesidad_flota]
+    stgplan --> nec
+    params[seed parametros_flota] --> nec
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -148,7 +153,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (20 modelos, 2 seeds, 161 tests de datos y 8 unit tests):
+Construir modelos y correr los tests de dbt (24 modelos, 3 seeds, 188 tests de datos y 9 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -176,7 +181,7 @@ returnable-packaging-intelligence/
 │   └── raw/                    # Parquet por planta, stock inicial y plan (excluido de Git)
 ├── docs/
 │   └── img/                    # Gráficas que escriben los notebooks
-├── macros/                     # tipo_material: una sola regla para los dos staging
+├── macros/                     # tipo_material y fórmula de necesidad: una sola regla por concepto
 ├── models/
 │   ├── staging/
 │   │   ├── sources.yml
@@ -192,7 +197,10 @@ returnable-packaging-intelligence/
 │   │   ├── int_cuenta_mensual.sql          # saldo real y esperado por cierre
 │   │   ├── int_tco_por_material.sql        # parámetros TCO (fuente única)
 │   │   ├── int_mov_stock.sql               # movimiento → ubicación y tipo de stock
-│   │   └── int_stock_diario.sql            # saldo por almacén y tipo al cierre del día
+│   │   ├── int_stock_diario.sql            # saldo por almacén y tipo al cierre del día
+│   │   ├── int_calendario_necesidad.sql    # ventanas de la necesidad y del backtest
+│   │   ├── int_uso_diario.sql              # stock fuera de vacíos por día natural
+│   │   └── int_variabilidad_uso.sql        # ciclo T y σ del stock en uso
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
@@ -201,8 +209,9 @@ returnable-packaging-intelligence/
 │       ├── mart_rutas_rotas.sql
 │       ├── mart_exceso_saldo_ruta.sql
 │       ├── mart_tco_comparativo.sql
-│       └── mart_flota_semanal.sql
-├── seeds/                      # almacenes y clases de movimiento → estado y evento del ciclo
+│       ├── mart_flota_semanal.sql
+│       └── mart_necesidad_flota.sql
+├── seeds/                      # almacenes, clases de movimiento y parámetros de política de flota
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -356,11 +365,11 @@ Dos efectos de borde, del sintético y no de la operación:
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 20 modelos dbt y 2 seeds con 161 tests de datos y 8 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 24 modelos dbt y 3 seeds con 188 tests de datos y 9 unit tests → notebooks → dashboard Marimo con dos pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
-En curso: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha. Ya está el plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos sobre el plan; faltan la necesidad con stock de seguridad por variabilidad (ADR-021), la brecha en USD, el notebook y el dashboard.
+En curso: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha. Ya están el plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos, y la necesidad de flota por material y semana con stock de seguridad por variabilidad, validada con un backtest contra el stock en uso (ADR-021, ADR-023). Faltan la flota proyectada, la brecha en USD, el notebook y el dashboard.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
