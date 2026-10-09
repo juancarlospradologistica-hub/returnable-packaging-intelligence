@@ -66,3 +66,50 @@ sources:
           - name: fecha
             tests:
               - not_null
+
+      - name: raw_partes
+        description: >
+          Partes terminadas por planta y su cliente (ADR-022). En el sintético
+          salen de los 621 de la ventana base; en un extracto real, del maestro
+          de materiales y del registro info cliente-material. Escenario solo
+          existe en el sintético.
+        columns:
+          - name: werks
+            tests: [not_null]
+          - name: parte
+            tests: [not_null]
+          - name: kunnr
+            tests: [not_null]
+          - name: escenario
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ['estable', 'arranque', 'fin_serie']
+
+      - name: raw_instruccion_empaque
+        description: >
+          Instrucción de empaque (POP1): una parte, un empaque y piezas fijas
+          por contenedor (ADR-016).
+        columns:
+          - name: werks
+            tests: [not_null]
+          - name: parte
+            tests: [not_null]
+          - name: matnr
+            tests: [not_null]
+          - name: piezas
+            tests: [not_null]
+
+      - name: raw_plan_produccion
+        description: >
+          Plan de producción semanal en piezas (MD61/PBED), lunes a domingo,
+          para las semanas posteriores al corte (ADR-017, punto 8).
+        columns:
+          - name: werks
+            tests: [not_null]
+          - name: parte
+            tests: [not_null]
+          - name: semana
+            tests: [not_null]
+          - name: piezas
+            tests: [not_null]

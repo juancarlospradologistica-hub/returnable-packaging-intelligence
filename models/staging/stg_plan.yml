@@ -1,0 +1,30 @@
+version: 2
+
+# Contrato de entrada de Fase 3b (ADR-022). Las reglas de calidad de datos que
+# cruzan tablas viven en tests_dbt/assert_plan_*.sql y assert_instruccion_*.sql.
+models:
+  - name: stg_partes
+    description: Una fila por planta y parte terminada, con su cliente.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: parte
+        tests: [not_null]
+      - name: cliente
+        tests: [not_null]
+
+  - name: stg_instruccion_empaque
+    description: Empaque y piezas por contenedor de cada parte.
+    columns:
+      - name: material
+        tests: [not_null]
+      - name: piezas_por_contenedor
+        tests: [not_null]
+
+  - name: stg_plan_produccion
+    description: Piezas por parte y semana; semana es el lunes.
+    columns:
+      - name: semana
+        tests: [not_null]
+      - name: piezas
+        tests: [not_null]
