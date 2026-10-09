@@ -7,7 +7,8 @@ Ciclo del retornable con cliente como stock especial V:
 El cartón es desechable: sale con 601 y no regresa.
 Dentro de la planta el retornable se mueve con 311 entre VACI, LINE, LLEN
 y SUCI; lo dañado pasa por REPA y lo irreparable por SCRP hasta la baja 555.
-La flota arranca de una foto de stock inicial (ADR-017 a ADR-019).
+La flota arranca de una foto de stock inicial (ADR-017 a ADR-019). El plan de
+producción y la instrucción de empaque salen de los embarques (ADR-022).
 Ningún movimiento se emite después de cfg.reference_date.
 """
 
@@ -20,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from rpi.config import GeneratorConfig, MaterialType
+from rpi.config import GeneratorConfig, IntRange, MaterialType
 
 _MATERIAL_PREFIX: dict[MaterialType, str] = {
     MaterialType.KLT: "KLT",
@@ -417,6 +418,12 @@ def _internal_rng(seed: int, idx: int, sub: int) -> np.random.Generator:
     return np.random.default_rng([seed, idx, 1, sub])
 
 
+def _int_range(r: IntRange, n: int, rng: np.random.Generator) -> np.ndarray:
+    span = r.max - r.min
+    p = (r.mean - r.min) / span if span else 0.0
+    return r.min + rng.binomial(span, p, n)
+
+
 def _dwell_days(
     cfg: GeneratorConfig,
     tipos: np.ndarray,
@@ -426,10 +433,9 @@ def _dwell_days(
     out = np.zeros(len(tipos), dtype=np.int64)
     for mat_type in _RETORNABLES:
         mask = tipos == mat_type.value
-        d = getattr(cfg.internal.for_type(mat_type), tramo)
-        span = d.max - d.min
-        p = (d.mean - d.min) / span if span else 0.0
-        out[mask] = d.min + rng.binomial(span, p, int(mask.sum()))
+        out[mask] = _int_range(
+            getattr(cfg.internal.for_type(mat_type), tramo), int(mask.sum()), rng
+        )
     return out
 
 
@@ -670,6 +676,135 @@ def emit_internal_cycle(
 
 
 # ---------------------------------------------------------------------------
+# Plan de producción (ADR-017, punto 8; ADR-022)
+# ---------------------------------------------------------------------------
+
+PARTES = "partes.parquet"
+INSTRUCCION = "instruccion_empaque.parquet"
+PLAN = "plan_produccion.parquet"
+
+# Un generador por sorteo, igual que el ciclo interno: cambiar la mezcla de
+# escenarios no mueve las partes ni las piezas por contenedor.
+_SUB_PLAN_PARTES = 0
+_SUB_PLAN_ESCENARIO = 1
+_SUB_PLAN_PIEZAS = 2
+
+_ESCENARIOS = ("estable", "arranque", "fin_serie")
+
+
+def _plan_rng(seed: int, idx: int, sub: int) -> np.random.Generator:
+    return np.random.default_rng([seed, idx, 2, sub])
+
+
+def plan_calendar(cfg: GeneratorConfig) -> tuple[date, date, list[date]]:
+    """
+    Ventana base (semanas completas de lunes a domingo antes del corte) y lunes
+    de cada semana del plan. La semana del corte queda fuera de las dos: está
+    incompleta y sus embarques todavía no se registran todos.
+    """
+    ref = cfg.reference_date
+    base_end = ref - timedelta(days=(ref.weekday() + 1) % 7)
+    base_start = base_end - timedelta(weeks=cfg.plan.base_weeks) + timedelta(days=1)
+    first = ref + timedelta(days=7 - ref.weekday())
+    weeks = [first + timedelta(weeks=i) for i in range(cfg.plan.horizon_weeks)]
+    return base_start, base_end, weeks
+
+
+def emit_production_plan(
+    df: pl.DataFrame,
+    cfg: GeneratorConfig,
+    seed: int,
+    idx: int,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """
+    Partes, instrucción de empaque y plan semanal de una planta, derivados de
+    los 621 de la ventana base. El plan es la base en piezas, nivelada, con el
+    escenario de cada parte encima.
+
+    KLT: una parte por material y cliente con embarques en la base. Rack: de 1 a
+    3 partes del cliente dedicado, con la base repartida por pesos fijos.
+    """
+    werks = df["Werks"][0]
+    plan = cfg.plan
+    base_start, base_end, weeks = plan_calendar(cfg)
+
+    base = (
+        df.filter((pl.col("Bwart") == "621") & pl.col("Budat").is_between(base_start, base_end))
+        .group_by("Matnr", "tipo", "Kunnr")
+        .agg((-pl.col("Menge").sum() / plan.base_weeks).alias("contenedores"))
+        .sort("Matnr", "Kunnr")
+    )
+
+    rng = _plan_rng(seed, idx, _SUB_PLAN_PARTES)
+    es_rack = (base["tipo"] == MaterialType.RACK.value).to_numpy()
+    n_partes = np.ones(base.height, dtype=np.int64)
+    n_partes[es_rack] = _int_range(plan.rack_parts, int(es_rack.sum()), rng)
+    pesos = np.concatenate([rng.dirichlet(np.full(n, plan.rack_weight_alpha)) for n in n_partes])
+
+    partes = (
+        base.with_columns(pl.Series("n", n_partes))
+        .select(pl.all().repeat_by("n").explode(empty_as_null=False))
+        .drop("n")
+        .with_columns(
+            pl.Series("peso", pesos),
+            pl.format(
+                "FG-{}-{}",
+                pl.lit(werks[5:]),
+                (pl.int_range(pl.len()) + 1).cast(pl.String).str.zfill(5),
+            ).alias("Parte"),
+        )
+    )
+    n = partes.height
+
+    rng = _plan_rng(seed, idx, _SUB_PLAN_ESCENARIO)
+    sc = plan.scenario
+    escenario = np.array(_ESCENARIOS)[
+        np.searchsorted(np.cumsum([sc.stable_share, sc.ramp_up_share]), rng.random(n), side="right")
+    ]
+    semana_cambio = _int_range(sc.change_week, n, rng)
+
+    rng = _plan_rng(seed, idx, _SUB_PLAN_PIEZAS)
+    tipos = partes["tipo"].to_numpy()
+    piezas = np.zeros(n, dtype=np.int64)
+    for mat_type in _RETORNABLES:
+        mask = tipos == mat_type.value
+        piezas[mask] = _int_range(plan.pieces_for(mat_type), int(mask.sum()), rng)
+
+    partes = partes.with_columns(
+        pl.Series("Escenario", escenario),
+        pl.Series("semana_cambio", semana_cambio),
+        pl.Series("Piezas", piezas),
+        pl.lit(werks).alias("Werks"),
+    )
+    cambio = {"estable": 0.0, "arranque": sc.ramp_up_change, "fin_serie": sc.phase_out_change}
+    semanas = pl.DataFrame({"Semana": weeks, "n_semana": np.arange(1, len(weeks) + 1)})
+    plan_df = (
+        partes.join(semanas, how="cross")
+        .with_columns(
+            pl.when(pl.col("n_semana") >= pl.col("semana_cambio"))
+            .then(1 + pl.col("Escenario").replace_strict(cambio, return_dtype=pl.Float64))
+            .otherwise(1.0)
+            .alias("factor")
+        )
+        .select(
+            "Werks",
+            "Parte",
+            pl.col("Semana").cast(pl.Date),
+            (pl.col("contenedores") * pl.col("peso") * pl.col("Piezas") * pl.col("factor"))
+            .round(0)
+            .cast(pl.Int64)
+            .alias("Piezas"),
+        )
+        .sort("Parte", "Semana")
+    )
+    return (
+        partes.select("Werks", "Parte", "Kunnr", "Escenario"),
+        partes.select("Werks", "Parte", "Matnr", "Piezas"),
+        plan_df,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Orquestador
 # ---------------------------------------------------------------------------
 
@@ -707,6 +842,7 @@ def _assign_document_numbers(
 
 
 STOCK_INICIAL = "stock_inicial.parquet"
+_PLAN_FILES = (PARTES, INSTRUCCION, PLAN)
 
 
 def _complete(df: pl.DataFrame, pool: pl.DataFrame) -> pl.DataFrame:
@@ -762,7 +898,7 @@ def generate(
     out.mkdir(parents=True, exist_ok=True)
 
     # El directorio es del generador: una corrida no se mezcla con restos de otra.
-    for old in [*out.glob("mb51_*.parquet"), out / STOCK_INICIAL]:
+    for old in [*out.glob("mb51_*.parquet"), *(out / f for f in (STOCK_INICIAL, *_PLAN_FILES))]:
         old.unlink(missing_ok=True)
 
     pool = build_matnr_pool(cfg)
@@ -773,6 +909,7 @@ def generate(
     offsets: dict[int, int] = {}
     total_rows = 0
     stocks: list[pl.DataFrame] = []
+    planes: list[tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = []
 
     for idx, plant in enumerate(cfg.plants):
         monthly = int(rng.integers(plant.monthly_movements_min, plant.monthly_movements_max))
@@ -792,6 +929,7 @@ def generate(
         # a la fecha de extracción.
         df = _complete(df, pool).filter(pl.col("Cpudt") <= cfg.reference_date)
         internos, stock = emit_internal_cycle(df, cfg, dates[0], seed, idx)
+        planes.append(emit_production_plan(df, cfg, seed, idx))
         internos = _complete(
             internos.with_columns(pl.col("doc_id") + df["doc_id"].max() + 1), pool
         ).select(df.columns)
@@ -808,5 +946,7 @@ def generate(
         del df, internos
 
     pl.concat(stocks).write_parquet(out / STOCK_INICIAL)
+    for nombre, tablas in zip(_PLAN_FILES, zip(*planes, strict=True), strict=True):
+        pl.concat(tablas).write_parquet(out / nombre)
     print(f"Parquet escrito en {out}: {len(cfg.plants)} archivos, {total_rows:,} filas")
     return pl.scan_parquet(out / "mb51_*.parquet")

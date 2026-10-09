@@ -169,11 +169,10 @@ class MengeConfig(BaseModel):
         }[mat_type]
 
 
-class DwellDays(BaseModel):
+class IntRange(BaseModel):
     """
-    Días hábiles que un contenedor pasa en un almacén. Se sortea
-    min + Binomial(max − min, (mean − min) / (max − min)): la media cae en el
-    punto del supuesto y nunca sale del rango (ADR-018, punto 4).
+    Entero sorteado como min + Binomial(max − min, (mean − min) / (max − min)):
+    la media cae en el punto del supuesto y nunca sale del rango (ADR-018, punto 4).
     """
 
     min: int = Field(ge=0)
@@ -181,10 +180,14 @@ class DwellDays(BaseModel):
     max: int = Field(ge=0)
 
     @model_validator(mode="after")
-    def media_dentro_del_rango(self) -> DwellDays:
+    def media_dentro_del_rango(self) -> IntRange:
         if not self.min <= self.mean <= self.max:
             raise ValueError(f"mean {self.mean} fuera de [{self.min}, {self.max}]")
         return self
+
+
+class DwellDays(IntRange):
+    """Días hábiles que un contenedor pasa en un almacén."""
 
 
 class InternalDwell(BaseModel):
@@ -249,6 +252,71 @@ class InternalCycleConfig(BaseModel):
         return {MaterialType.KLT: self.klt, MaterialType.RACK: self.rack}[mat_type]
 
 
+class ScenarioConfig(BaseModel):
+    """
+    Escenario por parte en el horizonte del plan (ADR-017, supuestos): estable,
+    arranque o fin de serie, con el cambio a partir de una semana sorteada.
+    """
+
+    stable_share: float = Field(default=0.80, ge=0.0, le=1.0)
+    ramp_up_share: float = Field(default=0.10, ge=0.0, le=1.0)
+    phase_out_share: float = Field(default=0.10, ge=0.0, le=1.0)
+    ramp_up_change: float = Field(
+        default=0.30, gt=0.0, description="+30% desde la semana de cambio."
+    )
+    phase_out_change: float = Field(
+        default=-0.50, ge=-1.0, lt=0.0, description="−50% desde la semana de cambio."
+    )
+    change_week: IntRange = Field(
+        default_factory=lambda: IntRange(min=4, mean=6, max=8),
+        description="Semana del horizonte, contando desde 1, en que cambia el volumen.",
+    )
+
+    @model_validator(mode="after")
+    def suma_uno(self) -> ScenarioConfig:
+        total = round(self.stable_share + self.ramp_up_share + self.phase_out_share, 10)
+        if total != 1.0:
+            raise ValueError(f"Las proporciones de escenario deben sumar 1.0, obtenido {total}")
+        return self
+
+
+class PlanConfig(BaseModel):
+    """
+    Plan de producción derivado de los embarques (ADR-017, punto 8; ADR-022).
+    Solo existe porque los datos son sintéticos: un extracto real trae MD61 y
+    la instrucción de empaque.
+    """
+
+    base_weeks: int = Field(
+        default=13, ge=1, description="Semanas completas antes del corte que dan la base."
+    )
+    horizon_weeks: int = Field(default=12, ge=1)
+    rack_parts: IntRange = Field(
+        default_factory=lambda: IntRange(min=1, mean=2, max=3),
+        description="Partes por Rack, todas del cliente dedicado.",
+    )
+    rack_weight_alpha: float = Field(
+        default=4.0,
+        gt=0.0,
+        description=(
+            "Concentración de la Dirichlet que reparte la base del Rack entre sus partes. "
+            "Con 1 una de cada 200 partes queda con plan en cero; con 4, ninguna."
+        ),
+    )
+    klt_pieces: IntRange = Field(default_factory=lambda: IntRange(min=12, mean=40, max=120))
+    rack_pieces: IntRange = Field(default_factory=lambda: IntRange(min=4, mean=12, max=24))
+    scenario: ScenarioConfig = Field(default_factory=ScenarioConfig)
+
+    @model_validator(mode="after")
+    def cambio_dentro_del_horizonte(self) -> PlanConfig:
+        if self.scenario.change_week.max > self.horizon_weeks:
+            raise ValueError("La semana de cambio del escenario cae fuera del horizonte")
+        return self
+
+    def pieces_for(self, mat_type: MaterialType) -> IntRange:
+        return {MaterialType.KLT: self.klt_pieces, MaterialType.RACK: self.rack_pieces}[mat_type]
+
+
 def _default_plants() -> list[PlantConfig]:
     """14 plantas canónicas: MX01-06, US01-06, NI01-02."""
     plants: list[PlantConfig] = []
@@ -302,6 +370,7 @@ class GeneratorConfig(BaseModel):
     cpudt_lag: CpudtLagConfig = Field(default_factory=CpudtLagConfig)
     cost: MaterialCost = Field(default_factory=MaterialCost)
     internal: InternalCycleConfig = Field(default_factory=InternalCycleConfig)
+    plan: PlanConfig = Field(default_factory=PlanConfig)
     random_seed: int | None = Field(
         default=42,
         description="Semilla para reproducibilidad. None = no fijar.",
