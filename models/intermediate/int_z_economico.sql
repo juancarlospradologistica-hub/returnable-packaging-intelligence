@@ -8,6 +8,9 @@
 --   objetivo de días con quiebre = 1 − corto / (corto + pasarse)
 -- La z es la menor de int_curva_z que no rebasa el objetivo. Sin z que
 -- alcance queda nula y el test truena. Un escenario con z_fija usa ese valor.
+-- La z sale del ciclo medido aunque el escenario ajuste el ciclo del plan: se
+-- calibró contra el stock en uso que existió, con el lavado y la reparación de
+-- la historia.
 with calibracion as (
     select * from {{ ref('int_variabilidad_uso') }} where ventana = 'calibracion'
 ),
@@ -28,16 +31,29 @@ ciclo as (
     group by tipo_material
 ),
 
--- Un valor vacío en el escenario toma el de parametros_flota.
-escenarios as (
+-- Un valor vacío en el escenario toma el de parametros_flota. Un escenario
+-- de un solo tipo deja al otro con los valores base, para que los totales de
+-- KLT + Rack sigan siendo comparables contra base.
+aplica as (
     select
-        e.escenario,
-        k.tipo_material,
-        coalesce(e.factor_costo_quiebre, k.factor_costo_quiebre)            as factor_costo_quiebre,
-        coalesce(e.costo_capital_anual_pct, k.costo_capital_anual_pct)      as costo_capital_anual_pct,
-        e.z_fija
+        e.*,
+        k.tipo_material                                                     as tipo,
+        e.tipo_material is null or e.tipo_material = k.tipo_material        as aplica,
+        k.factor_costo_quiebre                                              as factor_base,
+        k.costo_capital_anual_pct                                           as capital_base
     from {{ ref('escenarios_brecha') }} e
     cross join {{ ref('parametros_flota') }} k
+),
+
+escenarios as (
+    select
+        escenario,
+        tipo                                                                as tipo_material,
+        coalesce(if(aplica, factor_costo_quiebre, null), factor_base)       as factor_costo_quiebre,
+        coalesce(if(aplica, costo_capital_anual_pct, null), capital_base)   as costo_capital_anual_pct,
+        if(aplica, z_fija, null)                                            as z_fija,
+        coalesce(if(aplica, ajuste_ciclo_dias, null), 0)                    as ajuste_ciclo_dias
+    from aplica
 ),
 
 objetivo as (
@@ -73,6 +89,7 @@ select
     o.factor_costo_quiebre,
     o.costo_capital_anual_pct,
     o.z_fija,
+    o.ajuste_ciclo_dias,
     round(o.ciclo_dias, 2)                              as ciclo_dias,
     o.costo_corto_dia,
     o.costo_exceso_dia,

@@ -41,7 +41,8 @@ unit_tests:
       seguridad máx(3 × 2, 3 × 10 × √1) = 30: necesidad 90. Con el doble de plan:
       uso 120, seguridad máx(12, 30 × √2) = 42.43, necesidad 163. M2 sin historia
       queda con el piso de cobertura: 2 × 32 + 5 × 2 = 74. Con z 2 en otro
-      escenario, M1 necesita 60 + 20 = 80 y 120 + 28.28, 149.
+      escenario, M1 necesita 60 + 20 = 80 y 120 + 28.28, 149. Con 1.5 días más
+      de ciclo solo cambia el uso: 63 + 30 = 93 y 126 + 42.43, 169.
     model: int_necesidad_escenario
     given:
       - input: ref('int_demanda_plan')
@@ -51,9 +52,10 @@ unit_tests:
           - {planta: P1, material: M2, tipo_material: RACK, semana: 2026-07-06, d_plan: 2, d_base: null, ciclo_dias: 32, sigma_uso: null, dias_cobertura: 5, con_historia: false}
       - input: ref('int_z_economico')
         rows:
-          - {escenario: base, tipo_material: KLT, z_servicio: 3.0}
-          - {escenario: base, tipo_material: RACK, z_servicio: 3.0}
-          - {escenario: bajo, tipo_material: KLT, z_servicio: 2.0}
+          - {escenario: base, tipo_material: KLT, z_servicio: 3.0, ajuste_ciclo_dias: 0}
+          - {escenario: base, tipo_material: RACK, z_servicio: 3.0, ajuste_ciclo_dias: 0}
+          - {escenario: bajo, tipo_material: KLT, z_servicio: 2.0, ajuste_ciclo_dias: 0}
+          - {escenario: lento, tipo_material: KLT, z_servicio: 3.0, ajuste_ciclo_dias: 1.5}
     expect:
       rows:
         - {escenario: base, material: M1, semana: 2026-07-06, necesidad: 90}
@@ -61,3 +63,5 @@ unit_tests:
         - {escenario: base, material: M2, semana: 2026-07-06, necesidad: 74}
         - {escenario: bajo, material: M1, semana: 2026-07-06, necesidad: 80}
         - {escenario: bajo, material: M1, semana: 2026-07-13, necesidad: 149}
+        - {escenario: lento, material: M1, semana: 2026-07-06, necesidad: 93}
+        - {escenario: lento, material: M1, semana: 2026-07-13, necesidad: 169}

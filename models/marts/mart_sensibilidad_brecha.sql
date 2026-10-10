@@ -1,8 +1,8 @@
 -- La brecha de flota en cada escenario de escenarios_brecha, por tipo de
 -- empaque (ADR-026). Mismo cálculo que el escenario base: lo que cambia es la
--- z, por el costo de quiebre, el costo de capital o una z fija. El flete se
--- mueve lineal con su porcentaje y se calcula en el notebook sobre
--- mart_brecha_flota.
+-- z, por el costo de quiebre, el costo de capital o una z fija, o el ciclo del
+-- plan, por lavado o reparación. El flete se mueve lineal con su porcentaje y
+-- se calcula en el notebook sobre mart_brecha_flota.
 with brecha as (
     select * from {{ ref('int_brecha_escenario') }}
 ),
@@ -39,6 +39,7 @@ select
     z.factor_costo_quiebre,
     z.costo_capital_anual_pct,
     z.z_fija,
+    z.ajuste_ciclo_dias,
     z.objetivo_quiebre,
     z.z_servicio,
     cast(s.necesidad_semana_1 as bigint)                                    as necesidad_semana_1,

@@ -91,14 +91,24 @@ seeds:
     description: >
       Escenarios de sensibilidad de la brecha (ADR-026). Un valor vacío toma el
       de parametros_flota; base deja todo vacío y es el escenario que publican
-      mart_necesidad_flota y mart_brecha_flota. z_fija ignora la z económica y
-      usa ese valor para los dos tipos de empaque.
+      mart_necesidad_flota y mart_brecha_flota. tipo_material limita el
+      escenario a un tipo de empaque; vacío aplica a los dos. z_fija ignora la z
+      económica. ajuste_ciclo_dias suma días naturales al ciclo del plan: así
+      entran el lavado del KLT y la reparación del Rack, que viven en el
+      generador y no en la política.
     config:
       column_types:
         escenario: varchar
+        tipo_material: varchar
         factor_costo_quiebre: double
         costo_capital_anual_pct: double
         z_fija: double
+        ajuste_ciclo_dias: double
     columns:
       - name: escenario
         tests: [not_null, unique]
+      - name: tipo_material
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']

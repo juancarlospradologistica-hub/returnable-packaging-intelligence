@@ -1,7 +1,8 @@
 -- Cada escenario y tipo de empaque tiene una z de la rejilla, y la económica
 -- cumple su objetivo en el tramo de calibración (ADR-025). Una z nula quiere
 -- decir que ni 4σ alcanza: la historia es corta o los costos están mal. Una
--- fila repetida duplicaría la necesidad del escenario.
+-- fila repetida duplicaría la necesidad del escenario. Base es lo que publican
+-- los marts: no puede traer valores propios.
 with z as (
     select * from {{ ref('int_z_economico') }}
 )
@@ -19,3 +20,12 @@ where z_fija is null
 union all
 select 'base', 'KLT', 'falta el escenario base'
 where not exists (select 1 from z where escenario = 'base')
+union all
+select z.escenario, z.tipo_material, 'base con valores propios'
+from z
+join {{ ref('parametros_flota') }} k using (tipo_material)
+where z.escenario = 'base'
+  and (z.z_fija is not null
+       or z.ajuste_ciclo_dias <> 0
+       or z.factor_costo_quiebre <> k.factor_costo_quiebre
+       or z.costo_capital_anual_pct <> k.costo_capital_anual_pct)
