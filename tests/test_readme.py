@@ -6,6 +6,7 @@ CI genera un dataset reducido, así que aquí el test se salta; corre en local
 antes de cada commit, que es cuando el README y los marts pueden separarse.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -231,3 +232,165 @@ def test_flota_fase3a(con, readme):
         f"la flota pierde {pierde(total)}: {pierde(klt)} en KLT y {pierde(rack)} en Rack"
     ) in readme
     assert f"({rack['baja']:,} contra {rack['faltante']:,})" in readme
+
+
+def k(v: float) -> str:
+    return f"${v / 1e3:,.0f}k"
+
+
+def test_brecha_fase3b(con, readme):
+    # Misma agregación que el notebook 04: mart_brecha_flota por tipo, flota de
+    # int_flota_proyectada en la última semana del plan.
+    b = {
+        r["tipo_material"]: r
+        for r in con.execute(
+            """
+            WITH brecha AS (
+                SELECT tipo_material,
+                       COUNT(*) FILTER (WHERE deficit_pico > 0)      AS materiales,
+                       SUM(deficit_pico)                             AS deficit,
+                       SUM(recibido_mismo_pais)                      AS mismo_pais,
+                       SUM(recibido_otro_pais)                       AS otro_pais,
+                       SUM(compra)::BIGINT                           AS compra,
+                       SUM(viajes_desechable)                        AS viajes,
+                       SUM(usd_flete + usd_compra + usd_desechable)  AS usd_brecha,
+                       SUM(usd_compra)                               AS usd_compra,
+                       SUM(usd_desechable)                           AS usd_desechable,
+                       SUM(usd_capital_ocioso)                       AS usd_ocioso
+                FROM mart_brecha_flota
+                GROUP BY 1
+            ),
+            flota AS (
+                SELECT f.tipo_material,
+                       SUM(f.flota_proyectada)                       AS flota,
+                       SUM(n.necesidad)::BIGINT                      AS necesidad
+                FROM int_flota_proyectada f
+                JOIN mart_necesidad_flota n USING (planta, material, semana)
+                WHERE f.semana = (SELECT MAX(semana) FROM int_flota_proyectada)
+                GROUP BY 1
+            )
+            SELECT s.tipo_material, s.z_servicio, s.necesidad_semana_1, b.*, f.flota,
+                   f.necesidad AS necesidad_12
+            FROM mart_sensibilidad_brecha s
+            JOIN brecha b USING (tipo_material)
+            JOIN flota f USING (tipo_material)
+            WHERE s.escenario = 'base'
+            """
+        )
+        .pl()
+        .iter_rows(named=True)
+    }
+    klt, rack = b["KLT"], b["RACK"]
+
+    def celdas(etiqueta: str, fmt) -> None:
+        assert f"| {fmt(klt)} | {fmt(rack)} |" in fila(readme, etiqueta), etiqueta
+
+    celdas("z por costo", lambda t: f"{t['z_servicio']:.2f}")
+    celdas("Necesidad semana 1", lambda t: f"{t['necesidad_semana_1']:,}")
+    celdas("Flota proyectada semana 12", lambda t: f"{t['flota']:,.0f}")
+    celdas("Materiales en déficit", lambda t: f"{t['materiales']:,}")
+    celdas("Déficit pico", lambda t: f"{t['deficit']:,.0f}")
+    celdas("Préstamo dentro del país", lambda t: f"{t['mismo_pais']:,.0f}")
+    celdas("Préstamo entre países", lambda t: f"{t['otro_pais']:,.0f}")
+    celdas("Compra", lambda t: f"{t['compra']:,}")
+    celdas("Viajes en desechable", lambda t: f"{t['viajes']:,.0f}")
+    celdas("Costo de la brecha", lambda t: usd(t["usd_brecha"]))
+    celdas("Capital ocioso", lambda t: f"${t['usd_ocioso'] / 1e6:,.1f}M")
+
+    def sobra(t: dict) -> str:
+        return f"{(t['flota'] - t['necesidad_12']) * 100 / t['necesidad_12']:.1f}%"
+
+    brecha = klt["usd_brecha"] + rack["usd_brecha"]
+    ocioso = klt["usd_ocioso"] + rack["usd_ocioso"]
+    cubre = (
+        sum(t["mismo_pais"] + t["otro_pais"] for t in (klt, rack))
+        * 100
+        / (klt["deficit"] + rack["deficit"])
+    )
+    assert f"{sobra(klt)} sobre la necesidad en KLT y {sobra(rack)} en Rack" in readme
+    assert f"{klt['materiales']:,} KLT y {rack['materiales']:,} Rack quedan cortos" in readme
+    assert f"El préstamo cubre el {cubre:.1f}% del déficit" in readme
+    assert f"cubrir la brecha cuesta ${brecha / 1e3:,.1f}k" in readme
+    assert f"quedan ${ocioso / 1e6:,.1f}M de flota parada, {ocioso / brecha:.0f} veces" in readme
+    desechable = rack["usd_desechable"] * 100 / rack["usd_compra"]
+    assert (
+        f"el desechable ({usd(rack['usd_desechable'])}) cuesta {desechable:.0f}% de la compra "
+        f"({usd(rack['usd_compra'])})"
+    ) in readme
+
+
+def test_sensibilidad_fase3b(con, readme):
+    t = dict(
+        con.execute(
+            "SELECT escenario, SUM(usd_brecha) FROM mart_sensibilidad_brecha GROUP BY 1"
+        ).fetchall()
+    )
+    o = dict(
+        con.execute(
+            "SELECT escenario, SUM(usd_capital_ocioso) FROM mart_sensibilidad_brecha GROUP BY 1"
+        ).fetchall()
+    )
+    klt = dict(
+        con.execute(
+            """
+            SELECT escenario, usd_brecha FROM mart_sensibilidad_brecha
+            WHERE tipo_material = 'KLT'
+            """
+        ).fetchall()
+    )
+    nec = dict(
+        con.execute(
+            """
+            SELECT escenario, necesidad_semana_1 FROM mart_sensibilidad_brecha
+            WHERE tipo_material = 'KLT'
+            """
+        ).fetchall()
+    )
+    costo = con.execute(
+        "SELECT MAX(costo_unitario_usd) FROM mart_tco_comparativo WHERE tipo_material = 'KLT'"
+    ).fetchone()[0]
+    ss = dict(
+        con.execute(
+            "SELECT tipo_material, MIN(stock_seguridad_dias) FROM mart_necesidad_flota GROUP BY 1"
+        ).fetchall()
+    )
+    filas, en_piso = con.execute(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE stock_seguridad_dias <= 7) "
+        "FROM mart_necesidad_flota"
+    ).fetchone()
+
+    assert f"de {k(t['quiebre_1'])} con factor 1 a {k(t['quiebre_3'])} con factor 3" in readme
+    assert f"{k(t['optimista'])} de brecha y ${o['optimista'] / 1e6:,.1f}M ociosos" in readme
+    assert f"{k(t['conservador'])} y ${o['conservador'] / 1e6:,.1f}M" in readme
+    assert f"ADR-021: {k(t['z_fija_3'])} y ${o['z_fija_3'] / 1e6:,.1f}M" in readme
+    libera = nec["base"] - nec["lavado_klt_1_dia"]
+    assert (
+        f"vale {libera:,} contenedores de necesidad, ${libera * float(costo) / 1e6:,.2f}M"
+    ) in readme
+    assert (
+        f"la brecha KLT va de {k(klt['lavado_klt_1_dia'])} a {k(klt['lavado_klt_3_dias'])}"
+    ) in readme
+    assert en_piso == 0
+    assert f"ninguna de las {filas:,} filas" in readme
+    assert f"{ss['KLT']:.1f} días en KLT y {ss['RACK']:.1f} en Rack" in readme
+
+
+def test_conteos_dbt(readme):
+    """Los conteos de dbt del README salen del manifest de la última corrida."""
+    manifest = Path(__file__).resolve().parents[1] / "target" / "manifest.json"
+    if not manifest.exists():
+        pytest.skip("Sin target/manifest.json: corre dbt build antes.")
+    m = json.loads(manifest.read_text(encoding="utf-8"))
+    nodos = [n for n in m["nodes"].values() if n["package_name"] == "rpi"]
+
+    def cuenta(tipo: str) -> int:
+        return sum(n["resource_type"] == tipo for n in nodos)
+
+    texto = (
+        f"{cuenta('model')} modelos, {cuenta('seed')} seeds, {cuenta('test')} tests de datos "
+        f"y {len(m['unit_tests'])} unit tests"
+    )
+    assert texto in readme, texto
+    assert (
+        texto.replace(" modelos, ", " modelos dbt y ").replace(" seeds, ", " seeds con ") in readme
+    )
