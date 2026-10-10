@@ -727,6 +727,49 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Actualizar una action ahora es un cambio explícito: nuevo SHA, comentario de versión y CI verde en su PR.
   - Cuando GitHub anuncie el retiro de ubuntu-24.04, el cambio de runner va con su propio ADR.
 
+### ADR-025 · z económica, flota proyectada y brecha en USD por nivel de escalamiento
+
+- **Fecha:** 2026-10-09
+- **Estado:** Accepted. Reemplaza la z fija del seed (ADR-021, supuesto; ADR-023, punto 6) y el umbral fijo del backtest (ADR-023, punto 7). Cierra el diseño de ADR-016, punto 3, para el escalamiento.
+- **Contexto:** Antes de escribir 3b.3 medí sobre el dataset completo y sobre el reducido:
+  - Con z = 3 cubrir la brecha costaba ~$0.41M y quedaban $4.46M de flota ociosa. La z era un número redondo sin respaldo en costos.
+  - Curva del backtest, z contra días con quiebre: 2.0 → 5.81%, 2.5 → 2.82%, 3.0 → 1.34%. La normal promete menos quiebres que los medidos.
+  - Si la z se escoge con el mismo backtest que la valida, el test pasa por construcción. Escogida en el tramo de 13 semanas anterior y validada en el siguiente se sostiene: en el completo, KLT 2.11% contra un objetivo de 2.79% y Rack 1.55% contra 2.07%.
+  - Con el dataset de CI de 12 meses la estimación de la calibración se quedaba con 12 semanas: la σ salía corta, la z del KLT llegaba a 3.95 y la del Rack no cabía en la rejilla. Con 18 meses el reducido tiene las mismas ventanas que el completo y la calibración da 2.55 y 2.85.
+  - Con 18 meses apareció un error de la regla de calidad de ADR-022: assert_plan_con_embarques medía las 13 semanas antes del plan y no la base del plan; entre las dos queda la semana del corte.
+  - Merma pendiente: 10,999 KLT y 2,048 Rack siguen contados como stock V y ya se perdieron. La conciliación del 2026-06-30 solo reconoce salidas anteriores al 2026-03-02.
+  - Pérdida por viaje: merma 0.404% y scrap 0.198% en KLT; 0.415% y 0.326% en Rack.
+- **Alternativas evaluadas:**
+  - z = 3 fija: sobredimensiona la flota contra lo que cuesta un quiebre.
+  - z económica con el desechable como único costo de quiebre (z ≈ 2.05 y 2.25): ignora manejo, urgencia y la aprobación del cliente para empacar en cartón.
+  - Calibrar y validar en el mismo tramo: test sin poder de detección.
+  - Volver a la normal para pasar del nivel de servicio a la z: subestima la cola medida.
+  - Préstamos con un modelo de transporte de costo mínimo: necesita un solver fuera del stack y, sin distancias entre plantas, no se puede medir contra el reparto por país.
+  - Préstamo sin distinguir país: el flete y el trámite de cruzar frontera no son los del traslado dentro del país.
+- **Decisión:**
+  1. int_z_economico por tipo: costo de quedarse corto por contenedor y día = desechable × factor de quiebre / ciclo; costo de pasarse = costo unitario × costo de capital / 365; objetivo de días con quiebre = 1 − razón crítica. La z es la menor de una rejilla de 1.00 a 4.00 en pasos de 0.05 que cumple el objetivo en el tramo de calibración, medido contra el stock en uso.
+  2. Tramo de calibración: las 13 semanas antes de la prueba del backtest, con su propia estimación antes. assert_backtest_necesidad valida en la prueba que cada tipo no rebase su objetivo por más de backtest_tolerancia_pp. assert_calendario_necesidad_valido pide al menos semanas_minimas_estimacion semanas en cada estimación.
+  3. int_flota_proyectada: flota al corte menos merma pendiente (salidas posteriores a la última ventana conciliada por la tasa de su ruta en mart_rutas, o la de su planta y tipo si la ruta no tiene) menos merma y scrap por viaje del plan, semana a semana. Un material con flota y sin plan necesita cero.
+  4. int_balance_material: déficit pico y sobrante prestable (el sobrante de la peor semana) por planta y material.
+  5. int_prestamos: préstamo entre plantas con el mismo material, primero dentro del país y después entre países, repartido en proporción en cada etapa. El país sale del seed plantas.
+  6. mart_brecha_flota: compra al corte de lo que el préstamo no cubre, en contenedores enteros; desechable en las semanas en que la compra no llega (déficit × 7 / ciclo viajes por semana); flete por préstamo; sobrante final a costo unitario como capital ocioso. Costos de int_tco_por_material (ADR-010) y política de parametros_flota.
+  7. CI con 18 meses. assert_plan_con_embarques usa la ventana base de int_calendario_necesidad. La antigüedad de conciliación (120 días) pasa a la var antiguedad_conciliacion_dias, usada por mart_rutas, int_tco_por_material e int_flota_proyectada.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Factor de costo de quiebre: 2 veces el desechable equivalente (rango 1–3): conseguir la caja, empacar a mano y pedir aprobación al cliente.
+  - Costo de capital: 12% anual (rango 8–15%).
+  - Flete de préstamo: 5% del costo unitario dentro del país (rango 3–8%) y 15% entre países (10–25%), por aduana e importación temporal.
+  - El préstamo llega antes de la semana 1: entre el corte (martes) y el arranque del plan (lunes siguiente) hay cinco días.
+  - La compra se decide al corte y llega con el lead time del seed; mientras tanto, desechable.
+  - Tolerancia fuera de muestra: 1 punto porcentual sobre el objetivo de días con quiebre (rango 0.5–1.5).
+- **Consecuencias:**
+  - z económica: KLT 2.7 (objetivo 2.79% de días con quiebre, 2.60% en calibración, 2.11% fuera de muestra) y Rack 2.9 (2.07%, 2.03% y 1.55%). La necesidad de la semana 1 baja a 1,098,502 KLT y 199,087 Rack.
+  - Flota proyectada a la semana 12: 1,245,651 KLT y 217,588 Rack.
+  - Brecha: 972 materiales KLT en déficit (17,066 contenedores) y 607 Rack (5,609). El préstamo cubre el 89.9%: 14,369 KLT y 4,283 Rack dentro del país, 1,147 y 582 entre países. Compra: 1,592 KLT y 790 Rack. Desechable: 793 viajes KLT y 1,346 Rack.
+  - USD: flete $76,517, compra $182,000, desechable $64,159. Cubrir la brecha cuesta $322,676. Capital ocioso después de prestar: $5,893,702.
+  - En Rack el desechable ($60,591) cuesta casi la mitad que la compra ($142,200): la compra tarda 12 semanas y el horizonte se cubre en cartón.
+  - dbt build: 29 modelos, 4 seeds, 220 tests de datos y 10 unit tests. Cambiar las columnas de un seed pide dbt seed --full-refresh en una base existente.
+  - Los costos de la brecha dependen del factor de quiebre, del costo de capital y del flete; el notebook de 3b.4 muestra la sensibilidad a sus rangos.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -804,6 +847,30 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-09 · Sesión 43 — Semana 16
+
+- **Duración:** ~2.5 h
+- **Hecho:**
+  - PR #9 (CI con runner fijo) mergeado.
+  - Medición antes de 3b.3: curva de z contra días con quiebre, calibración en un tramo y validación en el siguiente, merma pendiente y pérdida por viaje. z económica por tipo de empaque (ADR-025).
+  - CI con dataset de 18 meses. Con 12, la calibración de z se quedaba con 12 semanas de historia.
+  - fix: assert_plan_con_embarques medía una ventana distinta a la base del plan; salió con el dataset de 18 meses.
+  - var antiguedad_conciliacion_dias en lugar del 120 repetido en mart_rutas e int_tco_por_material.
+  - int_z_economico, int_flota_proyectada, int_balance_material, int_prestamos y mart_brecha_flota; seed plantas y columnas de costo y flete en parametros_flota.
+  - Tests: z válida, backtest fuera de muestra con tolerancia, ventanas con historia mínima, préstamos que cuadran, brecha cubierta y unit test del préstamo por país. Verificados rompiendo seis veces: sin etapa de país, préstamo entre países inflado, compra con floor, z por debajo de la calibrada, costo de quiebre absurdo e historia mínima de 60 semanas.
+  - Dataset completo: dbt build 263/263, pytest 64. Con el reducido de 18 meses: dbt build 263/263, pytest 57 y 7 saltados.
+- **Decisiones tomadas:** ADR-025.
+- **Bloqueos:**
+  - Al romper un archivo nuevo sin commit, git checkout no lo regresa y las roturas se acumularon en tres pruebas. Revertido a mano y repetidas las pruebas después del commit.
+  - Al restaurar el seed con git checkout se perdieron las columnas de flete, que no tenían commit. Recuperadas en el commit de préstamos.
+- **Notas de la sesión:**
+  - Calibrar y validar en el mismo tramo da un test que no puede fallar.
+  - Un dataset de CI más corto que el completo cambia las ventanas; si el modelo depende de ventanas, CI tiene que tener la misma estructura de tiempo.
+  - Antes de romper archivos para probar tests, commit de todo lo que se quiere conservar.
+  - Cambiar columnas de un seed en una base existente pide dbt seed --full-refresh; el error de DuckDB solo dice que no pudo leer el archivo.
+  - El 90% del déficit se cubre con flota que ya existe en otra planta. La conversación de compra empieza después del préstamo.
+- **Próximo paso:** PR de fase-3b3 con CI verde y merge. Después Fase 3b.4: notebook 04 con sensibilidad a z, factor de quiebre, capital y flete; pestaña del dashboard y resultados en el README.
 
 ### 2026-10-09 · Sesión 42 — Semana 16
 
@@ -1574,6 +1641,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Stock de seguridad por variabilidad** — Contenedores de más sobre el uso promedio para cubrir la variación de la demanda: z por la desviación del stock en uso. Aquí se lee en días de cobertura (ADR-021).
 - **Exceso de saldo** — Saldo en cliente por arriba del esperado por la curva de supervivencia. Merma todavía no reconocida en conciliación.
 - **Conservación de flota** — La flota solo cambia por entradas de flota nueva y por salidas definitivas: aquí inicial menos faltantes (702) menos bajas (555) es igual a stock en almacenes más stock V, en cada material y semana.
+- **Merma pendiente** — Contenedores ya perdidos en cliente que la conciliación todavía no reconoce. Siguen en el saldo V y no existen; se estiman con la tasa de cada ruta sobre las salidas que aún no pasan por conciliación.
+- **Razón crítica** — Costo de quedarse corto entre la suma del costo de quedarse corto y el de pasarse. Es la proporción de días sin quiebre que conviene pagar; de ahí sale la z económica (ADR-025).
+- **Capital ocioso** — Flota que sobra después de cubrir la necesidad y de prestar a otras plantas, valuada a costo unitario.
 - **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
 - **Arranque / fin de serie (EOP)** — Inicio y fin de producción de un programa del cliente. Mueven la necesidad de empaque antes de que la flota pueda reaccionar.
 

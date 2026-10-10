@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: int_flota_proyectada
+    description: >
+      Flota disponible al cierre de cada semana del plan: flota al corte menos
+      merma pendiente (pérdida en cliente que la conciliación no ha registrado)
+      menos merma y scrap esperados por los viajes del plan (ADR-025). Valor
+      esperado, con decimales.
+    columns:
+      - name: planta
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('plantas')
+                field: planta
+      - name: semana
+        tests: [not_null]
+      - name: flota_proyectada
+        tests: [not_null]
+
+  - name: int_balance_material
+    description: >
+      Déficit pico y sobrante prestable de cada material en el horizonte del
+      plan, con el país de la planta.
+    columns:
+      - name: deficit_pico
+        tests: [not_null]
+      - name: sobrante
+        tests: [not_null]
+
+  - name: int_prestamos
+    description: >
+      Préstamos de flota entre plantas con el mismo material, primero dentro
+      del país y después entre países, repartidos en proporción (ADR-025).
+    columns:
+      - name: recibido_mismo_pais
+        tests: [not_null]
+      - name: recibido_otro_pais
+        tests: [not_null]

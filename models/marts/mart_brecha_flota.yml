@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: mart_brecha_flota
+    description: >
+      Brecha de flota por planta y material en el horizonte del plan y su
+      costo en USD por nivel de escalamiento (ADR-016, ADR-025): préstamo con
+      flete, compra al corte y desechable mientras llega la compra. El
+      sobrante que queda después de prestar es capital ocioso.
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: deficit_pico
+        tests: [not_null]
+      - name: compra
+        description: Contenedores a comprar al corte; llegan con el lead time del seed.
+        tests: [not_null]
+      - name: viajes_desechable
+        tests: [not_null]
+      - name: usd_flete
+        tests: [not_null]
+      - name: usd_compra
+        tests: [not_null]
+      - name: usd_desechable
+        tests: [not_null]
+      - name: usd_capital_ocioso
+        tests: [not_null]

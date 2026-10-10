@@ -16,6 +16,9 @@ models:
       +materialized: table
 
 vars:
+  # Antigüedad que necesita una salida para pasar por una conciliación (ADR-012).
+  # La usan la tasa de merma, las rutas y la merma pendiente de la flota.
+  antiguedad_conciliacion_dias: 120
   # Semanas completas antes del plan que cuentan como base de embarques.
   # Igual que PlanConfig.base_weeks del generador (ADR-017, supuestos).
   ventana_base_semanas: 13
@@ -25,4 +28,7 @@ vars:
   ventana_sigma_semanas: 52
   semanas_arranque: 13
   backtest_semanas: 13
-  backtest_quiebre_max_pct: 3.0
+  semanas_minimas_estimacion: 26
+  # Fuera de muestra, la z económica puede fallar su objetivo de días con
+  # quiebre por a lo más estos puntos porcentuales (ADR-025).
+  backtest_tolerancia_pp: 1.0

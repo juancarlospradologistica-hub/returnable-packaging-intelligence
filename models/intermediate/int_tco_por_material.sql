@@ -22,15 +22,15 @@ ultima_conciliacion as (
     where mov_type = '702'
 ),
 
--- Tasa por ventana conciliada (ADR-012): faltantes entre salidas con 120 días
--- antes de la última conciliación. Viajes: todas las salidas del horizonte.
+-- Tasa por ventana conciliada (ADR-012): faltantes entre salidas con la
+-- antigüedad de conciliación antes de la última conciliación. Viajes: todas las salidas del horizonte.
 flujo as (
     select
         m.planta,
         m.tipo_material,
         sum(abs(m.cantidad)) filter (where m.mov_type = '621')          as viajes,
         sum(abs(m.cantidad)) filter (
-            where m.mov_type = '621' and m.fecha_contab <= u.fecha - 120
+            where m.mov_type = '621' and m.fecha_contab <= u.fecha - {{ var('antiguedad_conciliacion_dias') }}
         )                                                               as salidas_conciliadas,
         coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
         coalesce(sum(abs(m.cantidad) * m.costo_usd)

@@ -30,10 +30,11 @@ jobs:
       - name: formato
         run: uv run ruff format --check src/ tests/ notebooks/
 
-      # 12 meses: con menos no hay salidas de 120 días antes de una
-      # conciliación y los tests de merma no tienen qué medir.
+      # 18 meses, igual que el completo: mismas ventanas de necesidad,
+      # backtest y calibración de z (ADR-025). Con 12 la calibración se queda
+      # con 12 semanas de historia y la σ sale corta.
       - name: generar dataset CI
-        run: uv run python -m rpi --months 12 --plants 2 --country MX
+        run: uv run python -m rpi --months 18 --plants 2 --country MX
 
       - name: ingestar a DuckDB
         run: uv run python -c "from rpi.db import ingest; ingest()"
