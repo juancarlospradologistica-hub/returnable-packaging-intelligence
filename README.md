@@ -438,6 +438,8 @@ Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslado
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
+Siguiente: Fase 4, calidad de datos sobre MB51 y maestro de materiales. Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
+
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
 ## Licencia

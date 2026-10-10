@@ -47,9 +47,14 @@ TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el c
 
 Necesidad de flota retornable por planta, empaque y semana contra el plan de producción de las 12 semanas posteriores al corte, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: recepción, vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en ADR-017; necesidad, brecha y sensibilidad en ADR-021 a ADR-026. Cerrado en semana 16.
 
+### Alcance IN — Fase 4 (alcance cerrado, ADR-027)
+
+Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaque y maestro de materiales. Contesta qué defecto de un extracto real rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada headline en USD. Semanas 17–19.
+
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Fase 4: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca solo cuando se cumplan los criterios de ADR-016.
+- Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4 cerrada y los criterios de ADR-016 (ADR-027).
+- Corrección automática de datos: Fase 4 detecta y cuantifica; corregir es decisión del dueño del dato.
 - EDI del cliente (DELFOR/DELJIT), S&OP mensual, HU/EWM y empaque alterno.
 
 ### Criterios de completitud
@@ -403,7 +408,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-016 · Alcance de Fase 3 y simulador en Fase 4
 
 - **Fecha:** 2026-09-30
-- **Estado:** Accepted. Fija alcance y los insumos de dominio; los valores puntuales y el modelo de datos se deciden en el ADR de diseño de Semana 15.
+- **Estado:** Accepted. Fija alcance y los insumos de dominio; los valores puntuales y el modelo de datos se deciden en el ADR de diseño de Semana 15. Punto 5 reemplazado por ADR-027: el simulador pasa a Fase 5.
 - **Contexto:** El Charter dejó Fase 3 como "forecast de necesidad de packaging vs plan MRP" sin alcance. Al revisarlo encontré que el generador solo modela el tramo planta ↔ cliente (621/622/702). Dentro de la planta el empaque no tiene estado: los traslados 311 van de TR01 a TR02, almacenes sin significado. Sin almacén de vacíos no hay flota disponible contra la cual comparar la demanda. En paralelo surgió la idea de un simulador visual de la red, con cada paso registrado como movimiento MB51.
 - **Alternativas evaluadas:**
   - Cambiar Fase 3 a Data Quality sobre MB51: menor costo, pero el Charter ya comprometía el forecast y es la pregunta que conecta con Fase 1. Queda como candidata para una fase futura.
@@ -810,6 +815,35 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - dbt build: 35 modelos, 5 seeds, 241 tests de datos y 11 unit tests; 292/292 en el completo y en el reducido. pytest: 67 en el completo; 58 y 9 saltados en el reducido.
   - Agregar un escenario es una fila del seed y dbt seed --full-refresh si cambian columnas.
 
+### ADR-027 · Fase 4: calidad de datos sobre MB51 y maestro de materiales; simulador a Fase 5
+
+- **Fecha:** 2026-10-10
+- **Estado:** Accepted. Reemplaza ADR-016, punto 5. Resuelve la decisión que ADR-017 dejó para el cierre de Fase 3. Fija alcance; el diseño y los valores van en el ADR de Semana 17.
+- **Contexto:** Al cerrar Fase 3 medí qué tan preparado está el pipeline para un extracto real:
+  - Los criterios de ADR-016 para el simulador se cumplen: Fase 3 cerrada, ninguna cifra de Fase 1 o 2 movida desde ADR-014 (2026-09-26) y test_readme verde.
+  - Inyecté uno por uno 13 defectos típicos de un extracto MB51 en el dataset reducido. Seis los detecta una regla que nombra la causa: línea duplicada, almacén fuera del seed, 621 sin cliente, familia sin regla de tipo, signo invertido y parte sin instrucción. Cuatro solo por síntoma, con stock o saldo negativo: Bwart fuera del seed, material capturado en piezas, material sin stock inicial y 622 a un cliente equivocado. Piezas en cero en la instrucción tumba int_necesidad_escenario con división entre cero. Dos pasan sin que falle nada: Cpudt tardío y costo de Rack capturado como KLT, que baja la pérdida reconocida de Fase 1 31.5%.
+  - El costo unitario sale de dos fuentes: el documento MB51 para la pérdida de Fase 1 e int_tco_por_material para TCO y brecha. En el sintético coinciden; nadie lo verifica.
+  - Un test que truena por stock negativo dice dónde duele, no qué lo causó. Con un extracto real, de ahí al defecto es trabajo manual de días.
+  - El Charter compromete recibir un MB51 real cambiando seeds, no modelos (ADR-017).
+- **Alternativas evaluadas:**
+  - Simulador primero (ADR-016): más visible, pero reproduce MB51 sin validarlo y hereda cada defecto que hoy pasa en silencio. Pide además HTML/JS en el stack.
+  - Calidad de datos dentro del simulador: junta dos alcances grandes, el mismo error que ADR-016 evitó con Fase 3.
+  - Solo agregar tests de dbt, sin fase: cubre los defectos de la lista, pero no da tasa de defectos, severidad ni impacto en USD, y no prueba nada contra datos sucios porque el generador solo produce datos limpios.
+  - Herramienta de calidad de datos aparte del stack: se evalúa en el ADR de diseño contra dbt tests y Pandera, con el filtro de siempre: problema concreto, local, costo de mantenerla en Windows + uv + CI.
+- **Decisión:**
+  1. Fase 4 contesta: ¿qué defecto de un extracto MB51 y de su maestro rompe cada cifra de Fase 1 a 3, el pipeline lo detecta por su causa y cuánto mueve cada headline en USD?
+  2. Dos bloques. 4a: catálogo de defectos inyectables en el generador, apagado por default, y reglas de calidad por causa en dbt. 4b: mart de calidad por regla, planta y material, con severidad e impacto en USD sobre los headlines; notebook 05 y pestaña del dashboard.
+  3. Maestro de materiales sintético con el costo unitario como fuente única. El ADR de diseño decide columnas y cómo se retira el Costo_usd del documento como fuente de la pérdida.
+  4. La huella de 621, 622 y 702 y las cifras de Fase 1 a 3 no cambian con los defectos apagados. Con los defectos encendidos, CI tiene que reportar cada uno por su regla.
+  5. Fase 4 detecta y cuantifica; no corrige datos.
+  6. El simulador pasa a Fase 5. Arranca con Fase 4 cerrada y los tres criterios de ADR-016.
+- **Supuestos:** el catálogo inicial son los 13 defectos medidos. Tasas por defecto, severidad y umbrales van con rango y razón en el ADR de diseño.
+- **Consecuencias:**
+  - Charter: Fase 4 entra a Alcance IN; el simulador queda en Alcance OUT como Fase 5.
+  - Roadmap: Semana 17 diseño y 4a; Semana 18 4a; Semana 19 4b y cierre.
+  - El generador gana un sub-stream propio para defectos, como ADR-017, punto 9: encenderlos no mueve ningún sorteo existente.
+  - Cada defecto del catálogo lleva un test que lo enciende y exige que falle su regla por nombre, no por síntoma.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -883,6 +917,10 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque, flota inicial, parámetros con rango y generadores aleatorios propios (ADR-017).
 - [x] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador (ADR-017 a ADR-019) y modelos dbt de stock por almacén y flota semanal (ADR-020).
 - [x] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard. Cerrada en Semana 16 (ADR-021 a ADR-026).
+- [ ] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR de diseño). Arranque de 4a.
+- [ ] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido.
+- [ ] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada.
+- [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027).
 
 ---
 
@@ -901,7 +939,7 @@ Marcar con `[x]` al cerrar.
   - Tests nuevos verificados rompiendo: backtest con z bajada 0.7 (truena); necesidad con media z (truena el unit test); flujos entre países inflados (truena assert_red_cuadra); brecha de la sensibilidad sin flete (truena el cuadre con base); escenario duplicado (truena la z); filtro de tipo perdido (truena assert_escenario_un_tipo); base con ajuste propio (truena la z); seis cifras del README movidas (truena test_readme en cada una).
   - Dataset completo: dbt build 292/292, pytest 67. Reducido de 18 meses: dbt build 292/292, pytest 58 y 9 saltados.
   - Medición para decidir la siguiente fase: 13 defectos típicos de un extracto real inyectados uno por uno en el dataset reducido. Seis los detecta una regla que nombra la causa (línea duplicada, almacén fuera del seed, 621 sin cliente, familia sin regla de tipo, signo invertido, parte sin instrucción). Cuatro solo por síntoma, con stock o saldo negativo (Bwart fuera del seed, un material en piezas, material sin stock inicial, 622 a un cliente equivocado). Piezas en cero en la instrucción tumba el modelo con división entre cero. Dos pasan en silencio: Cpudt tardío y costo de Rack capturado como KLT, que baja la pérdida reconocida de Fase 1 31.5% sin que falle un test.
-- **Decisiones tomadas:** ADR-026.
+- **Decisiones tomadas:** ADR-026 y ADR-027.
 - **Bloqueos:**
   - Repetí el error de la Sesión 43: probé un test con git checkout -- . y se llevó el README, la pestaña del dashboard y test_readme, que no tenían commit. El README salió de un respaldo; lo demás lo reescribí. Desde hoy las pruebas de rotura revierten por archivo, nunca con el punto.
   - Dos roturas no tronaron: el texto de reemplazo no estaba en el archivo, y el escenario conservador tiene una z más alta, así que su backtest pasa. Repetidas con un reemplazo verificado y con la z bajada.
@@ -911,7 +949,7 @@ Marcar con `[x]` al cerrar.
   - El piso de días de cobertura es política sin efecto en este dataset: la variabilidad del sintético manda en todo el rango.
   - Lo que más mueve la brecha es el costo de quiebre, un supuesto de negocio. Lo que más barato la baja es el lavado, una variable de operación.
   - El costo unitario de la pérdida de Fase 1 sale del documento MB51 y el del TCO de int_tco_por_material. En el sintético coinciden; en un extracto real son dos fuentes del mismo dato.
-- **Próximo paso:** PR de fase-3b4 con CI verde y merge. Decidir si la Fase 4 es calidad de datos sobre MB51 y maestro de materiales, con el simulador en Fase 5 (ADR-027).
+- **Próximo paso:** PR de fase-3b4 con CI verde y merge. Semana 17: diseño de Fase 4 con medición sobre el dataset completo (catálogo de defectos, tasas, maestro de materiales).
 
 ### 2026-10-09 · Sesión 43 — Semana 16
 
@@ -1737,6 +1775,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Escenario de sensibilidad** — Juego de valores de los supuestos que corre por el mismo cálculo que el base. Aquí, una fila de seeds/escenarios_brecha.csv.
 - **Diagrama de tornado** — Gráfica de sensibilidad con una barra por supuesto, del valor bajo al alto de su rango, alrededor del resultado base y ordenada por impacto.
 - **Inyección de defectos** — Meter a propósito errores conocidos en los datos para medir cuáles detectan los tests y cuánto mueven las cifras los que pasan.
+- **Regla por causa / por síntoma** — Una regla por causa nombra el defecto (almacén fuera del catálogo). Una por síntoma solo ve el efecto (stock negativo) y deja el diagnóstico por hacer.
 
 ---
 
