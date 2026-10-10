@@ -2,12 +2,12 @@
 -- ciclo y la marca de ruta rota (ADR-012, punto 4; ADR-015). Es el universo
 -- de rutas: el "de N" de los KPIs sale de aquí.
 -- Tasa de merma = faltante 702 entre salidas 621 que ya pasaron por una
--- conciliación con 120 días de antigüedad.
+-- conciliación (antigüedad en la var antiguedad_conciliacion_dias).
 with parametros as (
     select
         1.0     as umbral_merma_pct,   -- rango 0.8–1.5 %
         45.0    as umbral_ciclo_dias,
-        120     as dias_para_conciliar
+        {{ var('antiguedad_conciliacion_dias') }} as dias_para_conciliar
 ),
 
 movimientos as (
