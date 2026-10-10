@@ -1,7 +1,8 @@
 -- Uso promedio, desviación del stock en uso, demanda diaria y ciclo total por
--- material, en dos ventanas con el mismo cálculo (ADR-023):
---   necesidad: la que usa mart_necesidad_flota.
---   backtest:  la que usa assert_backtest_necesidad, antes de su prueba.
+-- material, en tres ventanas con el mismo cálculo (ADR-023, ADR-025):
+--   necesidad:   la que usa mart_necesidad_flota.
+--   backtest:    la que usa assert_backtest_necesidad, antes de su prueba.
+--   calibracion: la que usa int_z_economico, antes de su tramo de calibración.
 -- El ciclo T es por planta y tipo de empaque, por ley de Little: uso promedio
 -- entre salidas por día, sumado sobre los materiales. Por material sale ruidoso.
 with cal as (
@@ -15,6 +16,11 @@ ventanas as (
     union all
     select 'backtest', inicio_estimacion, fin_estimacion,
            cast(fin_estimacion - 7 * {{ var('ventana_base_semanas') }} + 1 as date), fin_estimacion
+    from cal
+    union all
+    select 'calibracion', inicio_est_calibracion, fin_est_calibracion,
+           cast(fin_est_calibracion - 7 * {{ var('ventana_base_semanas') }} + 1 as date),
+           fin_est_calibracion
     from cal
 ),
 

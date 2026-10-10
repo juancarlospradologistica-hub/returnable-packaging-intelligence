@@ -5,6 +5,10 @@
 --   sigma:    variabilidad del stock en uso para la necesidad.
 --   prueba:   semanas donde se cuentan los quiebres del backtest.
 --   estimacion: variabilidad para el backtest, antes de la prueba.
+--   calibracion: las semanas antes de la prueba, donde se escoge la z
+--   económica (ADR-025), con su propia estimación antes. La z se escoge en un
+--   tramo y se valida en el siguiente: si se calibrara en la prueba, el
+--   backtest pasaría por construcción.
 -- Si la foto inicial no trae stock en cliente, el saldo V arranca en cero y
 -- tarda semanas en llenarse: ese tramo no entra a ninguna ventana.
 with limites as (
@@ -46,5 +50,11 @@ select
     greatest(
         cast(fin_base - 7 * ({{ var('backtest_semanas') }} + {{ var('ventana_sigma_semanas') }}) + 1 as date),
         inicio_estable
-    )                                                                           as inicio_estimacion
+    )                                                                           as inicio_estimacion,
+    cast(fin_base - 7 * 2 * {{ var('backtest_semanas') }} + 1 as date)         as inicio_calibracion,
+    cast(fin_base - 7 * 2 * {{ var('backtest_semanas') }} as date)             as fin_est_calibracion,
+    greatest(
+        cast(fin_base - 7 * (2 * {{ var('backtest_semanas') }} + {{ var('ventana_sigma_semanas') }}) + 1 as date),
+        inicio_estable
+    )                                                                           as inicio_est_calibracion
 from base

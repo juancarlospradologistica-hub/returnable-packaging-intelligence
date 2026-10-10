@@ -31,8 +31,12 @@ unit_tests:
           - {ventana: necesidad, planta: P1, material: M3, tipo_material: RACK, sigma_uso: 4, d_base: 1, ciclo_dias: 32}
       - input: ref('parametros_flota')
         rows:
-          - {tipo_material: KLT, dias_cobertura: 3, z_servicio: 3.0, lead_time_semanas: 4}
-          - {tipo_material: RACK, dias_cobertura: 5, z_servicio: 3.0, lead_time_semanas: 12}
+          - {tipo_material: KLT, dias_cobertura: 3}
+          - {tipo_material: RACK, dias_cobertura: 5}
+      - input: ref('int_z_economico')
+        rows:
+          - {tipo_material: KLT, z_servicio: 3.0}
+          - {tipo_material: RACK, z_servicio: 3.0}
     expect:
       rows:
         - {planta: P1, material: M1, semana: 2026-07-06, con_historia: true, uso_plan: 60.0, stock_seguridad: 30.0, necesidad: 90}

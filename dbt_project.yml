@@ -28,4 +28,7 @@ vars:
   ventana_sigma_semanas: 52
   semanas_arranque: 13
   backtest_semanas: 13
-  backtest_quiebre_max_pct: 3.0
+  semanas_minimas_estimacion: 26
+  # Fuera de muestra, la z económica puede fallar su objetivo de días con
+  # quiebre por a lo más estos puntos porcentuales (ADR-025).
+  backtest_tolerancia_pp: 1.0

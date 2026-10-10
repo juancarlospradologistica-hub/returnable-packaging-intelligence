@@ -41,8 +41,22 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['necesidad', 'backtest']
+                values: ['necesidad', 'backtest', 'calibracion']
       - name: sigma_uso
         tests: [not_null]
       - name: ciclo_dias
+        tests: [not_null]
+
+  - name: int_z_economico
+    description: >
+      z por tipo de empaque escogida por costo (ADR-025): razón crítica entre
+      el costo de quedarse corto (desechable por factor de quiebre entre ciclo)
+      y el de pasarse (capital), y la menor z de la rejilla que cumple el
+      objetivo de días con quiebre en el tramo de calibración.
+    columns:
+      - name: tipo_material
+        tests: [not_null, unique]
+      - name: z_servicio
+        tests: [not_null]
+      - name: objetivo_quiebre
         tests: [not_null]

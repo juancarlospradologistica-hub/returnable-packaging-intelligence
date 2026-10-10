@@ -24,8 +24,11 @@ ciclo_planta as (
     select distinct planta, tipo_material, ciclo_dias from historia
 ),
 
+-- z económica por tipo (ADR-025) y piso de cobertura del seed.
 parametros as (
-    select * from {{ ref('parametros_flota') }}
+    select k.tipo_material, k.dias_cobertura, z.z_servicio
+    from {{ ref('parametros_flota') }} k
+    join {{ ref('int_z_economico') }} z using (tipo_material)
 ),
 
 calculo as (
