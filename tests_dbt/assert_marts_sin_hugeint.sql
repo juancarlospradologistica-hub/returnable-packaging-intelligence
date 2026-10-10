@@ -7,6 +7,7 @@
 -- depends_on: {{ ref('mart_ciclo_cohortes') }}
 -- depends_on: {{ ref('mart_flota_semanal') }}
 -- depends_on: {{ ref('mart_necesidad_flota') }}
+-- depends_on: {{ ref('mart_brecha_flota') }}
 -- Los marts entregan conteos en BIGINT. Polars no maneja HUGEINT y cada
 -- consumidor tendría que castear por su cuenta.
 select table_name, column_name, data_type
