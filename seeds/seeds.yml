@@ -86,3 +86,19 @@ seeds:
         tests: [not_null, unique]
       - name: pais
         tests: [not_null]
+
+  - name: escenarios_brecha
+    description: >
+      Escenarios de sensibilidad de la brecha (ADR-026). Un valor vacío toma el
+      de parametros_flota; base deja todo vacío y es el escenario que publican
+      mart_necesidad_flota y mart_brecha_flota. z_fija ignora la z económica y
+      usa ese valor para los dos tipos de empaque.
+    config:
+      column_types:
+        escenario: varchar
+        factor_costo_quiebre: double
+        costo_capital_anual_pct: double
+        z_fija: double
+    columns:
+      - name: escenario
+        tests: [not_null, unique]

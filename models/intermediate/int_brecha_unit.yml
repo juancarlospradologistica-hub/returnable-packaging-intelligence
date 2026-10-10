@@ -11,15 +11,15 @@ unit_tests:
     given:
       - input: ref('int_balance_material')
         rows:
-          - {planta: MX1, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 10, sobrante: 0}
-          - {planta: MX2, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 4}
-          - {planta: US1, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 20}
-          - {planta: US2, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 5, sobrante: 0}
-          - {planta: MX1, pais: MX, material: M2, tipo_material: RACK, ciclo_dias: 32, deficit_pico: 3, sobrante: 0}
+          - {escenario: base, planta: MX1, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 10, sobrante: 0}
+          - {escenario: base, planta: MX2, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 4}
+          - {escenario: base, planta: US1, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 20}
+          - {escenario: base, planta: US2, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 5, sobrante: 0}
+          - {escenario: base, planta: MX1, pais: MX, material: M2, tipo_material: RACK, ciclo_dias: 32, deficit_pico: 3, sobrante: 0}
     expect:
       rows:
-        - {planta: MX1, material: M1, recibido_mismo_pais: 4, recibido_otro_pais: 6, prestado_mismo_pais: 0, prestado_otro_pais: 0}
-        - {planta: MX2, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 4, prestado_otro_pais: 0}
-        - {planta: US1, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 5, prestado_otro_pais: 6}
-        - {planta: US2, material: M1, recibido_mismo_pais: 5, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}
-        - {planta: MX1, material: M2, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}
+        - {escenario: base, planta: MX1, material: M1, recibido_mismo_pais: 4, recibido_otro_pais: 6, prestado_mismo_pais: 0, prestado_otro_pais: 0}
+        - {escenario: base, planta: MX2, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 4, prestado_otro_pais: 0}
+        - {escenario: base, planta: US1, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 5, prestado_otro_pais: 6}
+        - {escenario: base, planta: US2, material: M1, recibido_mismo_pais: 5, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}
+        - {escenario: base, planta: MX1, material: M2, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}

@@ -1,0 +1,12 @@
+escenario,factor_costo_quiebre,costo_capital_anual_pct,z_fija
+base,,,
+quiebre_1,1.0,,
+quiebre_1_5,1.5,,
+quiebre_2_5,2.5,,
+quiebre_3,3.0,,
+capital_8,,8.0,
+capital_10,,10.0,
+capital_15,,15.0,
+optimista,1.0,15.0,
+conservador,3.0,8.0,
+z_fija_3,,,3.0

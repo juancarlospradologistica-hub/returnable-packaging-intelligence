@@ -1,5 +1,6 @@
--- Flota disponible al cierre de cada semana del plan contra la necesidad
--- (ADR-025). Parte de la flota al corte y le quita:
+-- Flota disponible al cierre de cada semana del plan (ADR-025). No depende
+-- del escenario: la necesidad cambia con la z, la flota no. Parte de la flota
+-- al corte y le quita:
 --   merma pendiente: contenedores ya perdidos en cliente que la conciliación
 --     todavía no registra (salidas posteriores a la última ventana conciliada
 --     por la tasa de su ruta). Hoy cuentan como stock V y no existen.
@@ -68,8 +69,12 @@ flota as (
     where fecha_cierre = cal.corte
 ),
 
+demanda as (
+    select * from {{ ref('int_demanda_plan') }}
+),
+
 semanas as (
-    select distinct semana from {{ ref('mart_necesidad_flota') }}
+    select distinct semana from demanda
 ),
 
 -- Un material con flota y sin plan necesita cero: todo lo que tiene sobra.
@@ -84,7 +89,6 @@ select
     b.material,
     b.tipo_material,
     b.semana,
-    coalesce(n.necesidad, 0)                                            as necesidad,
     coalesce(n.d_plan, 0)                                               as d_plan,
     n.ciclo_dias,
     b.flota                                                             as flota_corte,
@@ -102,7 +106,7 @@ select
             rows between unbounded preceding and current row
         ), 2)                                                           as flota_proyectada
 from base b
-left join {{ ref('mart_necesidad_flota') }} n
+left join demanda n
     on n.planta = b.planta and n.material = b.material and n.semana = b.semana
 left join pendiente p
     on p.planta = b.planta and p.material = b.material

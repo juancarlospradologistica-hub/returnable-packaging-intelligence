@@ -1,18 +1,14 @@
--- z por tipo de empaque escogida por costo y no por convención (ADR-025).
--- Nivel de servicio económico (razón crítica): un contenedor de más evita
--- quiebres solo los días en que faltaría, y cuesta capital todos los días.
+-- z por tipo de empaque y escenario, escogida por costo y no por convención
+-- (ADR-025, ADR-026). Nivel de servicio económico (razón crítica): un
+-- contenedor de más evita quiebres solo los días en que faltaría, y cuesta
+-- capital todos los días.
 --   costo de quedarse corto, por contenedor y día: desechable × factor / ciclo
 --     (un contenedor hace 1/ciclo viajes al día; sin él, ese viaje va en desechable)
 --   costo de pasarse, por contenedor y día: costo unitario × costo de capital / 365
 --   objetivo de días con quiebre = 1 − corto / (corto + pasarse)
--- La z es la menor de la rejilla cuyo tramo de calibración no rebasa el
--- objetivo. Se mide contra el stock en uso y no contra la normal: la cola real
--- es más pesada (ADR-021). Sin z que alcance, queda nula y el test truena.
-with cal as (
-    select * from {{ ref('int_calendario_necesidad') }}
-),
-
-calibracion as (
+-- La z es la menor de int_curva_z que no rebasa el objetivo. Sin z que
+-- alcance queda nula y el test truena. Un escenario con z_fija usa ese valor.
+with calibracion as (
     select * from {{ ref('int_variabilidad_uso') }} where ventana = 'calibracion'
 ),
 
@@ -32,69 +28,61 @@ ciclo as (
     group by tipo_material
 ),
 
+-- Un valor vacío en el escenario toma el de parametros_flota.
+escenarios as (
+    select
+        e.escenario,
+        k.tipo_material,
+        coalesce(e.factor_costo_quiebre, k.factor_costo_quiebre)            as factor_costo_quiebre,
+        coalesce(e.costo_capital_anual_pct, k.costo_capital_anual_pct)      as costo_capital_anual_pct,
+        e.z_fija
+    from {{ ref('escenarios_brecha') }} e
+    cross join {{ ref('parametros_flota') }} k
+),
+
 objetivo as (
     select
-        k.tipo_material,
-        k.dias_cobertura,
-        c.costo_unitario_usd,
-        c.desechable_equiv_usd,
+        e.*,
         t.ciclo_dias,
-        c.desechable_equiv_usd * k.factor_costo_quiebre / t.ciclo_dias       as costo_corto_dia,
-        c.costo_unitario_usd * k.costo_capital_anual_pct / 100 / 365        as costo_exceso_dia
-    from {{ ref('parametros_flota') }} k
+        c.desechable_equiv_usd * e.factor_costo_quiebre / t.ciclo_dias       as costo_corto_dia,
+        c.costo_unitario_usd * e.costo_capital_anual_pct / 100 / 365        as costo_exceso_dia
+    from escenarios e
     join costos c using (tipo_material)
     join ciclo t using (tipo_material)
 ),
 
-rejilla as (
-    select cast(z as double) / 100 as z from range(100, 405, 5) as t(z)
-),
-
-dias as (
-    select u.planta, u.material, u.en_uso
-    from {{ ref('int_uso_diario') }} u
-    cross join cal
-    where u.fecha between cal.inicio_calibracion and cal.inicio_prueba - 1
-),
-
-curva as (
-    select
-        v.tipo_material,
-        r.z,
-        avg(case when d.en_uso > {{ necesidad_flota('v.d_base', 'v.ciclo_dias', 'v.sigma_uso', 'v.d_base', 'r.z', 'o.dias_cobertura') }}
-            then 1.0 else 0.0 end)                     as quiebre
-    from calibracion v
-    join objetivo o using (tipo_material)
-    join dias d on d.planta = v.planta and d.material = v.material
-    cross join rejilla r
-    group by v.tipo_material, r.z
-),
-
 con_objetivo as (
     select
-        o.*,
-        o.costo_corto_dia / (o.costo_corto_dia + o.costo_exceso_dia)        as razon_critica,
-        1 - o.costo_corto_dia / (o.costo_corto_dia + o.costo_exceso_dia)    as objetivo_quiebre
-    from objetivo o
+        *,
+        costo_corto_dia / (costo_corto_dia + costo_exceso_dia)              as razon_critica,
+        1 - costo_corto_dia / (costo_corto_dia + costo_exceso_dia)          as objetivo_quiebre
+    from objetivo
 ),
 
 escogida as (
-    select c.tipo_material, min(c.z) as z_servicio
-    from curva c
-    join con_objetivo o using (tipo_material)
-    where c.quiebre <= o.objetivo_quiebre
-    group by c.tipo_material
+    select o.escenario, o.tipo_material, min(c.z) as z_economica
+    from con_objetivo o
+    join {{ ref('int_curva_z') }} c
+        on c.tipo_material = o.tipo_material and c.quiebre <= o.objetivo_quiebre
+    group by o.escenario, o.tipo_material
 )
 
 select
+    o.escenario,
     o.tipo_material,
+    o.factor_costo_quiebre,
+    o.costo_capital_anual_pct,
+    o.z_fija,
     round(o.ciclo_dias, 2)                              as ciclo_dias,
     o.costo_corto_dia,
     o.costo_exceso_dia,
     round(o.razon_critica, 4)                           as razon_critica,
     round(o.objetivo_quiebre, 4)                        as objetivo_quiebre,
-    e.z_servicio,
+    coalesce(o.z_fija, e.z_economica)                   as z_servicio,
     c.quiebre                                           as quiebre_calibracion
 from con_objetivo o
-left join escogida e using (tipo_material)
-left join curva c on c.tipo_material = o.tipo_material and c.z = e.z_servicio
+left join escogida e
+    on e.escenario = o.escenario and e.tipo_material = o.tipo_material
+left join {{ ref('int_curva_z') }} c
+    on c.tipo_material = o.tipo_material
+    and abs(c.z - coalesce(o.z_fija, e.z_economica)) < 1e-9
