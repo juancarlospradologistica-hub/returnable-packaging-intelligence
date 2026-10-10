@@ -3,21 +3,18 @@ version: 2
 # Fórmula de ADR-021 con resultado calculado a mano. El backtest cuida que los
 # parámetros alcancen sobre el dataset; esto, que la fórmula sea la del ADR.
 unit_tests:
-  - name: necesidad_por_formula
+  - name: demanda_desde_el_plan
     description: >
-      M1 con historia: d_plan 2, ciclo 30, σ 10, z 3. Semana 1: uso 60 y stock
-      de seguridad máx(3 × 2, 3 × 10 × √1) = 30, necesidad 90. Semana 2 con el
-      doble de plan: uso 120, seguridad máx(12, 30 × √2) = 42.4, necesidad 163.
-      M2 sin historia toma el ciclo de su planta y tipo (32) y solo el piso de
-      cobertura: 2 × 32 + 5 × 2 = 74. La fila de backtest de M1 no entra.
-    model: mart_necesidad_flota
+      M1 con dos partes: 280 piezas a 40 por contenedor y 70 a 10 son 14
+      contenedores a la semana, d_plan 2. M2 no tiene historia propia: toma el
+      ciclo de su planta y tipo (el de M3, 32) y queda sin historia. La fila de
+      backtest de M1 no entra.
+    model: int_demanda_plan
     given:
       - input: ref('stg_plan_produccion')
         rows:
           - {planta: P1, parte: A, semana: 2026-07-06, piezas: 280}
           - {planta: P1, parte: B, semana: 2026-07-06, piezas: 70}
-          - {planta: P1, parte: A, semana: 2026-07-13, piezas: 560}
-          - {planta: P1, parte: B, semana: 2026-07-13, piezas: 140}
           - {planta: P1, parte: C, semana: 2026-07-06, piezas: 168}
       - input: ref('stg_instruccion_empaque')
         rows:
@@ -33,12 +30,38 @@ unit_tests:
         rows:
           - {tipo_material: KLT, dias_cobertura: 3}
           - {tipo_material: RACK, dias_cobertura: 5}
-      - input: ref('int_z_economico')
-        rows:
-          - {tipo_material: KLT, z_servicio: 3.0}
-          - {tipo_material: RACK, z_servicio: 3.0}
     expect:
       rows:
-        - {planta: P1, material: M1, semana: 2026-07-06, con_historia: true, uso_plan: 60.0, stock_seguridad: 30.0, necesidad: 90}
-        - {planta: P1, material: M1, semana: 2026-07-13, con_historia: true, uso_plan: 120.0, stock_seguridad: 42.4, necesidad: 163}
-        - {planta: P1, material: M2, semana: 2026-07-06, con_historia: false, uso_plan: 64.0, stock_seguridad: 10.0, necesidad: 74}
+        - {planta: P1, material: M1, d_plan: 2.0, d_base: 2.0, ciclo_dias: 30.0, sigma_uso: 10.0, dias_cobertura: 3, con_historia: true}
+        - {planta: P1, material: M2, d_plan: 2.0, d_base: null, ciclo_dias: 32.0, sigma_uso: null, dias_cobertura: 5, con_historia: false}
+
+  - name: necesidad_por_formula
+    description: >
+      M1 con historia: d_plan 2, ciclo 30, σ 10, z 3. Uso 60 y stock de
+      seguridad máx(3 × 2, 3 × 10 × √1) = 30: necesidad 90. Con el doble de plan:
+      uso 120, seguridad máx(12, 30 × √2) = 42.43, necesidad 163. M2 sin historia
+      queda con el piso de cobertura: 2 × 32 + 5 × 2 = 74. Con z 2 en otro
+      escenario, M1 necesita 60 + 20 = 80 y 120 + 28.28, 149. Con 1.5 días más
+      de ciclo solo cambia el uso: 63 + 30 = 93 y 126 + 42.43, 169.
+    model: int_necesidad_escenario
+    given:
+      - input: ref('int_demanda_plan')
+        rows:
+          - {planta: P1, material: M1, tipo_material: KLT, semana: 2026-07-06, d_plan: 2, d_base: 2, ciclo_dias: 30, sigma_uso: 10, dias_cobertura: 3, con_historia: true}
+          - {planta: P1, material: M1, tipo_material: KLT, semana: 2026-07-13, d_plan: 4, d_base: 2, ciclo_dias: 30, sigma_uso: 10, dias_cobertura: 3, con_historia: true}
+          - {planta: P1, material: M2, tipo_material: RACK, semana: 2026-07-06, d_plan: 2, d_base: null, ciclo_dias: 32, sigma_uso: null, dias_cobertura: 5, con_historia: false}
+      - input: ref('int_z_economico')
+        rows:
+          - {escenario: base, tipo_material: KLT, z_servicio: 3.0, ajuste_ciclo_dias: 0}
+          - {escenario: base, tipo_material: RACK, z_servicio: 3.0, ajuste_ciclo_dias: 0}
+          - {escenario: bajo, tipo_material: KLT, z_servicio: 2.0, ajuste_ciclo_dias: 0}
+          - {escenario: lento, tipo_material: KLT, z_servicio: 3.0, ajuste_ciclo_dias: 1.5}
+    expect:
+      rows:
+        - {escenario: base, material: M1, semana: 2026-07-06, necesidad: 90}
+        - {escenario: base, material: M1, semana: 2026-07-13, necesidad: 163}
+        - {escenario: base, material: M2, semana: 2026-07-06, necesidad: 74}
+        - {escenario: bajo, material: M1, semana: 2026-07-06, necesidad: 80}
+        - {escenario: bajo, material: M1, semana: 2026-07-13, necesidad: 149}
+        - {escenario: lento, material: M1, semana: 2026-07-06, necesidad: 93}
+        - {escenario: lento, material: M1, semana: 2026-07-13, necesidad: 169}

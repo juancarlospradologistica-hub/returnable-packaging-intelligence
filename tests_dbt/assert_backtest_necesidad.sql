@@ -1,15 +1,16 @@
--- Validación fuera de muestra de la z económica (ADR-021, ADR-025). La z se
--- escogió en el tramo de calibración; aquí se estima la necesidad con la
--- ventana de backtest y se cuentan los quiebres en la prueba, las semanas
--- siguientes: días en que el stock en uso del material supera la necesidad,
--- o sea, vacíos en negativo. Falla si un tipo rebasa su objetivo de días con
+-- Validación fuera de muestra de la z económica del escenario base (ADR-021,
+-- ADR-025). La z se escogió en el tramo de calibración; aquí se estima la
+-- necesidad con la ventana de backtest y se cuentan los quiebres en la prueba,
+-- las semanas siguientes: días en que el stock en uso del material supera la
+-- necesidad, o sea, vacíos en negativo. Falla si un tipo rebasa su objetivo de días con
 -- quiebre por más de la tolerancia. Con días de cobertura solos (ADR-017)
 -- truena en cualquier dataset.
 with est as (
     select v.*, k.dias_cobertura, z.z_servicio, z.objetivo_quiebre
     from {{ ref('int_variabilidad_uso') }} v
     join {{ ref('parametros_flota') }} k using (tipo_material)
-    join {{ ref('int_z_economico') }} z using (tipo_material)
+    join {{ ref('int_z_economico') }} z
+        on z.tipo_material = v.tipo_material and z.escenario = 'base'
     where v.ventana = 'backtest'
 ),
 

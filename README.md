@@ -35,7 +35,7 @@ flowchart LR
     B --> C[DuckDB ingesta]
     C --> D[dbt staging + tests]
     D --> E[dbt marts KPIs]
-    E --> F[Notebooks 01 y 03]
+    E --> F[Notebooks 01, 03 y 04]
     E --> G[Dashboard Marimo]
 ```
 
@@ -72,17 +72,25 @@ flowchart LR
     diario --> flota[mart_flota_semanal]
     diario --> uso[int_uso_diario]
     uso --> var[int_variabilidad_uso]
-    var --> nec[mart_necesidad_flota]
-    stgplan --> nec
-    params[seed parametros_flota] --> zeco[int_z_economico]
-    var --> zeco
-    zeco --> nec
-    nec --> proy[int_flota_proyectada]
+    var --> curva[int_curva_z]
+    params[seeds parametros_flota y escenarios_brecha] --> zeco[int_z_economico]
+    curva --> zeco
+    stgplan --> dem[int_demanda_plan]
+    var --> dem
+    dem --> nesc[int_necesidad_escenario]
+    zeco --> nesc
+    nesc --> nec[mart_necesidad_flota]
+    dem --> proy[int_flota_proyectada]
     flota --> proy
     mrutas --> proy
     proy --> bal[int_balance_material]
+    nesc --> bal
     bal --> prest[int_prestamos]
-    prest --> brecha[mart_brecha_flota]
+    prest --> besc[int_brecha_escenario]
+    nesc --> besc
+    besc --> brecha[mart_brecha_flota]
+    besc --> sens[mart_sensibilidad_brecha]
+    prest --> red[mart_red_prestamos]
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -161,7 +169,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (29 modelos, 4 seeds, 220 tests de datos y 10 unit tests):
+Construir modelos y correr los tests de dbt (35 modelos, 5 seeds, 241 tests de datos y 11 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -209,10 +217,14 @@ returnable-packaging-intelligence/
 │   │   ├── int_calendario_necesidad.sql    # ventanas de la necesidad y del backtest
 │   │   ├── int_uso_diario.sql              # stock fuera de vacíos por día natural
 │   │   ├── int_variabilidad_uso.sql        # ciclo T y σ del stock en uso
-│   │   ├── int_z_economico.sql             # z por costo, calibrada contra el stock en uso
+│   │   ├── int_curva_z.sql                 # días con quiebre por z en el tramo de calibración
+│   │   ├── int_z_economico.sql             # z por costo y escenario
+│   │   ├── int_demanda_plan.sql            # contenedores por día del plan, ciclo y σ
+│   │   ├── int_necesidad_escenario.sql     # necesidad por escenario con la macro de ADR-021
 │   │   ├── int_flota_proyectada.sql        # flota menos merma pendiente y pérdida por viaje
 │   │   ├── int_balance_material.sql        # déficit pico y sobrante prestable
-│   │   └── int_prestamos.sql               # préstamos entre plantas, por país y entre países
+│   │   ├── int_prestamos.sql               # préstamos entre plantas, por país y entre países
+│   │   └── int_brecha_escenario.sql        # compra, desechable y USD por escenario
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
@@ -223,13 +235,16 @@ returnable-packaging-intelligence/
 │       ├── mart_tco_comparativo.sql
 │       ├── mart_flota_semanal.sql
 │       ├── mart_necesidad_flota.sql
-│       └── mart_brecha_flota.sql
-├── seeds/                      # almacenes, clases de movimiento, plantas y parámetros de política de flota
+│       ├── mart_brecha_flota.sql
+│       ├── mart_sensibilidad_brecha.sql
+│       └── mart_red_prestamos.sql
+├── seeds/                      # almacenes, clases de movimiento, plantas, política de flota y escenarios
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
 │   ├── 02_dashboard.py         # Dashboard Marimo
-│   └── 03_tco_analysis.ipynb
+│   ├── 03_tco_analysis.ipynb
+│   └── 04_necesidad_flota.ipynb
 ├── src/rpi/
 │   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
@@ -376,13 +391,54 @@ Dos efectos de borde, del sintético y no de la operación:
 - **Arranque.** El stock V abre en cero porque el generador no tiene 621 antes de la ventana. Llega a régimen en unas 13 semanas.
 - **Corte.** LINE y LLEN quedan en cero el 2026-06-30: los 621 posteriores al corte no existen y sus 311 tampoco. Los ~80k contenedores que normalmente están en línea y llenos aparecen en vacíos. Para comparar contra necesidad uso flota o vacíos + línea + llenos, no vacíos solo.
 
+## Resultados Fase 3b: necesidad de flota contra el plan
+
+Necesidad por planta, material y semana del plan de 12 semanas (2026-07-06 a 2026-09-27): d_plan × ciclo + z × σ del stock en uso, con el ciclo por ley de Little y σ de 52 semanas (ADR-021, ADR-023). La z no es un número redondo: sale de la razón crítica entre quedarse corto un día (desechable × factor de quiebre / ciclo) y tener un contenedor de más (costo de capital), se calibra contra el stock en uso de 13 semanas y se valida en las 13 siguientes, fuera de muestra (ADR-025).
+
+La flota proyectada es la del corte menos la merma que la conciliación todavía no reconoce y menos lo que se pierde por viaje del plan. La brecha se escala en tres niveles: préstamo entre plantas con el mismo material (primero dentro del país), compra al corte de lo que falta y desechable mientras la compra llega.
+
+| Necesidad y brecha | KLT | Rack |
+|---|---:|---:|
+| z por costo | 2.70 | 2.90 |
+| Necesidad semana 1 | 1,098,502 | 199,087 |
+| Flota proyectada semana 12 | 1,245,651 | 217,588 |
+| Materiales en déficit | 972 | 607 |
+| Déficit pico | 17,066 | 5,608 |
+| Préstamo dentro del país | 14,369 | 4,283 |
+| Préstamo entre países | 1,147 | 582 |
+| Compra | 1,592 | 790 |
+| Viajes en desechable | 793 | 1,346 |
+| Costo de la brecha | $65,630 | $257,046 |
+| Capital ocioso | $3.2M | $2.7M |
+
+![Necesidad contra flota proyectada](docs/img/necesidad_vs_flota.png)
+
+En total sobra flota: 15.2% sobre la necesidad en KLT y 10.9% en Rack a la semana 12. Material por material, no: 972 KLT y 607 Rack quedan cortos en alguna semana. El préstamo cubre el 89.9% del déficit y cubrir la brecha cuesta $322.7k. Después de prestar quedan $5.9M de flota parada, 18 veces el costo de la brecha. La red no tiene un problema de tamaño; tiene la flota en el material y la planta equivocados.
+
+En Rack el desechable ($60,590) cuesta 43% de la compra ($142,200): la compra tarda 12 semanas y casi todo el horizonte se cubre en cartón. Los Rack con algún arranque en el plan son 19% de los materiales y cargan 57% del costo de la brecha; si hay que decidir qué comprar, empiezo por ahí.
+
+### Sensibilidad
+
+Cada escenario de `seeds/escenarios_brecha.csv` corre por la misma lógica que el base y queda en `mart_sensibilidad_brecha` (ADR-026).
+
+![Sensibilidad de la brecha](docs/img/sensibilidad_brecha.png)
+
+- **Factor de quiebre.** Es el supuesto que más mueve: de $145k con factor 1 a $577k con factor 3. La z depende del cociente entre factor y costo de capital, así que capital al 8% da lo mismo que factor 3.
+- **Trade-off.** Optimista (factor 1, capital 15%): $100k de brecha y $11.0M ociosos. Conservador (factor 3, capital 8%): $1,162k y $2.3M. Con z = 3 fija, la de ADR-021: $429k y $4.5M.
+- **Lavado del KLT.** Un día hábil de lavado vale 31,962 contenedores de necesidad, $0.80M a costo unitario. Con 1 a 3 días la brecha KLT va de $40k a $103k. Es la única palanca del análisis que libera flota en lugar de comprarla.
+- **Días de cobertura.** El piso de 7 días, el techo del rango, no manda en ninguna de las 80,352 filas: el stock de seguridad más corto es de 8.3 días en KLT y 7.6 en Rack.
+
+Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_necesidad_flota.ipynb`. El dashboard tiene una pestaña con la brecha de cada escenario.
+
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 29 modelos dbt y 4 seeds con 220 tests de datos y 10 unit tests → notebooks → dashboard Marimo con dos pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 35 modelos dbt y 5 seeds con 241 tests de datos y 11 unit tests → notebooks → dashboard Marimo con tres pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
-En curso: Fase 3b, necesidad de flota por planta y semana contra el plan de producción y costo en USD de la brecha. Ya están el plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos, y la necesidad de flota por material y semana con stock de seguridad por variabilidad, validada fuera de muestra contra el stock en uso con una z escogida por costo (ADR-021, ADR-023, ADR-025). También la flota proyectada con merma pendiente y la brecha en USD por nivel de escalamiento: préstamo entre plantas, compra y desechable. Faltan el notebook y el dashboard.
+Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
+
+Siguiente: Fase 4, calidad de datos sobre MB51 y maestro de materiales. Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

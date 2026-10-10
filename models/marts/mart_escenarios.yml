@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_sensibilidad_brecha
+    description: >
+      La brecha de flota en cada escenario de escenarios_brecha, por tipo de
+      empaque (ADR-026): z, necesidad de la semana 1, déficit, préstamos,
+      compra, desechable, costo en USD y capital ocioso. El escenario base
+      cuadra con mart_brecha_flota.
+    columns:
+      - name: escenario
+        tests: [not_null]
+      - name: tipo_material
+        tests: [not_null]
+      - name: z_servicio
+        tests: [not_null]
+      - name: usd_brecha
+        tests: [not_null]
+
+  - name: mart_red_prestamos
+    description: >
+      Flujos de préstamo entre plantas en el escenario base, por tipo de
+      empaque y etapa (dentro del país o entre países), con su flete (ADR-026).
+    columns:
+      - name: planta_origen
+        tests: [not_null]
+      - name: planta_destino
+        tests: [not_null]
+      - name: contenedores
+        tests: [not_null]

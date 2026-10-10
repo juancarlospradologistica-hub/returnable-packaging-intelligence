@@ -23,7 +23,7 @@ models:
   - name: int_balance_material
     description: >
       Déficit pico y sobrante prestable de cada material en el horizonte del
-      plan, con el país de la planta.
+      plan, por escenario, con el país de la planta.
     columns:
       - name: deficit_pico
         tests: [not_null]
@@ -32,10 +32,22 @@ models:
 
   - name: int_prestamos
     description: >
-      Préstamos de flota entre plantas con el mismo material, primero dentro
-      del país y después entre países, repartidos en proporción (ADR-025).
+      Préstamos de flota entre plantas con el mismo material, por escenario,
+      primero dentro del país y después entre países, repartidos en proporción
+      (ADR-025).
     columns:
       - name: recibido_mismo_pais
         tests: [not_null]
       - name: recibido_otro_pais
+        tests: [not_null]
+
+  - name: int_brecha_escenario
+    description: >
+      Brecha de flota y su costo en USD por escenario, planta y material, con
+      los tres niveles de escalamiento (ADR-025, ADR-026). mart_brecha_flota
+      publica el escenario base.
+    columns:
+      - name: escenario
+        tests: [not_null]
+      - name: compra
         tests: [not_null]
