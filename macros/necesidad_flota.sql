@@ -5,14 +5,17 @@
   volumen: lo medido entre materiales crece como Poisson, no en proporción.
   Sin base histórica (d_base en cero o nulo) queda solo el piso.
   Lo usan mart_necesidad_flota y el backtest: misma fórmula en los dos.
+  Cada argumento va entre paréntesis: llegan expresiones como
+  "ciclo_dias + ajuste_ciclo_dias", y sin ellos el producto se lleva solo el
+  primer término.
 #}
 {% macro stock_seguridad(d_plan, sigma, d_base, z, dias_cobertura) -%}
     greatest(
-        {{ dias_cobertura }} * {{ d_plan }},
-        coalesce({{ z }} * {{ sigma }} * sqrt({{ d_plan }} / nullif({{ d_base }}, 0)), 0)
+        ({{ dias_cobertura }}) * ({{ d_plan }}),
+        coalesce(({{ z }}) * ({{ sigma }}) * sqrt(({{ d_plan }}) / nullif({{ d_base }}, 0)), 0)
     )
 {%- endmacro %}
 
 {% macro necesidad_flota(d_plan, ciclo, sigma, d_base, z, dias_cobertura) -%}
-    ({{ d_plan }} * {{ ciclo }} + {{ stock_seguridad(d_plan, sigma, d_base, z, dias_cobertura) }})
+    (({{ d_plan }}) * ({{ ciclo }}) + {{ stock_seguridad(d_plan, sigma, d_base, z, dias_cobertura) }})
 {%- endmacro %}
