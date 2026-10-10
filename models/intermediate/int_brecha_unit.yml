@@ -1,0 +1,25 @@
+version: 2
+
+unit_tests:
+  - name: prestamo_primero_en_el_pais
+    description: >
+      MX1 necesita 10 y MX2 presta 4: MX1 recibe 4 en su país. US2 necesita 5 y
+      US1 tiene 20: US2 recibe 5 de US1. Quedan 6 por cubrir en MX1 y 15 de
+      sobra en US1: cruzan frontera 6. US1 termina con 9 sin prestar. M2 solo
+      existe en MX1: su déficit no tiene de quién recibir.
+    model: int_prestamos
+    given:
+      - input: ref('int_balance_material')
+        rows:
+          - {planta: MX1, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 10, sobrante: 0}
+          - {planta: MX2, pais: MX, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 4}
+          - {planta: US1, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 0, sobrante: 20}
+          - {planta: US2, pais: US, material: M1, tipo_material: KLT, ciclo_dias: 30, deficit_pico: 5, sobrante: 0}
+          - {planta: MX1, pais: MX, material: M2, tipo_material: RACK, ciclo_dias: 32, deficit_pico: 3, sobrante: 0}
+    expect:
+      rows:
+        - {planta: MX1, material: M1, recibido_mismo_pais: 4, recibido_otro_pais: 6, prestado_mismo_pais: 0, prestado_otro_pais: 0}
+        - {planta: MX2, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 4, prestado_otro_pais: 0}
+        - {planta: US1, material: M1, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 5, prestado_otro_pais: 6}
+        - {planta: US2, material: M1, recibido_mismo_pais: 5, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}
+        - {planta: MX1, material: M2, recibido_mismo_pais: 0, recibido_otro_pais: 0, prestado_mismo_pais: 0, prestado_otro_pais: 0}

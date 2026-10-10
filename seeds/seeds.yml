@@ -40,7 +40,9 @@ seeds:
       stock de seguridad, lead time de compra y los dos costos que fijan la z
       económica. El costo de quedarse corto es el desechable equivalente por el
       factor de quiebre (manejo, urgencia, aprobación del cliente); el de pasarse,
-      el costo de capital sobre el costo unitario.
+      el costo de capital sobre el costo unitario. El flete de un préstamo entre
+      plantas es un porcentaje del costo unitario, más caro entre países por
+      aduana e importación temporal.
     config:
       column_types:
         tipo_material: varchar
@@ -48,6 +50,8 @@ seeds:
         lead_time_semanas: integer
         factor_costo_quiebre: double
         costo_capital_anual_pct: double
+        flete_mismo_pais_pct: double
+        flete_otro_pais_pct: double
     columns:
       - name: tipo_material
         tests:
@@ -63,4 +67,22 @@ seeds:
       - name: factor_costo_quiebre
         tests: [not_null]
       - name: costo_capital_anual_pct
+        tests: [not_null]
+      - name: flete_mismo_pais_pct
+        tests: [not_null]
+      - name: flete_otro_pais_pct
+        tests: [not_null]
+
+  - name: plantas
+    description: >
+      País de cada planta (en SAP, T001W-LAND1). Decide si un préstamo de flota
+      cruza frontera y con qué flete (ADR-025).
+    config:
+      column_types:
+        planta: varchar
+        pais: varchar
+    columns:
+      - name: planta
+        tests: [not_null, unique]
+      - name: pais
         tests: [not_null]
