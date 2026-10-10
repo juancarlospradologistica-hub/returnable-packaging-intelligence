@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-09
+**Última actualización:** 2026-10-10
 
 ---
 
@@ -43,9 +43,9 @@ Rotación y pérdidas de contenedores retornables en flota multi-planta usando d
 
 TCO retornable vs desechable (metal vs cartón + tarima madera). Cuantifica el costo por ciclo, la amortización por tipo de contenedor y el punto de equilibrio frente al desechable equivalente. Cerrado en semana 11.
 
-### Alcance IN — Fase 3 (diseño cerrado, ADR-017)
+### Alcance IN — Fase 3
 
-Necesidad de flota retornable por planta, empaque y semana contra el plan de producción de las 12 semanas posteriores al corte, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: recepción, vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en ADR-017. 3a en Semanas 16–17, 3b en Semanas 18–19.
+Necesidad de flota retornable por planta, empaque y semana contra el plan de producción de las 12 semanas posteriores al corte, y costo en USD de la brecha contra la flota real. Incluye el ciclo del empaque dentro de la planta: recepción, vacíos, línea, llenos, sucios, reparación y scrap. Alcance en ADR-016; diseño en ADR-017; necesidad, brecha y sensibilidad en ADR-021 a ADR-026. Cerrado en semana 16.
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -770,6 +770,46 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - dbt build: 29 modelos, 4 seeds, 220 tests de datos y 10 unit tests. Cambiar las columnas de un seed pide dbt seed --full-refresh en una base existente.
   - Los costos de la brecha dependen del factor de quiebre, del costo de capital y del flete; el notebook de 3b.4 muestra la sensibilidad a sus rangos.
 
+### ADR-026 · Escenarios de sensibilidad con una sola lógica y red de préstamos
+
+- **Fecha:** 2026-10-10
+- **Estado:** Accepted. Precisa ADR-025 (puntos 3, 4 y 6). Cumple la sensibilidad que pidieron ADR-017, ADR-021 y ADR-025 para el notebook de Fase 3, y deja dos de los parámetros de ADR-017 fuera del barrido, con razón.
+- **Contexto:** Antes de escribir el notebook 04 medí qué pedía cada sensibilidad prometida:
+  - ADR-021 y ADR-025 piden z, factor de quiebre, costo de capital y flete. ADR-017 pide holgura de flota, mezcla de arranque y fin de serie, días de cobertura, lavado del KLT y reparación del Rack.
+  - Factor de quiebre y costo de capital no mueven una cifra final: mueven la z, y la z mueve la necesidad, el déficit por material, el préstamo, la compra en contenedores enteros y el desechable. Recalcularlo en el notebook era copiar en Polars la fórmula, el reparto proporcional y la compra.
+  - La z solo depende del cociente entre factor y capital: capital al 8% da la misma z que factor 3 (2.95 KLT y 3.20 Rack).
+  - El piso de días de cobertura no manda en ninguna de las 80,352 filas de mart_necesidad_flota. El stock de seguridad más corto es de 8.3 días en KLT y 7.6 en Rack, arriba del techo del rango (7).
+  - Lavado y reparación viven en el generador; sobre la necesidad entran por el ciclo (ley de Little). El ciclo interno medido da 1.35 días naturales por día hábil en KLT y 1.38 en Rack. Reparación del Rack: 5.5% × 10 días hábiles = 0.55 hábiles por viaje; en los extremos del rango de ADR-017, 3% × 5 = 0.15 y 8% × 15 = 1.2.
+  - int_flota_proyectada redondeaba d_plan a dos decimales antes de calcular. Sin el redondeo el capital ocioso pasa de $5,893,702 a $5,893,706 y el desechable de $64,159 a $64,158; la brecha queda en $322,675.
+  - Al pasar el ciclo del escenario como "ciclo_dias + ajuste_ciclo_dias", el unit test dio 92 en lugar de 93: la macro multiplicaba d_plan solo por el primer término.
+- **Alternativas evaluadas:**
+  - Sensibilidad recalculada en el notebook: segunda copia de la fórmula que con el tiempo se separa de la publicada, el problema que resolvió la macro de ADR-023.
+  - Un modelo por escenario: N copias del mismo SQL.
+  - Escenarios como vars de dbt con un build por escenario: la base solo guarda el último y nada se puede comparar.
+  - Flete como escenario: es lineal en su porcentaje y no cambia lo prestado; se calcula exacto sobre mart_brecha_flota.
+  - Barrer holgura y mezcla de escenarios regenerando el dataset: el notebook dejaría de reproducirse desde los marts. La holgura mueve la flota y no la necesidad; su efecto ya es el capital ocioso. La mezcla se mide por atribución. El barrido es simulación y entra con Fase 4.
+  - Red de préstamos con un modelo de transporte: descartado en ADR-025; los flujos salen del reparto proporcional que ya existe.
+- **Decisión:**
+  1. Seed escenarios_brecha: escenario, tipo_material (vacío aplica a los dos), factor_costo_quiebre, costo_capital_anual_pct, z_fija y ajuste_ciclo_dias. Un valor vacío toma el de parametros_flota; base deja todo vacío. Un escenario de un tipo deja al otro con los valores base.
+  2. Una sola lógica: int_z_economico, int_necesidad_escenario, int_balance_material, int_prestamos e int_brecha_escenario llevan escenario. mart_necesidad_flota y mart_brecha_flota publican base; mart_sensibilidad_brecha resume cada escenario por tipo.
+  3. int_curva_z separa la curva de z contra días con quiebre de la elección de la z; int_demanda_plan separa la demanda del plan de la necesidad. d_plan sin redondear.
+  4. ajuste_ciclo_dias suma días naturales al ciclo del plan solo en el uso (d_plan × ciclo). La z y la σ quedan las calibradas con la historia, que tuvo el lavado y la reparación del base.
+  5. Escenarios: factor de quiebre 1, 1.5, 2.5 y 3; capital 8, 10 y 15%; optimista (factor 1, capital 15%); conservador (factor 3, capital 8%); z fija de 3; lavado del KLT de 1 y 3 días (∓1.4); reparación del Rack baja y alta (−0.6 y +0.9).
+  6. mart_red_prestamos: flujo de donante a receptor = recibido del receptor × prestado del donante / total prestado en el pool de la etapa (material y país, o material).
+  7. La macro de necesidad pone cada argumento entre paréntesis.
+  8. Tests: base sin valores propios; un escenario de un tipo deja al otro igual que base; el escenario base de la sensibilidad cuadra con mart_brecha_flota y mart_necesidad_flota; la red cuadra con int_prestamos por planta, tipo y etapa; unit test con ajuste de ciclo. test_readme compara los conteos de dbt del README contra target/manifest.json, y en CI también corre.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Un día hábil de lavado vale 1.4 días naturales del ciclo (medido 1.35–1.38).
+  - Reparación del Rack: −0.6 y +0.9 días naturales sobre el base, con los extremos combinados de tasa (3–8%) y tiempo en REPA (5–15 días hábiles) de ADR-017.
+- **Consecuencias:**
+  - Cifras base sin cambio salvo el redondeo de d_plan: brecha $322,675 (KLT $65,630 y Rack $257,046), capital ocioso $5,893,706.
+  - Sensibilidad de la brecha, KLT + Rack: factor de quiebre 1–3 de $145k a $577k; capital 15–8% de $251k a $577k; reparación del Rack de $280k a $426k; flete de $293k a $370k; lavado del KLT de $297k a $360k. Optimista: $100k de brecha y $11.0M ociosos; conservador: $1,162k y $2.3M; z fija de 3: $429k y $4.5M.
+  - Un día hábil de lavado del KLT vale 31,962 contenedores de necesidad ($0.80M a costo unitario). Es la única palanca del análisis que libera flota en lugar de comprarla.
+  - Red: 62 flujos de KLT y 62 de Rack dentro del país, 116 y 120 entre países. Cruzar frontera mueve 8% de los contenedores prestados y cuesta 26% del flete.
+  - Los materiales con algún arranque son 42% de los KLT y cargan 65% del costo de su brecha; en Rack, 19% de los materiales y 57% del costo.
+  - dbt build: 35 modelos, 5 seeds, 241 tests de datos y 11 unit tests; 292/292 en el completo y en el reducido. pytest: 67 en el completo; 58 y 9 saltados en el reducido.
+  - Agregar un escenario es una fila del seed y dbt seed --full-refresh si cambian columnas.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -842,11 +882,36 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 14** · Hardening: ruff format y check en CI, mart_rutas como universo de rutas (ADR-015), unit tests de int_tramos_fifo, test de cuadre del README, desempate en el top 15. Alcance de Fase 3 y simulador en Fase 4 (ADR-016).
 - [x] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque, flota inicial, parámetros con rango y generadores aleatorios propios (ADR-017).
 - [x] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador (ADR-017 a ADR-019) y modelos dbt de stock por almacén y flota semanal (ADR-020).
-- [ ] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard.
+- [x] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard. Cerrada en Semana 16 (ADR-021 a ADR-026).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-10 · Sesión 44 — Semana 16
+
+- **Duración:** ~5 h
+- **Hecho:**
+  - PR #10 (fase-3b3) mergeado.
+  - Necesidad, flota y brecha por escenario con una sola lógica: int_curva_z, int_demanda_plan, int_necesidad_escenario e int_brecha_escenario; mart_necesidad_flota y mart_brecha_flota publican el base. mart_necesidad_flota sale igual fila por fila contra la versión anterior.
+  - mart_sensibilidad_brecha y mart_red_prestamos; seed escenarios_brecha con escenarios de política, de z fija y de ciclo (lavado del KLT y reparación del Rack).
+  - fix: la macro de necesidad multiplicaba d_plan solo por el primer término de una expresión. Lo encontró el unit test del ajuste de ciclo.
+  - Notebook 04: necesidad contra flota, curva de z, brecha por nivel, red de préstamos, atribución a arranques, sensibilidad y resumen ejecutivo. Pestaña "Necesidad de flota" en el dashboard con selector de escenario.
+  - README con resultados de Fase 3b, linaje y árbol al día. test_readme cuadra cada cifra nueva y compara los conteos de dbt contra el manifest.
+  - Tests nuevos verificados rompiendo: backtest con z bajada 0.7 (truena); necesidad con media z (truena el unit test); flujos entre países inflados (truena assert_red_cuadra); brecha de la sensibilidad sin flete (truena el cuadre con base); escenario duplicado (truena la z); filtro de tipo perdido (truena assert_escenario_un_tipo); base con ajuste propio (truena la z); seis cifras del README movidas (truena test_readme en cada una).
+  - Dataset completo: dbt build 292/292, pytest 67. Reducido de 18 meses: dbt build 292/292, pytest 58 y 9 saltados.
+  - Medición para decidir la siguiente fase: 13 defectos típicos de un extracto real inyectados uno por uno en el dataset reducido. Seis los detecta una regla que nombra la causa (línea duplicada, almacén fuera del seed, 621 sin cliente, familia sin regla de tipo, signo invertido, parte sin instrucción). Cuatro solo por síntoma, con stock o saldo negativo (Bwart fuera del seed, un material en piezas, material sin stock inicial, 622 a un cliente equivocado). Piezas en cero en la instrucción tumba el modelo con división entre cero. Dos pasan en silencio: Cpudt tardío y costo de Rack capturado como KLT, que baja la pérdida reconocida de Fase 1 31.5% sin que falle un test.
+- **Decisiones tomadas:** ADR-026.
+- **Bloqueos:**
+  - Repetí el error de la Sesión 43: probé un test con git checkout -- . y se llevó el README, la pestaña del dashboard y test_readme, que no tenían commit. El README salió de un respaldo; lo demás lo reescribí. Desde hoy las pruebas de rotura revierten por archivo, nunca con el punto.
+  - Dos roturas no tronaron: el texto de reemplazo no estaba en el archivo, y el escenario conservador tiene una z más alta, así que su backtest pasa. Repetidas con un reemplazo verificado y con la z bajada.
+- **Notas de la sesión:**
+  - Un escenario que corre por la misma lógica que el base no necesita su propio test de fórmula; necesita un test de que el base no cambió y de que el filtro del escenario no se escapa.
+  - Una macro que recibe expresiones tiene que poner paréntesis a cada argumento.
+  - El piso de días de cobertura es política sin efecto en este dataset: la variabilidad del sintético manda en todo el rango.
+  - Lo que más mueve la brecha es el costo de quiebre, un supuesto de negocio. Lo que más barato la baja es el lavado, una variable de operación.
+  - El costo unitario de la pérdida de Fase 1 sale del documento MB51 y el del TCO de int_tco_por_material. En el sintético coinciden; en un extracto real son dos fuentes del mismo dato.
+- **Próximo paso:** PR de fase-3b4 con CI verde y merge. Decidir si la Fase 4 es calidad de datos sobre MB51 y maestro de materiales, con el simulador en Fase 5 (ADR-027).
 
 ### 2026-10-09 · Sesión 43 — Semana 16
 
@@ -1646,6 +1711,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Capital ocioso** — Flota que sobra después de cubrir la necesidad y de prestar a otras plantas, valuada a costo unitario.
 - **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
 - **Arranque / fin de serie (EOP)** — Inicio y fin de producción de un programa del cliente. Mueven la necesidad de empaque antes de que la flota pueda reaccionar.
+- **Red de préstamos** — Contenedores que una planta con sobrante presta a otra con déficit del mismo material. Dentro del país va primero por flete y trámite; entre países paga aduana e importación temporal.
 
 ### Términos técnicos
 
@@ -1668,6 +1734,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ley de Little** — En un sistema estable, stock promedio = flujo por tiempo de permanencia (L = λ × W). Con el stock y los 621 por día da el ciclo; con el ciclo y el plan da la flota en uso.
 - **Backtest** — Probar una regla con datos pasados que no se usaron para estimarla: aquí, necesidad estimada con un periodo y quiebres contados en el siguiente.
 - **Curva de supervivencia** — Probabilidad de que un contenedor siga en cliente a cierta edad, estimada con los ciclos observados. Aplicada a las salidas diarias da el saldo esperado.
+- **Escenario de sensibilidad** — Juego de valores de los supuestos que corre por el mismo cálculo que el base. Aquí, una fila de seeds/escenarios_brecha.csv.
+- **Diagrama de tornado** — Gráfica de sensibilidad con una barra por supuesto, del valor bajo al alto de su rango, alrededor del resultado base y ordenada por impacto.
+- **Inyección de defectos** — Meter a propósito errores conocidos en los datos para medir cuáles detectan los tests y cuánto mueven las cifras los que pasan.
 
 ---
 
