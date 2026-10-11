@@ -1,0 +1,296 @@
+version: 2
+
+# Una prueba por regla de calidad (ADR-028, punto 7): una fila que la dispara
+# y una que no. Lo demás va vacío o limpio para que solo responda esa regla.
+unit_tests:
+  - name: calidad_llave_duplicada
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -3, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: llave_duplicada, doc_material: D1, unidades: 2, usd_expuesto: 50.0}
+
+  - name: calidad_bwart_lgort_cliente_signo
+    description: Una línea por regla de línea y una limpia.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: 'Z21', almacen: LLEN, cliente: C1, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D2, posicion: 2, mov_type: '311', almacen: VAC2, cantidad: 4, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '621', almacen: LLEN, cliente: null, cantidad: -1, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D4, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: 3, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D5, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -4, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+      - input: ref('clases_movimiento')
+        rows:
+          - {bwart: '311', evento: traslado}
+          - {bwart: '621', evento: salida_cliente}
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: VACI, estado: vacios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: bwart_fuera_de_catalogo, doc_material: D1}
+        - {regla: lgort_fuera_de_catalogo, doc_material: D2}
+        - {regla: cliente_vacio, doc_material: D3}
+        - {regla: signo_invertido, doc_material: D4}
+
+  - name: calidad_cantidad_en_piezas
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -80, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -3, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}]
+      - input: ref('stg_instruccion_empaque')
+        rows: [{planta: P1, parte: F1, material: M1, piezas_por_contenedor: 40}]
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: cantidad_en_piezas, doc_material: D1, unidades: 78, usd_expuesto: 1950.0}
+
+  - name: calidad_recogida_sin_saldo
+    description: >
+      C2 nunca recibió M1; la foto inicial le da saldo a C3. C4 cruza a negativo
+      el 20 y se reporta ese día; el 21 sigue en negativo y no se reporta otra vez.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C1, cantidad: -5, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '622', almacen: SUCI, cliente: C1, cantidad: 2, fecha_contab: 2026-01-20, fecha_registro: 2026-01-20}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '622', almacen: SUCI, cliente: C2, cantidad: 3, fecha_contab: 2026-01-20, fecha_registro: 2026-01-20}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D4, posicion: 1, mov_type: '622', almacen: SUCI, cliente: C3, cantidad: 1, fecha_contab: 2026-01-20, fecha_registro: 2026-01-20}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D5, posicion: 1, mov_type: '621', almacen: LLEN, cliente: C4, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D6, posicion: 1, mov_type: '622', almacen: SUCI, cliente: C4, cantidad: 3, fecha_contab: 2026-01-20, fecha_registro: 2026-01-20}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D7, posicion: 1, mov_type: '622', almacen: SUCI, cliente: C4, cantidad: 1, fecha_contab: 2026-01-21, fecha_registro: 2026-01-21}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}, {bwart: '622', evento: recogida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: SUCI, estado: sucios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: [{planta: P1, almacen: null, material: M1, cliente: C3, cantidad: 2, fecha: 2026-01-01}]
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: recogida_sin_saldo, doc_material: D3, unidades: 3}
+        - {regla: recogida_sin_saldo, doc_material: D6, unidades: 3}
+
+  - name: calidad_registro_despues_del_cierre
+    description: Con 10 días de cierre, el 9 de febrero cabe y el 20 no.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -2, fecha_contab: 2026-01-30, fecha_registro: 2026-02-20}
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -2, fecha_contab: 2026-01-30, fecha_registro: 2026-02-09}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '311', evento: traslado}]
+      - input: ref('almacenes')
+        rows: [{lgort: VACI, estado: vacios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: registro_despues_del_cierre, doc_material: D1}
+
+  - name: calidad_precio_documento_distinto
+    description: 20% arriba del maestro se reporta; 2% cae en la tolerancia; un documento sin valor no se compara.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0, costo_documento_usd: 30.0}
+          - {planta: P1, material: M2, anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0, costo_documento_usd: 25.5}
+          - {planta: P1, material: M3, anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '311', almacen: VACI, cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, costo_unitario_usd: 25.0, costo_documento_usd: 0.0}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '311', evento: traslado}]
+      - input: ref('almacenes')
+        rows: [{lgort: VACI, estado: vacios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: [{planta: P1, almacen: VACI, material: M1, cantidad: 4, fecha: 2025-12-31}]
+      - input: ref('stg_maestro_materiales')
+        rows:
+          - {planta: P1, material: M1, moneda: USD}
+          - {planta: P1, material: M2, moneda: USD}
+          - {planta: P1, material: M3, moneda: USD}
+    expect:
+      rows:
+        - {regla: precio_documento_distinto, material: M1, unidades: 4, usd_expuesto: 20.0}
+
+  - name: calidad_foto_inicial
+    description: >
+      M1 se mueve sin foto y su primer movimiento es una salida: falta foto por lo
+      más negativo que llega su stock (3). M2 arranca con entrada de flota nueva.
+      La foto de M3 está en un almacén fuera del seed.
+    model: int_calidad_stock_inicial
+    given:
+      - input: ref('stg_stock_inicial')
+        rows: [{planta: P1, almacen: VAC2, material: M3, cantidad: 4, fecha: 2025-12-31}]
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, tipo_material: KLT, mov_type: '311', almacen: VACI, cantidad: -3, fecha_contab: 2026-01-05}
+          - {planta: P1, material: M1, tipo_material: KLT, mov_type: '311', almacen: LINE, cantidad: 3, fecha_contab: 2026-01-05}
+          - {planta: P1, material: M1, tipo_material: KLT, mov_type: '621', almacen: LLEN, cantidad: -3, fecha_contab: 2026-01-06}
+          - {planta: P1, material: M2, tipo_material: KLT, mov_type: '101', almacen: RECF, cantidad: 5, fecha_contab: 2026-01-05}
+          - {planta: P1, material: M2, tipo_material: KLT, mov_type: '621', almacen: LLEN, cantidad: -2, fecha_contab: 2026-01-07}
+      - input: ref('clases_movimiento')
+        rows:
+          - {bwart: '101', evento: entrada_compra}
+          - {bwart: '311', evento: traslado}
+          - {bwart: '621', evento: salida_cliente}
+      - input: ref('almacenes')
+        rows: [{lgort: VACI, estado: vacios}]
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: lgort_fuera_de_catalogo, material: M3, unidades: 4}
+        - {regla: material_sin_foto, material: M1, unidades: 3}
+
+  - name: calidad_plan_e_instruccion
+    description: >
+      F2 sin instrucción, F3 fuera de partes, F4 en cero, F5 a cartón, F6 a un
+      material sin movimientos y F7 repetida. F1 está limpia.
+    model: int_calidad_plan
+    given:
+      - input: ref('stg_plan_produccion')
+        rows:
+          - {planta: P1, parte: F1, semana: 2026-07-06, piezas: 100}
+          - {planta: P1, parte: F2, semana: 2026-07-06, piezas: 200}
+          - {planta: P1, parte: F3, semana: 2026-07-06, piezas: 300}
+      - input: ref('stg_instruccion_empaque')
+        rows:
+          - {planta: P1, parte: F1, material: M1, tipo_material: KLT, piezas_por_contenedor: 40}
+          - {planta: P1, parte: F3, material: M1, tipo_material: KLT, piezas_por_contenedor: 40}
+          - {planta: P1, parte: F4, material: M1, tipo_material: KLT, piezas_por_contenedor: 0}
+          - {planta: P1, parte: F5, material: C1, tipo_material: CARTON, piezas_por_contenedor: 10}
+          - {planta: P1, parte: F6, material: M9, tipo_material: KLT, piezas_por_contenedor: 40}
+          - {planta: P1, parte: F7, material: M1, tipo_material: KLT, piezas_por_contenedor: 40}
+          - {planta: P1, parte: F7, material: M1, tipo_material: KLT, piezas_por_contenedor: 40}
+      - input: ref('stg_partes')
+        rows:
+          - {planta: P1, parte: F1, cliente: C1}
+          - {planta: P1, parte: F2, cliente: C1}
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1}
+          - {planta: P1, material: C1}
+    expect:
+      rows:
+        - {regla: parte_sin_instruccion, parte: F2}
+        - {regla: parte_sin_registro, parte: F3}
+        - {regla: piezas_en_cero, parte: F4}
+        - {regla: instruccion_a_desechable, parte: F5}
+        - {regla: instruccion_fuera_de_planta, parte: F6}
+        - {regla: llave_plan_duplicada, parte: F7}
+
+  - name: calidad_maestro
+    description: >
+      M2 con grupo fuera del seed, M3 en MXN, M4 a $0.25 por unidad de precio
+      100, RCK-5 con grupo de KLT, M6 repetido, M7 se mueve sin fila en el
+      maestro. M1 limpio; M8 con unidad de precio 100 y precio dentro de la banda.
+    model: int_calidad_maestro
+    given:
+      - input: ref('stg_maestro_materiales')
+        rows:
+          - {planta: P1, material: M1, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 25.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M2, grupo_articulos: EMB-PAL, tipo_material: null, precio: 25.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M3, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 462.5, unidad_precio: 1, moneda: MXN, costo_unitario_usd: 462.5}
+          - {planta: P1, material: M4, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 25.0, unidad_precio: 100, moneda: USD, costo_unitario_usd: 0.25}
+          - {planta: P1, material: RCK-5, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 25.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 25.0}
+          - {planta: P1, material: RCK-9, grupo_articulos: EMB-RCK, tipo_material: RACK, precio: 180.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 180.0}
+          - {planta: P1, material: M6, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 25.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M6, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 25.0, unidad_precio: 1, moneda: USD, costo_unitario_usd: 25.0}
+          - {planta: P1, material: M8, grupo_articulos: EMB-KLT, tipo_material: KLT, precio: 2500.0, unidad_precio: 100, moneda: USD, costo_unitario_usd: 25.0}
+      - input: ref('stg_stock_inicial')
+        rows:
+          - {planta: P1, almacen: VACI, material: M4, cantidad: 10, fecha: 2025-12-31}
+          - {planta: P1, almacen: VACI, material: RCK-5, cantidad: 2, fecha: 2025-12-31}
+          - {planta: P1, almacen: VACI, material: M3, cantidad: 2, fecha: 2025-12-31}
+          - {planta: P1, almacen: VACI, material: M7, cantidad: 2, fecha: 2025-12-31}
+      - input: ref('grupos_material')
+        rows:
+          - {matkl: EMB-KLT, tipo_material: KLT, mtart: LEIH}
+          - {matkl: EMB-RCK, tipo_material: RACK, mtart: LEIH}
+      - input: ref('prefijos_material')
+        rows:
+          - {prefijo: KLT-, tipo_material: KLT}
+          - {prefijo: RCK-, tipo_material: RACK}
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1, cantidad: -2, costo_documento_usd: 25.0}
+          - {planta: P1, material: M7, cantidad: -2, costo_documento_usd: 25.0}
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+    expect:
+      rows:
+        - {regla: grupo_fuera_de_catalogo, material: M2, unidades: 0, usd_expuesto: 0.0}
+        - {regla: moneda_distinta, material: M3, unidades: 2, usd_expuesto: 925.0}
+        - {regla: unidad_de_precio, material: M4, unidades: 10, usd_expuesto: 247.5}
+        - {regla: grupo_contradice_codigo, material: RCK-5, unidades: 2, usd_expuesto: 310.0}
+        - {regla: llave_maestro_duplicada, material: M6, unidades: 2, usd_expuesto: null}
+        - {regla: material_sin_maestro, material: M7, unidades: 2, usd_expuesto: 50.0}
+
+  - name: calidad_violaciones_con_severidad
+    description: >
+      La severidad sale del seed; una regla que no está en el seed queda con
+      severidad nula y la detecta el not_null. Las fallas de Pandera entran como
+      error_de_schema.
+    model: int_calidad_violaciones
+    given:
+      - input: ref('int_calidad_mb51')
+        rows: [{regla: llave_duplicada, planta: P1, material: M1}]
+      - input: ref('int_calidad_stock_inicial')
+        rows: [{regla: regla_nueva, planta: P1, material: M2}]
+      - input: ref('int_calidad_plan')
+        rows: []
+      - input: ref('int_calidad_maestro')
+        rows: []
+      - input: source('raw', 'raw_errores_schema')
+        rows: [{tabla: raw_mb51, archivo: mb51_P1.parquet, columna: Menge, check: not_nullable, valor: null, fila: 7}]
+      - input: ref('reglas_calidad')
+        rows:
+          - {regla: llave_duplicada, defecto: D01, objeto: mb51, severidad: bloquea, cifra_afectada: todas}
+          - {regla: error_de_schema, defecto: null, objeto: ingesta, severidad: bloquea, cifra_afectada: todas}
+    expect:
+      rows:
+        - {regla: llave_duplicada, defecto: D01, severidad: bloquea, material: M1, detalle: null}
+        - {regla: regla_nueva, defecto: null, severidad: null, material: M2, detalle: null}
+        - {regla: error_de_schema, defecto: null, severidad: bloquea, material: null, detalle: 'raw_mb51.Menge not_nullable: nulo (fila 7)'}

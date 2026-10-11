@@ -32,3 +32,11 @@ vars:
   # Fuera de muestra, la z económica puede fallar su objetivo de días con
   # quiebre por a lo más estos puntos porcentuales (ADR-025).
   backtest_tolerancia_pp: 1.0
+  # Reglas de calidad (ADR-028, ADR-030). Días naturales después del fin de
+  # mes en que se cierra el periodo; banda de precio contra la mediana del
+  # grupo; tolerancia entre precio del documento y del maestro. Con
+  # calidad_reporte en true las reglas que bloquean corren como warn.
+  calidad_dias_cierre: 10
+  calidad_banda_precio: 3
+  calidad_tolerancia_precio_pct: 5
+  calidad_reporte: false

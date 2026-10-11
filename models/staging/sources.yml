@@ -17,12 +17,10 @@ sources:
             description: >
               Clase de movimiento. 621/622/702 con stock especial V para el ciclo
               con cliente; 601 solo para cartón desechable; 311, 325, 343, 344 y 555
-              para el ciclo dentro de la planta (ADR-017).
+              para el ciclo dentro de la planta (ADR-017). Una clase fuera del seed
+              clases_movimiento la reporta la regla bwart_fuera_de_catalogo.
             tests:
               - not_null
-              - accepted_values:
-                  arguments:
-                    values: ['101','102','261','311','325','343','344','555','601','621','622','702']
           - name: budat
             description: Fecha de contabilización.
             tests:
@@ -53,10 +51,6 @@ sources:
           - name: lgort
             tests:
               - not_null
-              - relationships:
-                  arguments:
-                    to: ref('almacenes')
-                    field: lgort
           - name: matnr
             tests:
               - not_null
@@ -132,3 +126,9 @@ sources:
             tests: [not_null]
           - name: waers
             tests: [not_null]
+
+      - name: raw_errores_schema
+        description: >
+          Fallas de Pandera en la ingesta, una fila por falla (ADR-028, punto 9):
+          tabla, columna, check, valor y fila. Vacía si todo cumple el contrato.
+          La regla error_de_schema las reporta.

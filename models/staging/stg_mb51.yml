@@ -22,12 +22,8 @@ models:
       - name: almacen
         description: >
           Lgort. Uno fuera del seed almacenes se perdería en el join de
-          int_mov_stock sin aviso; el 702 V no lleva almacén (MSKU).
-        tests:
-          - relationships:
-              arguments:
-                to: ref('almacenes')
-                field: lgort
+          int_mov_stock sin aviso: lo reporta la regla lgort_fuera_de_catalogo.
+          El 702 V no lleva almacén (MSKU).
 
       - name: tipo_material
         description: Del grupo de artículos del maestro (ADR-028).
@@ -50,8 +46,6 @@ models:
           - not_null
 
       - name: cliente
-        description: Cuenta de stock especial V. Obligatorio en 601, 621, 622 y 702.
-        tests:
-          - not_null:
-              config:
-                where: "mov_type in ('601', '621', '622', '702')"
+        description: >
+          Cuenta de stock especial V. Obligatorio en 601, 621, 622 y 702: lo
+          reporta la regla cliente_vacio.

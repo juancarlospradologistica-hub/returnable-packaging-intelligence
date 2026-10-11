@@ -12,12 +12,9 @@ models:
       - name: material
         tests: [not_null]
       - name: grupo_articulos
-        description: Matkl. Uno fuera del seed grupos_material deja el material sin tipo.
-        tests:
-          - relationships:
-              arguments:
-                to: ref('grupos_material')
-                field: matkl
+        description: >
+          Matkl. Uno fuera del seed grupos_material deja el material sin tipo: lo
+          reporta la regla grupo_fuera_de_catalogo.
       - name: tipo_material
         tests:
           - not_null
@@ -29,8 +26,5 @@ models:
       - name: moneda
         description: >
           Waers. Una planta que valora en moneda local (MXN, NIO) multiplica pérdida,
-          compra y capital ocioso por el tipo de cambio si se lee como USD.
-        tests:
-          - accepted_values:
-              arguments:
-                values: ['USD']
+          compra y capital ocioso por el tipo de cambio si se lee como USD: lo
+          reporta la regla moneda_distinta.
