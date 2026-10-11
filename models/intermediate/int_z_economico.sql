@@ -16,10 +16,11 @@ with calibracion as (
 ),
 
 costos as (
-    -- Fuente única de costos: int_tco_por_material (ADR-010).
+    -- Costo unitario del maestro ponderado por viaje (ADR-028); desechable
+    -- equivalente de parametros_flota, vía int_tco_por_material.
     select
         tipo_material,
-        max(costo_unitario_usd)                         as costo_unitario_usd,
+        sum(costo_unitario_usd * viajes) / sum(viajes)  as costo_unitario_usd,
         max(desechable_equiv_usd)                       as desechable_equiv_usd
     from {{ ref('int_tco_por_material') }}
     group by tipo_material

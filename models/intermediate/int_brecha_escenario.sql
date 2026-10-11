@@ -5,14 +5,15 @@
 --   3. desechable en las semanas en que la compra todavía no llega: cada
 --      contenedor que falta deja de hacer 7 / ciclo viajes a la semana.
 -- Lo que sobra después de prestar es capital ocioso, a costo unitario.
--- Costos de int_tco_por_material (ADR-010); política de parametros_flota.
+-- Costo unitario del maestro por planta y material (ADR-028); desechable
+-- equivalente y política de parametros_flota.
 with prestamos as (
     select * from {{ ref('int_prestamos') }}
 ),
 
 costos as (
-    select planta, tipo_material, costo_unitario_usd, desechable_equiv_usd
-    from {{ ref('int_tco_por_material') }}
+    select planta, material, costo_unitario_usd
+    from {{ ref('stg_maestro_materiales') }}
 ),
 
 semanal as (
@@ -52,7 +53,7 @@ calculo as (
         p.*,
         k.lead_time_semanas,
         c.costo_unitario_usd,
-        c.desechable_equiv_usd,
+        k.desechable_equiv_usd,
         k.flete_mismo_pais_pct,
         k.flete_otro_pais_pct,
         -- Se compran contenedores enteros; el épsilon evita comprar uno por
@@ -63,7 +64,7 @@ calculo as (
         coalesce(d.viajes_desechable, 0)                                    as viajes_desechable,
         p.sobrante - p.prestado_mismo_pais - p.prestado_otro_pais           as sobrante_final
     from prestamos p
-    join costos c on c.planta = p.planta and c.tipo_material = p.tipo_material
+    join costos c on c.planta = p.planta and c.material = p.material
     join {{ ref('parametros_flota') }} k on k.tipo_material = p.tipo_material
     left join desechable d
         on d.escenario = p.escenario and d.planta = p.planta and d.material = p.material
