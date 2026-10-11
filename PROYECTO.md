@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-10
+**Última actualización:** 2026-10-11
 
 ---
 
@@ -574,7 +574,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-020 · Stock por almacén y flota semanal en dbt
 
 - **Fecha:** 2026-10-08
-- **Estado:** Accepted. Lleva ADR-017, punto 5, a los modelos: stock por almacén y tipo de stock, stock no negativo y conservación de flota. Cierra Fase 3a. Punto 1 reemplazado por ADR-028: el tipo de empaque sale del maestro, no de una macro por prefijo.
+- **Estado:** Accepted. Lleva ADR-017, punto 5, a los modelos: stock por almacén y tipo de stock, stock no negativo y conservación de flota. Cierra Fase 3a. Punto 1 reemplazado por ADR-028: el tipo de empaque sale del maestro, no de una macro por prefijo. Punto 5, relationships de Lgort en staging, reemplazado por la regla lgort_fuera_de_catalogo (ADR-030).
 - **Contexto:** Antes de escribir los modelos medí sobre el dataset completo (14 plantas, seed 42):
   - 6,696 combinaciones planta × material de retornables y 53,406 llaves planta × material × almacén × tipo de stock. SUCI bloqueado y REPA libre solo existen dentro del día: abren y cierran en cero.
   - 387 días hábiles con movimiento de 542 naturales; ninguno en fin de semana.
@@ -847,7 +847,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-028 · Diseño de Fase 4: maestro de materiales, catálogo de defectos y reglas por causa
 
 - **Fecha:** 2026-10-10
-- **Estado:** Accepted. Puntos 5 y 6 precisados por ADR-029. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
+- **Estado:** Accepted. Puntos 5 y 6 precisados por ADR-029; puntos 7, 9, 11 y 12 por ADR-030. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
 - **Contexto:** Antes de diseñar reproduje main en d5c4007 y medí sobre el dataset completo (14 plantas, 18 meses, seed 42):
   - Reproducción: 20,981,396 filas, huella de 621, 622 y 702 igual en las 14 plantas, dbt build 292/292, pytest 67.
   - El tipo de empaque sale del prefijo KLT-/RCK-/CTN- en tres staging. Con Matnr numérico, que es lo normal en SAP, clasifica 0%.
@@ -953,7 +953,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-029 · Mecánica de inyección de defectos y bitácora
 
 - **Fecha:** 2026-10-10
-- **Estado:** Accepted. Precisa ADR-028, puntos 5 y 6: unidad de cada defecto, cómo no se repiten los objetivos y qué registra la bitácora. Ajusta el desvío de D16.
+- **Estado:** Accepted. Precisa ADR-028, puntos 5 y 6: unidad de cada defecto, cómo no se repiten los objetivos y qué registra la bitácora. Ajusta el desvío de D16. D12 y D16 precisados por ADR-030.
 - **Contexto:** Al escribir 4a.2 encontré que ADR-028 dejaba abiertas cuatro cosas que cambian el resultado:
   - Un objetivo que no se repite "por material" no sirve para D01: un día completo toca casi todos los materiales de la planta y deja sin candidatos a los defectos siguientes.
   - D16 con ±20% uniforme pone parte de los casos dentro de la tolerancia de 5% de su regla: la bitácora diría defecto donde la regla, con razón, no ve ninguno.
@@ -1002,6 +1002,70 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 
   - Con todo encendido en el reducido, dbt run truena en int_necesidad_escenario (D11) y dbt test falla en 70 tests, la mayoría por síntoma. Es la línea de base que 4a.3 cambia por una regla por defecto.
   - tests/test_defectos.py prueba que todo lo que cambia contra el limpio está en la bitácora y todo lo de la bitácora cambió, en MB51 y en las cinco tablas; que hay al menos un caso por planta; que lo tocado queda fuera de lo siguiente, con un caso forzado; que la bitácora es reproducible; y la ingesta y el CLI.
+
+
+### ADR-030 · Reglas de calidad en dbt, severidad desde el seed e ingesta con Pandera lazy
+
+- **Fecha:** 2026-10-11
+- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16.
+- **Contexto:** Al correr las reglas contra el completo con los 18 defectos encendidos encontré:
+  - Con reglas del maestro excluyentes (la primera que aplica), los materiales con D13 en la planta de D18 salían como moneda y no como unidad de precio. Y la banda de precio calculada en USD no sirve para un precio en MXN.
+  - D16 en la planta de D18 no tiene contra qué compararse: el documento está en USD y el maestro en MXN.
+  - D12 apuntó una instrucción a un cartón al que después D17 le quitó el grupo de artículos: 1 de 57 sin reportar.
+  - recogida_sin_saldo marcando cada recogida mientras la cuenta sigue en negativo: 6,578 alarmas fuera de la bitácora de D07 en el reducido. Marcando solo el día en que la cuenta cruza a negativo, o una cuenta que nunca recibió el material, bajan a 3,842.
+  - dbt fija la severidad de un test al parsear el proyecto; no puede leerla de un seed.
+  - Valor expuesto por línea en el precio del documento: $119M, porque cuenta cada traslado interno. Por la flota de la foto inicial: $1.6M.
+  - Pandera valida las seis tablas del completo en 2.9 s.
+- **Alternativas evaluadas:**
+  - Un modelo por regla: 23 modelos que leen MB51 cada uno. Elegí uno por objeto (MB51, foto, plan, maestro) más uno que los une.
+  - Severidad escrita en cada test del yml: dos fuentes para el mismo dato, el seed y el yml.
+  - store_failures de dbt en lugar de modelos de violaciones: guarda lo que falla, pero sin llave común, unidades ni valor expuesto, y no se puede consultar como un modelo más.
+  - Pandera con los catálogos (Bwart, Lgort) y con piezas mayores a cero: un extracto con una clase Z truena en la ingesta y nunca llega a la regla que la nombra.
+  - Ingesta que truena con la primera falla: un extracto real con un defecto no llega a dbt y no hay reporte de calidad.
+  - recogida_sin_saldo sin la foto de stock especial V: un extracto real que trae saldo en cliente al abrir marcaría como defecto toda recogida de las primeras semanas.
+- **Decisión:**
+  1. Cuatro modelos de violaciones en models/intermediate/calidad (int_calidad_mb51, int_calidad_stock_inicial, int_calidad_plan, int_calidad_maestro) con las mismas columnas: regla, planta, material, año, documento, posición, parte, unidades, usd_expuesto y detalle. int_calidad_violaciones los une, junto con raw_errores_schema, y les pega defecto, objeto, severidad y cifra afectada del seed reglas_calidad.
+  2. 23 reglas: una por defecto del catálogo y cinco sin defecto que heredan los tests de antes (parte_sin_registro, instruccion_fuera_de_planta, llave_plan_duplicada, llave_maestro_duplicada y error_de_schema).
+  3. Clases de movimiento por evento del seed clases_movimiento, no por código: cliente_vacio, signo_invertido, cantidad_en_piezas y recogida_sin_saldo leen salida_cliente, recogida_cliente y los demás eventos. Bwart sale de Pandera y del source; test_contrato_bwart se va porque el catálogo ya vive en un solo lugar.
+  4. En MB51 una línea responde a una sola regla de línea, en el orden del catálogo. En el maestro las reglas son independientes y la banda de precio es por grupo de artículos y moneda.
+  5. recogida_sin_saldo: la recogida a una cuenta que nunca recibió el material, o la del día en que la cuenta cruza a negativo. El saldo abre con la foto de stock especial V si la trae.
+  6. Valor expuesto: líneas de MB51 a costo del maestro (cantidad_en_piezas, solo el exceso); foto faltante por lo más negativo que llega el stock; unidad de precio y familia, la diferencia contra la mediana que le toca por la flota de la foto; moneda y grupo fuera de catálogo, todo el valor de la flota; material sin maestro, la flota al precio del documento; precio del documento, la diferencia por la flota. Partes e instrucciones no tienen costo y reportan piezas del plan.
+  7. Un test genérico calidad_sin_violaciones aplicado dos veces a int_calidad_violaciones: severidad bloquea como error y alerta como warn, filtrando la severidad del seed al correr. Con la var calidad_reporte en true el de bloquea corre como warn. Los dos llevan tag calidad.
+  8. Vars: calidad_dias_cierre 10, calidad_banda_precio 3 y calidad_tolerancia_precio_pct 5, con el rango de ADR-028.
+  9. Pandera solo revisa estructura: tipos, nulos, longitudes y llaves. Sale el isin de Bwart y el gt=0 de piezas, y entra StockInicialSchema. La ingesta valida cada archivo en modo lazy, escribe raw_errores_schema (tabla, archivo, columna, check, valor, fila) y sigue.
+  10. RPI_DB elige la base en la ingesta, en profiles.yml y en los tests, con data/rpi.duckdb por default: la corrida con defectos va a data/sucio.duckdb sin tocar la limpia.
+  11. int_demanda_plan deja fuera las instrucciones en cero en lugar de dividir entre cero; la parte sale de la demanda como una parte sin instrucción y la reporta piezas_en_cero.
+  12. Generador (precisa ADR-029): D12 marca como tocado el cartón al que apunta, y D16 no cae en la planta que recibe D18.
+  13. CI agrega el paso sucio: reducido con --defectos todos en data/sucio, dbt seed, dbt run, dbt test --select tag:calidad con calidad_reporte y tests/test_calidad.py.
+- **Consecuencias:**
+  - Limpio, completo y reducido: cero violaciones. dbt build 333/333: 41 modelos, 8 seeds, 263 tests de datos y 21 unit tests. El build del completo pasa de ~161 s a ~210 s; int_calidad_mb51 tarda 24 s solo y más dentro del build, en paralelo con int_tramos_fifo e int_stock_diario.
+  - Con los 18 defectos encendidos, dbt run termina sin errores y cada registro de la bitácora lo reporta la regla de su defecto: 100% en los 18, en el completo y en el reducido.
+
+    | Defecto | Regla | Severidad | Violaciones (completo) | USD expuesto |
+    |---|---|---|---:|---:|
+    | D01 | llave_duplicada | bloquea | 54,366 | $36,032,017 |
+    | D02 | bwart_fuera_de_catalogo | bloquea | 3,978 | $1,647,548 |
+    | D03 | lgort_fuera_de_catalogo | bloquea | 968 | $901,844 |
+    | D04 | cliente_vacio | bloquea | 1,989 | $825,541 |
+    | D05 | signo_invertido | bloquea | 4,207 | $2,338,306 |
+    | D06 | cantidad_en_piezas | bloquea | 4,569 | $38,210,355 |
+    | D07 | recogida_sin_saldo | bloquea | 11,922 | $7,190,138 |
+    | D08 | registro_despues_del_cierre | alerta | 20,922 | $12,980,493 |
+    | D09 | material_sin_foto | bloquea | 28 | $571,170 |
+    | D10 | parte_sin_instruccion | bloquea | 139 | — |
+    | D11 | piezas_en_cero | bloquea | 28 | — |
+    | D12 | instruccion_a_desechable | bloquea | 57 | — |
+    | D13 | unidad_de_precio | bloquea | 70 | $1,704,602 |
+    | D14 | grupo_contradice_codigo | bloquea | 28 | $2,601,830 |
+    | D15 | material_sin_maestro | bloquea | 42 | $416,040 |
+    | D16 | precio_documento_distinto | alerta | 156 | $1,609,685 |
+    | D17 | grupo_fuera_de_catalogo | bloquea | 14 | $517,270 |
+    | D18 | moneda_distinta | bloquea | 529 | $104,189,905 |
+
+  - Falsas alarmas, todas explicadas por otro defecto. recogida_sin_saldo marca 10,300 recogidas fuera de la bitácora de D07 en el completo (3,842 en el reducido); todas caen en una cuenta con un día duplicado (D01), un 621 con clase Z (D02) o un 621 sin cliente (D04), que rompen el saldo de la cuenta. precio_documento_distinto marca 91 materiales fuera de D16: 65 con unidad de precio mal (D13) y 26 con alta por referencia (D14), donde el que está mal es el maestro.
+  - El valor expuesto de D18 es la flota de una planta leída en MXN como si fuera USD; el de D01 y D06 cuenta líneas y contenedores, no cifras publicadas. Cuánto mueve cada defecto cada headline lo mide el arnés de 4b.
+  - CI suma ~1.5 min en el reducido: dbt run sucio tarda 25 s y las reglas 8 s.
+  - test_calidad.py corre en el paso sucio de CI y salta en una base limpia, donde revisa que no haya violaciones.
 
 ---
 
@@ -1092,14 +1156,36 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 15** · Diseño de Fase 3: almacenes y movimientos dentro de la planta, plan de producción, instrucción de empaque, flota inicial, parámetros con rango y generadores aleatorios propios (ADR-017).
 - [x] **Semanas 16–17** · Fase 3a: ciclo interno del empaque en el generador (ADR-017 a ADR-019) y modelos dbt de stock por almacén y flota semanal (ADR-020).
 - [x] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard. Cerrada en Semana 16 (ADR-021 a ADR-026).
-- [ ] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR de diseño). Arranque de 4a.
-- [ ] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido.
+- [x] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR-028). Arranque de 4a: maestro de materiales (ADR-028).
+- [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [ ] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada.
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-11 · Sesión 47 — Semana 18
+
+- **Duración:** ~3.5 h
+- **Hecho:**
+  - PR #13 (fase-4a2) mergeado.
+  - 4a.3: ingesta con Pandera lazy y raw_errores_schema; seeds reglas_calidad y prefijos_material; int_calidad_mb51, int_calidad_stock_inicial, int_calidad_plan, int_calidad_maestro e int_calidad_violaciones con 23 reglas; test genérico calidad_sin_violaciones por severidad; 10 unit tests que cubren las 23 reglas; tests/test_calidad.py y paso sucio en CI.
+  - Los tests de causa que ya existían pasan a reglas: llave MB51, signo, Lgort, cliente vacío, plan sin instrucción, instrucción fuera de retornable, llaves del plan y del maestro, grupo y moneda. Sale test_contrato_bwart.
+  - int_demanda_plan ya no divide entre cero con una instrucción en cero.
+  - RPI_DB para correr con defectos en una base aparte.
+  - Completo con los 18 defectos: dbt run sin errores y 100% de la bitácora reportada por la regla de su defecto. Falsas alarmas: 10,300 de recogida_sin_saldo, todas en cuentas con D01, D02 o D04, y 91 de precio_documento_distinto, todas en materiales con D13 o D14.
+  - Verificados rompiendo: las diez pruebas unitarias con su regla rota (llave, signo, piezas, cruce del saldo, cierre, tolerancia, foto con entrada de flota, instrucción fuera de planta, banda de precio, regla fuera del seed), cuatro fórmulas de valor expuesto, la severidad (una llave duplicada en el limpio truena; con calidad_reporte avisa; con el seed en alerta avisa), la detección sin la regla de D10 (38 de 38 sin reportar), el limpio con una violación y la ingesta con un nulo en el plan.
+  - Dataset completo: dbt build 333/333, pytest 86 y 2 saltados. Reducido: dbt build 333/333, pytest 77 y 11 saltados; paso sucio con 100% de detección.
+- **Decisiones tomadas:** ADR-030.
+- **Bloqueos:**
+  - Los unit tests de dbt piden las mismas columnas en todas las filas de expect; con columnas distintas por fila el error es de SQL (set operations) y no dice cuál prueba.
+  - La primera versión de recogida_sin_saldo marcaba cada recogida con la cuenta en negativo: 6,578 alarmas fuera de D07 en el reducido. La regla nombra la recogida que cruza, no las que siguen.
+- **Notas de la sesión:**
+  - Un defecto que rompe una identidad (llave, signo, cliente) dispara reglas de otros defectos aguas abajo. La falsa alarma se mide, y se explica por cuenta o material tocado.
+  - El valor expuesto se calcula sobre la flota, no sobre las líneas: por línea, cada traslado interno vuelve a contar el mismo contenedor.
+  - Con todo encendido los defectos se cruzan de formas que el diseño no previó: D17 le quitó el grupo al cartón de D12. La prueba de 100% lo encontró en un caso de 57.
+- **Próximo paso:** PR de fase-4a3 con CI verde y merge. Después Fase 4b: mart_calidad_datos, arnés de impacto por headline, notebook 05 y pestaña del dashboard.
 
 ### 2026-10-10 · Sesión 46 — Semana 17
 
@@ -2003,6 +2089,10 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Arnés de impacto** — Corrida del pipeline con un defecto a la vez contra la corrida limpia; da cuánto mueve cada defecto cada headline.
 - **Bitácora de defectos** — Registro que escribe el generador de cada defecto inyectado; es la verdad contra la que se mide cada regla.
 - **USD expuesto** — Valor a costo del maestro de lo que toca una violación. Se calcula sobre un extracto real; no es lo que se mueve un headline.
+- **Validación lazy** — Pandera revisa todo el DataFrame y junta todas las fallas en lugar de detenerse en la primera. Aquí van a raw_errores_schema.
+- **Severidad (bloquea / alerta)** — Una regla que bloquea truena dbt build y la cifra que afecta no se publica; una alerta solo avisa. Vive en seeds/reglas_calidad.csv.
+- **Detección (recall)** — Fracción de lo inyectado que reporta la regla de su defecto. CI exige 100%.
+- **Falsa alarma** — Violación de una regla fuera de la bitácora de su defecto. Aquí todas se explican por otro defecto que tocó la misma cuenta o material.
 - **Regla por causa / por síntoma** — Una regla por causa nombra el defecto (almacén fuera del catálogo). Una por síntoma solo ve el efecto (stock negativo) y deja el diagnóstico por hacer.
 
 ---
