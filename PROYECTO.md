@@ -847,7 +847,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-028 · Diseño de Fase 4: maestro de materiales, catálogo de defectos y reglas por causa
 
 - **Fecha:** 2026-10-10
-- **Estado:** Accepted. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
+- **Estado:** Accepted. Puntos 5 y 6 precisados por ADR-029. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
 - **Contexto:** Antes de diseñar reproduje main en d5c4007 y medí sobre el dataset completo (14 plantas, 18 meses, seed 42):
   - Reproducción: 20,981,396 filas, huella de 621, 622 y 702 igual en las 14 plantas, dbt build 292/292, pytest 67.
   - El tipo de empaque sale del prefijo KLT-/RCK-/CTN- en tres staging. Con Matnr numérico, que es lo normal en SAP, clasifica 0%.
@@ -949,6 +949,60 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Límites que quedan escritos, todos sobre un extracto real: D07 solo se detecta si la cuenta equivocada no tenía saldo de ese material; si lo tenía, solo lo ve la conciliación. D14 solo se detecta si la empresa codifica la familia en el Matnr o en el texto; sin convención pasa. D06 supone menos contenedores por línea que piezas por contenedor, que es lo normal en KLT y Rack.
   - Un tablero o notebook que publica una cifra lee cifra_afectada del seed y no la presenta si hay una violación que bloquea sobre ella.
 
+
+### ADR-029 · Mecánica de inyección de defectos y bitácora
+
+- **Fecha:** 2026-10-10
+- **Estado:** Accepted. Precisa ADR-028, puntos 5 y 6: unidad de cada defecto, cómo no se repiten los objetivos y qué registra la bitácora. Ajusta el desvío de D16.
+- **Contexto:** Al escribir 4a.2 encontré que ADR-028 dejaba abiertas cuatro cosas que cambian el resultado:
+  - Un objetivo que no se repite "por material" no sirve para D01: un día completo toca casi todos los materiales de la planta y deja sin candidatos a los defectos siguientes.
+  - D16 con ±20% uniforme pone parte de los casos dentro de la tolerancia de 5% de su regla: la bitácora diría defecto donde la regla, con razón, no ve ninguno.
+  - D06 con una fecha de corte sorteada en la ventana puede caer después del último 621 del material y no cambiar nada.
+  - D07 con un cliente al azar puede caer en una cuenta con saldo de ese material, que es justo el caso que la regla no detecta (ADR-028, Consecuencias).
+- **Alternativas evaluadas:**
+  - Inyección dentro de generator.py: el archivo pasa de ~1,040 a ~1,600 líneas y mezcla el dato limpio con el sucio. Elegí un módulo aparte, defectos.py, que recibe las tablas limpias de una planta y devuelve las sucias más la bitácora.
+  - Objetivos únicos por material para todo: D01 bloquea el resto. Únicos por documento para todo: un defecto de maestro y uno de MB51 pueden caer en el mismo material y uno tapa al otro.
+  - Objetivos únicos entre plantas: las reglas son por planta; no hace falta.
+  - Bitácora por línea para D16: miles de filas para un mismo hecho, el precio de un material.
+- **Decisión:**
+  1. defectos.py con un catálogo D01 a D18 en orden fijo. Cada defecto recibe las tablas de la planta después de numerar documentos, su generador default_rng([seed, indice_planta, 3, k]) y lo que ya tocaron los anteriores.
+  2. Unidad y universo de cada tasa: línea para D02 a D05 y D07 (universo: las líneas de su clase de movimiento o todas, en D05); día para D01; documento para D08; material para D06, D09, D13 a D17; parte para D10 a D12; planta para D18. Casos = máx(1, redondeo(tasa × universo)), sin pasar de los candidatos.
+  3. Lo tocado queda fuera de lo siguiente en tres listas por planta. Documentos: los defectos de línea, documento y día excluyen los documentos ya tocados. Materiales: los defectos por material los excluyen entre sí, y los de línea posteriores tampoco caen en ellos. Partes: las instrucciones excluyen partes tocadas y partes cuyo empaque ya tocó un defecto por material.
+  4. D06 toma la fecha de inicio de los propios 621 del material: cada material elegido tiene al menos una línea en piezas.
+  5. D07 manda el 622 a un cliente de la planta que nunca recibió ese material.
+  6. D08 cambia el registro de todas las posiciones del documento a entre 11 y 40 días después del fin de mes de su Budat, sin pasar del corte.
+  7. D16 desvía el precio del documento entre 6% y 20%, hacia arriba o hacia abajo: fuera de la tolerancia de 5% de la regla.
+  8. D18 cae en la primera planta de cada país con moneda propia en la corrida; con 14 plantas, PLNT_MX01.
+  9. Bitácora por registro tocado: línea para los defectos de MB51 salvo D16, material para D09, D13 a D18 y D16, parte para D10 a D12. D14 deja dos filas por material, grupo y precio. La ingesta la carga como raw_bitacora_defectos si existe y la borra si no.
+  10. CLI: --defectos todos o una lista de IDs.
+- **Consecuencias:**
+  - Con los defectos apagados el generador escribe los mismos 19 archivos que main, frame por frame. La huella no cambia.
+  - Completo con todo encendido: 21,035,762 filas (+54,366 duplicadas) y 93,379 registros en la bitácora; el generador tarda 92 s contra 70 s del limpio. Reducido: 18,025 registros, todos los defectos con caso en las dos plantas y D18 en PLNT_MX01.
+
+    | Defecto | Completo | Reducido |
+    |---|---:|---:|
+    | D01 | 54,366 líneas | 10,336 líneas |
+    | D02 | 3,978 líneas | 623 líneas |
+    | D03 | 968 líneas | 184 líneas |
+    | D04 | 1,989 líneas | 312 líneas |
+    | D05 | 4,207 líneas | 751 líneas |
+    | D06 | 4,569 líneas de 14 materiales | 895 líneas de 4 materiales |
+    | D07 | 1,347 líneas | 235 líneas |
+    | D08 | 20,922 líneas | 3,724 líneas |
+    | D09 | 28 materiales | 8 materiales |
+    | D10 | 139 partes | 38 partes |
+    | D11 | 28 partes | 8 partes |
+    | D12 | 57 partes | 15 partes |
+    | D13 | 70 materiales | 16 materiales |
+    | D14 | 28 materiales | 8 materiales |
+    | D15 | 42 materiales | 8 materiales |
+    | D16 | 70 materiales | 16 materiales |
+    | D17 | 14 materiales | 4 materiales |
+    | D18 | 529 materiales | 836 materiales |
+
+  - Con todo encendido en el reducido, dbt run truena en int_necesidad_escenario (D11) y dbt test falla en 70 tests, la mayoría por síntoma. Es la línea de base que 4a.3 cambia por una regla por defecto.
+  - tests/test_defectos.py prueba que todo lo que cambia contra el limpio está en la bitácora y todo lo de la bitácora cambió, en MB51 y en las cinco tablas; que hay al menos un caso por planta; que lo tocado queda fuera de lo siguiente, con un caso forzado; que la bitácora es reproducible; y la ingesta y el CLI.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1012,7 +1066,8 @@ Una fila por planta y material. Fuente única del tipo de empaque y del costo un
 - **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
 - **Maestro de materiales (ADR-028):** 7,440 filas, una por material asignado a cada planta. Matkl EMB-KLT, EMB-RCK y EMB-CTN; Mtart LEIH o VERP; Verpr $25, $180 y $8 con Peinh 1 y Waers USD, el mismo precio que lleva el MB51.
 - **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
-- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, y el maestro en maestro_materiales.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
+- **Defectos (ADR-028, ADR-029):** 18 defectos inyectables, apagados por default; `--defectos todos` o una lista. Tasas: D01 un día por planta; D02 0.1% de los 621; D03 0.05% de las entradas 311 a VACI; D04 0.05% de los 621; D05 0.02% de las líneas; D06 0.2% de los retornables con instrucción; D07 0.05% de los 622; D08 0.1% de los documentos, 11 a 40 días después del fin de mes; D09 0.5% de los materiales con foto; D10 0.5%, D11 0.1% y D12 0.2% de las partes; D13 1% de los materiales, unidad de precio 10 o 100; D14 0.5% de los retornables; D15 0.5% y D16 1% de los materiales, D16 con desvío de 6 a 20%; D17 0.2% de los materiales; D18 la primera planta de cada país con moneda propia (MXN, factor 18.5). Al menos un caso por planta.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, el maestro en maestro_materiales.parquet y, con defectos, bitacora_defectos.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
 
@@ -1045,6 +1100,26 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-10 · Sesión 46 — Semana 17
+
+- **Duración:** ~2.5 h
+- **Hecho:**
+  - PR #12 (fase-4a1) mergeado.
+  - 4a.2: catálogo de 18 defectos en src/rpi/defectos.py, apagado por default, con sub-stream propio por planta y defecto, objetivos que no se repiten dentro de la planta y bitácora por registro tocado. DefectosConfig en config.py, --defectos en el CLI e ingesta de raw_bitacora_defectos (se borra si no hay archivo).
+  - Con los defectos apagados el generador escribe los mismos 19 archivos que main, frame por frame.
+  - Completo con todo encendido: 93,379 registros en la bitácora y 92 s de generación. Reducido: 18,025 registros, al menos un caso por defecto en cada planta.
+  - Con todo encendido en el reducido, dbt run truena en int_necesidad_escenario y dbt test falla en 70 tests: la línea de base de 4a.3.
+  - tests/test_defectos.py: el cambio contra el limpio es exactamente la bitácora, en MB51 y en las cinco tablas. Verificados rompiendo diez veces: un cambio sin registrar, un registro sin cambio, el maestro sin excluir lo tocado, sin el mínimo por planta, la moneda en todas las plantas, la ingesta que no borra la bitácora vieja, el CLI sin mayúsculas, una bitácora vieja que sobrevive, un generador sin semilla fija y líneas que no excluyen documentos tocados.
+  - Dataset completo: dbt build 316/316, pytest 86. Reducido: dbt build 316/316, pytest 77 y 9 saltados.
+- **Decisiones tomadas:** ADR-029.
+- **Bloqueos:**
+  - La prueba de documentos tocados pasó con la exclusión rota: en el reducido ningún defecto cayó por azar en el día duplicado. La repetí con un caso forzado (un solo día, un solo material) y ahí sí truena.
+- **Notas de la sesión:**
+  - Un invariante que depende del azar se prueba forzando el caso, no esperando que el dataset lo produzca. Ya había pasado con las partes sin volumen (Sesión 40).
+  - La tasa de un defecto se define junto con la regla: un desvío dentro de la tolerancia no es defecto y la bitácora no debe decir que lo es.
+  - Una prueba de diferencias entre tablas con columnas nulas necesita joins con nulos iguales; sin eso, todo parece cambiado.
+- **Próximo paso:** PR de fase-4a2 con CI verde y merge. Después 4a.3: ingesta con Pandera lazy, seed reglas_calidad, modelos de violaciones, test genérico por severidad y paso de CI con defectos encendidos.
 
 ### 2026-10-10 · Sesión 45 — Semana 17
 
