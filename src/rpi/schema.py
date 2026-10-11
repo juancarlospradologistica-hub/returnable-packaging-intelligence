@@ -193,6 +193,47 @@ class InstruccionEmpaqueSchema(pa.DataFrameModel):
         unique = ["Werks", "Parte"]
 
 
+class MaestroMaterialesSchema(pa.DataFrameModel):
+    """
+    Maestro de materiales por planta (MARA/MARC/MBEW). Llave: Werks, Matnr.
+    Solo estructura: qué grupo de artículos es KLT o Rack lo decide el seed
+    grupos_material en dbt, igual que Bwart y Lgort.
+    """
+
+    Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Maktx: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
+    Mtart: Series[str] = pa.Field(
+        str_length={"min_value": 1, "max_value": 4},
+        description="Tipo de material SAP. LEIH retornable, VERP desechable.",
+    )
+    Matkl: Series[str] = pa.Field(
+        str_length={"min_value": 1, "max_value": 9},
+        description="Grupo de artículos. Define KLT, Rack o cartón.",
+    )
+    Meins: Series[str] = pa.Field(isin=MEINS_VALIDAS)
+    Verpr: Series[float] = pa.Field(
+        gt=0.0,
+        description=(
+            "Precio de reposición por Peinh unidades, en la moneda de Waers. En MBEW "
+            "si el tipo de material se valora; con LEIH estándar, del registro info "
+            "de compras (EINE)."
+        ),
+    )
+    Peinh: Series[int] = pa.Field(ge=1, description="Unidad de precio.")
+    Waers: Series[str] = pa.Field(
+        str_length={"min_value": 3, "max_value": 5},
+        description=(
+            "Moneda del precio. En SAP es la de la sociedad de la planta: una planta "
+            "MX valora en MXN. El pipeline reporta en USD."
+        ),
+    )
+
+    class Config:
+        strict = True
+        unique = ["Werks", "Matnr"]
+
+
 class PlanProduccionSchema(pa.DataFrameModel):
     """Plan semanal en piezas (MD61/PBED). Llave: Werks, Parte, Semana (lunes)."""
 

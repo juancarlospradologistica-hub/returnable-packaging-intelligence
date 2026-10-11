@@ -1,10 +1,10 @@
-"""Ingesta a DuckDB: MB51, foto de stock inicial y plan de producción."""
+"""Ingesta a DuckDB: MB51, foto de stock inicial, plan de producción y maestro de materiales."""
 
 from pathlib import Path
 
 import duckdb
 
-from rpi.generator import INSTRUCCION, PARTES, PLAN, STOCK_INICIAL
+from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL
 
 RAW_DIR = Path("data/raw")
 DB_PATH = Path("data/rpi.duckdb")
@@ -18,9 +18,10 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
         "raw_partes": raw_dir / PARTES,
         "raw_instruccion_empaque": raw_dir / INSTRUCCION,
         "raw_plan_produccion": raw_dir / PLAN,
+        "raw_maestro_materiales": raw_dir / MAESTRO,
     }
-    # Sin foto inicial no hay stock por almacén y sin plan no hay necesidad;
-    # mejor fallar aquí que en dbt.
+    # Sin foto inicial no hay stock por almacén, sin plan no hay necesidad y
+    # sin maestro no hay tipo ni costo; mejor fallar aquí que en dbt.
     faltan = [p.name for t, p in tablas.items() if t != "raw_mb51" and not p.exists()]
     if faltan:
         raise FileNotFoundError(f"Faltan {faltan} en {raw_dir}: regenerar con python -m rpi")

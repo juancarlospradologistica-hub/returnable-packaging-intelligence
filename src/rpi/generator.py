@@ -35,6 +35,21 @@ _MAKTX_LABEL: dict[MaterialType, str] = {
     MaterialType.CARTON: "Caja Carton",
 }
 
+# Maestro de materiales (ADR-028). Tipo de material SAP y grupo de artículos
+# por tipo de empaque; el grupo es lo que el pipeline mapea a KLT, Rack o
+# cartón en el seed grupos_material.
+_MTART: dict[MaterialType, str] = {
+    MaterialType.KLT: "LEIH",
+    MaterialType.RACK: "LEIH",
+    MaterialType.CARTON: "VERP",
+}
+
+_MATKL: dict[MaterialType, str] = {
+    MaterialType.KLT: "EMB-KLT",
+    MaterialType.RACK: "EMB-RCK",
+    MaterialType.CARTON: "EMB-CTN",
+}
+
 # "SHIP" es la salida a cliente: 621 para retornables, 601 para cartón.
 _KIND_WEIGHTS: dict[str, float] = {
     "SHIP": 0.22,
@@ -128,6 +143,44 @@ def assign_matnr_to_plants(
         plant.werks: global_matnr + list(chunk)
         for plant, chunk in zip(cfg.plants, local_chunks, strict=True)
     }
+
+
+def build_material_master(
+    pool: pl.DataFrame,
+    assignment: dict[str, list[str]],
+) -> pl.DataFrame:
+    """
+    Maestro por planta y material, estilo MARA/MARC/MBEW: una fila por cada
+    material asignado a la planta. Matkl da el tipo de empaque y Verpr por
+    Peinh unidades el costo unitario, en la moneda de Waers. No sortea nada:
+    el MB51 lleva el mismo precio en Costo_usd.
+    """
+    tipos = [MaterialType(t) for t in pool["tipo"].to_list()]
+    atributos = pool.select("Matnr", "Maktx", "Costo_usd").with_columns(
+        pl.Series("Mtart", [_MTART[t] for t in tipos]),
+        pl.Series("Matkl", [_MATKL[t] for t in tipos]),
+    )
+    filas = pl.DataFrame(
+        {
+            "Werks": [w for w, matnrs in assignment.items() for _ in matnrs],
+            "Matnr": [m for matnrs in assignment.values() for m in matnrs],
+        }
+    )
+    return (
+        filas.join(atributos, on="Matnr", how="left")
+        .select(
+            "Werks",
+            "Matnr",
+            "Maktx",
+            "Mtart",
+            "Matkl",
+            pl.lit("PC").alias("Meins"),
+            pl.col("Costo_usd").alias("Verpr"),
+            pl.lit(1, dtype=pl.Int64).alias("Peinh"),
+            pl.lit("USD").alias("Waers"),
+        )
+        .sort("Werks", "Matnr")
+    )
 
 
 def assign_customers(
@@ -842,6 +895,7 @@ def _assign_document_numbers(
 
 
 STOCK_INICIAL = "stock_inicial.parquet"
+MAESTRO = "maestro_materiales.parquet"
 _PLAN_FILES = (PARTES, INSTRUCCION, PLAN)
 
 
@@ -898,11 +952,13 @@ def generate(
     out.mkdir(parents=True, exist_ok=True)
 
     # El directorio es del generador: una corrida no se mezcla con restos de otra.
-    for old in [*out.glob("mb51_*.parquet"), *(out / f for f in (STOCK_INICIAL, *_PLAN_FILES))]:
+    previos = (STOCK_INICIAL, MAESTRO, *_PLAN_FILES)
+    for old in [*out.glob("mb51_*.parquet"), *(out / f for f in previos)]:
         old.unlink(missing_ok=True)
 
     pool = build_matnr_pool(cfg)
     assignment = assign_matnr_to_plants(cfg, pool, rng)
+    build_material_master(pool, assignment).write_parquet(out / MAESTRO)
     customers, problem = assign_customers(cfg, rng)
     dates = build_date_range(cfg)
     recon = reconciliation_dates(cfg)
