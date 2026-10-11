@@ -3,7 +3,8 @@ rpi:
   outputs:
     dev:
       type: duckdb
-      path: "data/rpi.duckdb"
+      # RPI_DB permite una base aparte para la corrida con defectos.
+      path: "{{ env_var('RPI_DB', 'data/rpi.duckdb') }}"
       threads: 4
       # Tope explícito para que DuckDB escriba a disco en lugar de fallar.
       # Sin él toma 80% de la RAM y en Windows el SO puede negar la memoria
