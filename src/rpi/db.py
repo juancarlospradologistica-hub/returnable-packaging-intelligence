@@ -4,6 +4,7 @@ from pathlib import Path
 
 import duckdb
 
+from rpi.defectos import BITACORA
 from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL
 
 RAW_DIR = Path("data/raw")
@@ -29,6 +30,17 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
     con = duckdb.connect(str(db_path))
     for tabla, archivo in tablas.items():
         con.execute(f"CREATE OR REPLACE TABLE {tabla} AS SELECT * FROM read_parquet('{archivo}')")
+    # La bitácora solo existe si el generador inyectó defectos; un extracto real
+    # no la trae. Sin archivo se borra la de una corrida anterior.
+    bitacora = raw_dir / BITACORA
+    if bitacora.exists():
+        con.execute(
+            "CREATE OR REPLACE TABLE raw_bitacora_defectos AS "
+            f"SELECT * FROM read_parquet('{bitacora}')"
+        )
+        tablas["raw_bitacora_defectos"] = bitacora
+    else:
+        con.execute("DROP TABLE IF EXISTS raw_bitacora_defectos")
 
     for tabla in tablas:
         count = con.execute(f"SELECT COUNT(*) FROM {tabla}").fetchone()[0]

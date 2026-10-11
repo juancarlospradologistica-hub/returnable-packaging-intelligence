@@ -7,6 +7,8 @@ Uso:
     uv run python -m rpi --plants 3 --country MX  # solo 3 plantas MX
     uv run python -m rpi --loss-rate 0.01         # merma media 1% por viaje
     uv run python -m rpi --output data/custom     # directorio distinto
+    uv run python -m rpi --defectos todos         # catálogo de defectos de ADR-028
+    uv run python -m rpi --defectos D05,D13       # solo esos defectos
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from rpi.config import Country, GeneratorConfig
+from rpi.config import DEFECTOS, Country, GeneratorConfig
 from rpi.generator import generate
 
 
@@ -52,6 +54,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--seed", type=int, default=None, metavar="N", help="Semilla aleatoria (default: 42)."
     )
     p.add_argument(
+        "--defectos",
+        type=str,
+        default=None,
+        metavar="LISTA",
+        help=(
+            "Defectos a inyectar: 'todos' o IDs separados por coma (D01..D18). "
+            "Escribe bitacora_defectos.parquet. Default: ninguno."
+        ),
+    )
+    p.add_argument(
         "--output",
         type=str,
         default="data/raw",
@@ -87,6 +99,13 @@ def build_config(args: argparse.Namespace) -> GeneratorConfig:
         data["loss"]["rate_mean"] = args.loss_rate
     if args.seed is not None:
         data["random_seed"] = args.seed
+    if args.defectos:
+        activos = (
+            list(DEFECTOS)
+            if args.defectos == "todos"
+            else [d.strip().upper() for d in args.defectos.split(",")]
+        )
+        data["defectos"]["activos"] = activos
     return GeneratorConfig.model_validate(data)
 
 
@@ -97,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
         f"Plantas: {len(cfg.plants)} | Meses: {cfg.horizon_months} | "
         f"Corte: {cfg.reference_date} | Merma media: {cfg.loss.rate_mean:.2%} | "
         f"Seed: {cfg.random_seed}"
+        + (f" | Defectos: {','.join(cfg.defectos.activos)}" if cfg.defectos.activos else "")
     )
     generate(cfg=cfg, output_dir=args.output)
 
