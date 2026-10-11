@@ -167,7 +167,9 @@ Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas, la foto d
 uv run python -m rpi
 ```
 
-`uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed y directorio de salida.
+`uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed, defectos y directorio de salida.
+
+Con `--defectos todos` (o una lista como `--defectos D05,D13`) el generador inyecta el catálogo de defectos de un extracto real (ADR-028) y escribe `data/raw/bitacora_defectos.parquet` con cada registro que tocó. Apagado por default: sin la opción el dataset sale igual.
 
 Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales):
 
@@ -257,10 +259,11 @@ returnable-packaging-intelligence/
 │   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
+│   ├── defectos.py             # Catálogo de defectos inyectables y bitácora
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
-├── tests/                      # pytest: generador, ciclo interno, plan, huella, schema, marts y cuadre del README
+├── tests/                      # pytest: generador, defectos, ciclo interno, plan, huella, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
