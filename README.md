@@ -96,6 +96,12 @@ flowchart LR
     besc --> brecha[mart_brecha_flota]
     besc --> sens[mart_sensibilidad_brecha]
     prest --> red[mart_red_prestamos]
+    stg --> cal[int_calidad_mb51, _stock_inicial, _plan, _maestro]
+    stgm --> cal
+    stgplan --> cal
+    cal --> viol[int_calidad_violaciones]
+    reglas[seeds reglas_calidad y prefijos_material] --> viol
+    errs[raw_errores_schema] --> viol
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -133,7 +139,7 @@ Elegí este stack apuntando a un pipeline analítico reproducible sin depender d
 | DataFrames | Polars | Lazy y multihilo; el generador escribe 21M filas sin salir del laptop. |
 | Warehouse local | DuckDB | Motor OLAP embebido. Cero infraestructura. |
 | Modelado analítico | dbt-duckdb | Linaje, tests y docs auto-generados. |
-| Validación de schemas | Pandera | Contrato explícito sobre las 22 columnas MB51. |
+| Validación de schemas | Pandera | Contrato de estructura de las seis tablas de entrada, validado en modo lazy en la ingesta. |
 | Generación sintética | NumPy | Distribuciones por parámetro con seed fijo. |
 | Persistencia | Parquet | Columnar comprimido, un archivo por planta. |
 | Package manager | uv | Setup en segundos. Reemplaza pip + venv + poetry. |
@@ -171,14 +177,14 @@ uv run python -m rpi
 
 Con `--defectos todos` (o una lista como `--defectos D05,D13`) el generador inyecta el catálogo de defectos de un extracto real (ADR-028) y escribe `data/raw/bitacora_defectos.parquet` con cada registro que tocó. Apagado por default: sin la opción el dataset sale igual.
 
-Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales):
+Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales). Cada tabla pasa por su schema Pandera; una falla de estructura no detiene la carga y queda en `raw_errores_schema`:
 
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (36 modelos, 6 seeds, 263 tests de datos y 11 unit tests):
+Construir modelos y correr los tests de dbt (41 modelos, 8 seeds, 263 tests de datos y 21 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -189,6 +195,20 @@ Correr los tests de Python:
 ```bash
 uv run pytest tests/ -v
 ```
+
+Medir las reglas de calidad contra los defectos inyectados, en una base aparte para no tocar la limpia (`RPI_DB` la leen la ingesta, `profiles.yml` y los tests; en PowerShell, `$env:RPI_DB = "data/sucio.duckdb"`):
+
+```bash
+export RPI_DB=data/sucio.duckdb
+uv run python -m rpi --defectos todos --output data/sucio
+uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/sucio')"
+uv run dbt seed --profiles-dir .
+uv run dbt run --profiles-dir .
+uv run dbt test --profiles-dir . --select tag:calidad --vars '{calidad_reporte: true}'
+uv run pytest tests/test_calidad.py -v -s
+```
+
+Cada regla vive en `models/intermediate/calidad/` y su severidad en `seeds/reglas_calidad.csv`: una que bloquea truena `dbt build`; una alerta solo avisa. Con `calidad_reporte` las dos avisan, y `test_calidad.py` exige que cada registro de la bitácora lo reporte la regla de su defecto.
 
 Abrir el dashboard:
 
@@ -234,7 +254,8 @@ returnable-packaging-intelligence/
 │   │   ├── int_flota_proyectada.sql        # flota menos merma pendiente y pérdida por viaje
 │   │   ├── int_balance_material.sql        # déficit pico y sobrante prestable
 │   │   ├── int_prestamos.sql               # préstamos entre plantas, por país y entre países
-│   │   └── int_brecha_escenario.sql        # compra, desechable y USD por escenario
+│   │   ├── int_brecha_escenario.sql        # compra, desechable y USD por escenario
+│   │   └── calidad/                        # reglas por causa por objeto y violaciones con severidad
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
@@ -248,7 +269,7 @@ returnable-packaging-intelligence/
 │       ├── mart_brecha_flota.sql
 │       ├── mart_sensibilidad_brecha.sql
 │       └── mart_red_prestamos.sql
-├── seeds/                      # almacenes, clases de movimiento, grupos de artículos, plantas, política y escenarios
+├── seeds/                      # catálogos SAP, plantas, política, escenarios y reglas de calidad
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -264,7 +285,7 @@ returnable-packaging-intelligence/
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
 ├── tests/                      # pytest: generador, defectos, ciclo interno, plan, huella, schema, marts y cuadre del README
-├── tests_dbt/                  # tests singulares de dbt
+├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
 ├── pyproject.toml
@@ -443,13 +464,13 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 36 modelos dbt y 6 seeds con 263 tests de datos y 11 unit tests → notebooks → dashboard Marimo con tres pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 41 modelos dbt y 8 seeds con 263 tests de datos y 21 unit tests → notebooks → dashboard Marimo con tres pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
-Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
+Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029) y cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed; CI corre el reducido con los defectos encendidos y exige que cada regla reporte todo lo de su defecto (ADR-030). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
