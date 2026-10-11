@@ -22,6 +22,7 @@ import numpy as np
 import polars as pl
 
 from rpi.config import GeneratorConfig, IntRange, MaterialType
+from rpi.defectos import BITACORA, inyecta
 
 _MATERIAL_PREFIX: dict[MaterialType, str] = {
     MaterialType.KLT: "KLT",
@@ -952,13 +953,13 @@ def generate(
     out.mkdir(parents=True, exist_ok=True)
 
     # El directorio es del generador: una corrida no se mezcla con restos de otra.
-    previos = (STOCK_INICIAL, MAESTRO, *_PLAN_FILES)
+    previos = (STOCK_INICIAL, MAESTRO, BITACORA, *_PLAN_FILES)
     for old in [*out.glob("mb51_*.parquet"), *(out / f for f in previos)]:
         old.unlink(missing_ok=True)
 
     pool = build_matnr_pool(cfg)
     assignment = assign_matnr_to_plants(cfg, pool, rng)
-    build_material_master(pool, assignment).write_parquet(out / MAESTRO)
+    maestro = build_material_master(pool, assignment)
     customers, problem = assign_customers(cfg, rng)
     dates = build_date_range(cfg)
     recon = reconciliation_dates(cfg)
@@ -966,6 +967,9 @@ def generate(
     total_rows = 0
     stocks: list[pl.DataFrame] = []
     planes: list[tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = []
+    maestros: list[pl.DataFrame] = []
+    bitacoras: list[pl.DataFrame] = []
+    paises_vistos: set[str] = set()
 
     for idx, plant in enumerate(cfg.plants):
         monthly = int(rng.integers(plant.monthly_movements_min, plant.monthly_movements_max))
@@ -985,23 +989,49 @@ def generate(
         # a la fecha de extracción.
         df = _complete(df, pool).filter(pl.col("Cpudt") <= cfg.reference_date)
         internos, stock = emit_internal_cycle(df, cfg, dates[0], seed, idx)
-        planes.append(emit_production_plan(df, cfg, seed, idx))
+        partes, instruccion, plan = emit_production_plan(df, cfg, seed, idx)
         internos = _complete(
             internos.with_columns(pl.col("doc_id") + df["doc_id"].max() + 1), pool
         ).select(df.columns)
         df = pl.concat([df, internos])
-        df = (
-            _assign_document_numbers(df, offsets)
-            .select(_OUTPUT_COLUMNS)
-            .sort(["Budat", "Mblnr", "Zeile"])
-        )
+        df = _assign_document_numbers(df, offsets).select(_OUTPUT_COLUMNS)
+        maestro_planta = maestro.filter(pl.col("Werks") == plant.werks)
+        if cfg.defectos.activos:
+            # Después de numerar: los defectos ven la llave final y no mueven
+            # ningún sorteo del limpio (ADR-028, punto 5).
+            tablas, bitacora = inyecta(
+                {
+                    "mb51": df,
+                    "stock": stock,
+                    "partes": partes,
+                    "instruccion": instruccion,
+                    "plan": plan,
+                    "maestro": maestro_planta,
+                },
+                cfg.defectos,
+                plant,
+                plant.country not in paises_vistos,
+                cfg.reference_date,
+                seed,
+                idx,
+            )
+            df, stock, maestro_planta = tablas["mb51"], tablas["stock"], tablas["maestro"]
+            partes, instruccion, plan = tablas["partes"], tablas["instruccion"], tablas["plan"]
+            bitacoras.append(bitacora)
+        paises_vistos.add(plant.country)
+        df = df.sort(["Budat", "Mblnr", "Zeile"])
         df.write_parquet(out / f"mb51_{plant.werks}.parquet")
         stocks.append(stock)
+        planes.append((partes, instruccion, plan))
+        maestros.append(maestro_planta)
         total_rows += df.height
         print(f"  {plant.werks}: {df.height:,} filas")
         del df, internos
 
     pl.concat(stocks).write_parquet(out / STOCK_INICIAL)
+    pl.concat(maestros).sort("Werks", "Matnr").write_parquet(out / MAESTRO)
+    if bitacoras:
+        pl.concat(bitacoras).write_parquet(out / BITACORA)
     for nombre, tablas in zip(_PLAN_FILES, zip(*planes, strict=True), strict=True):
         pl.concat(tablas).write_parquet(out / nombre)
     print(f"Parquet escrito en {out}: {len(cfg.plants)} archivos, {total_rows:,} filas")

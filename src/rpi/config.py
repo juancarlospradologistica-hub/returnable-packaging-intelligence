@@ -337,6 +337,75 @@ class MaterialCost(BaseModel):
     carton: float = Field(default=8.0, gt=0, description="Cartón + tarima madera")
 
 
+DEFECTOS = tuple(f"D{i:02d}" for i in range(1, 19))
+
+
+class DefectosConfig(BaseModel):
+    """
+    Catálogo de defectos inyectables (ADR-028, ADR-029). Todos apagados por
+    default. Las tasas son la fracción del universo de cada defecto en una
+    planta; con un defecto encendido hay al menos un caso por planta.
+    """
+
+    activos: list[str] = Field(default_factory=list)
+    d01_dias: int = Field(default=1, ge=0, description="Días duplicados por planta (0–3).")
+    d02_tasa: float = Field(default=0.001, ge=0, le=1, description="De los 621 (0.05–0.5%).")
+    d02_bwart: str = Field(default="Z21", description="Clase Z copiada de 621, sin mapear.")
+    d03_tasa: float = Field(
+        default=0.0005, ge=0, le=1, description="De las entradas 311 a VACI (0.01–0.2%)."
+    )
+    d03_lgort: str = Field(default="VAC2", description="Almacén nuevo fuera del seed.")
+    d04_tasa: float = Field(default=0.0005, ge=0, le=1, description="De los 621 (0.01–0.2%).")
+    d05_tasa: float = Field(default=0.0002, ge=0, le=1, description="De las líneas (0.01–0.1%).")
+    d06_tasa: float = Field(
+        default=0.002, ge=0, le=1, description="De los retornables con instrucción (0.1–1%)."
+    )
+    d07_tasa: float = Field(default=0.0005, ge=0, le=1, description="De los 622 (0.02–0.2%).")
+    d08_tasa: float = Field(default=0.001, ge=0, le=1, description="De los documentos (0.05–0.5%).")
+    d08_dias_min: int = Field(
+        default=11,
+        ge=1,
+        description="Días después del fin de mes del Budat; el umbral de la regla es 10.",
+    )
+    d08_dias_max: int = Field(default=40, ge=1)
+    d09_tasa: float = Field(default=0.005, ge=0, le=1, description="De los materiales con foto.")
+    d10_tasa: float = Field(default=0.005, ge=0, le=1, description="De las partes (0.2–2%).")
+    d11_tasa: float = Field(default=0.001, ge=0, le=1, description="De las partes (0.05–0.5%).")
+    d12_tasa: float = Field(default=0.002, ge=0, le=1, description="De las partes (0.1–1%).")
+    d13_tasa: float = Field(default=0.01, ge=0, le=1, description="De los materiales (0.5–3%).")
+    d13_unidades: list[int] = Field(default_factory=lambda: [10, 100])
+    d14_tasa: float = Field(default=0.005, ge=0, le=1, description="De los retornables (0.2–2%).")
+    d15_tasa: float = Field(default=0.005, ge=0, le=1, description="De los materiales (0.2–2%).")
+    d16_tasa: float = Field(default=0.01, ge=0, le=1, description="De los materiales (0.5–5%).")
+    d16_desvio_min: float = Field(
+        default=0.06,
+        gt=0,
+        lt=1,
+        description="Arriba de la tolerancia de 5% de la regla: un desvío menor no es defecto.",
+    )
+    d16_desvio_max: float = Field(default=0.20, gt=0, lt=1)
+    d17_tasa: float = Field(default=0.002, ge=0, le=1, description="De los materiales (0.1–1%).")
+    d17_matkl: str = Field(default="EMB-PAL", description="Grupo nuevo fuera del seed.")
+    d18_moneda: dict[Country, tuple[str, float]] = Field(
+        default_factory=lambda: {Country.MX: ("MXN", 18.5)},
+        description=(
+            "Moneda local y factor ilustrativo por país. Se aplica a la primera planta "
+            "de cada país de la corrida."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def ids_validos(self) -> DefectosConfig:
+        fuera = sorted(set(self.activos) - set(DEFECTOS))
+        if fuera:
+            raise ValueError(f"Defectos fuera del catálogo: {fuera}")
+        if self.d08_dias_min > self.d08_dias_max:
+            raise ValueError("d08_dias_min no puede ser mayor que d08_dias_max")
+        if self.d16_desvio_min >= self.d16_desvio_max:
+            raise ValueError("d16_desvio_min debe ser menor que d16_desvio_max")
+        return self
+
+
 class GeneratorConfig(BaseModel):
     """Configuración completa del generador sintético MB51."""
 
@@ -371,6 +440,7 @@ class GeneratorConfig(BaseModel):
     cost: MaterialCost = Field(default_factory=MaterialCost)
     internal: InternalCycleConfig = Field(default_factory=InternalCycleConfig)
     plan: PlanConfig = Field(default_factory=PlanConfig)
+    defectos: DefectosConfig = Field(default_factory=DefectosConfig)
     random_seed: int | None = Field(
         default=42,
         description="Semilla para reproducibilidad. None = no fijar.",
