@@ -8,8 +8,8 @@ select
     tipo_material,
     cast(date_trunc('month', fecha_contab) as date)     as mes,
     cast(sum(abs(cantidad)) as bigint)                  as unidades_perdidas,
-    max(costo_usd)                                      as costo_unitario_usd,
-    round(sum(abs(cantidad) * costo_usd), 2)            as perdida_usd
+    max(costo_unitario_usd)                             as costo_unitario_usd,
+    round(sum(abs(cantidad) * costo_unitario_usd), 2)   as perdida_usd
 from {{ ref('stg_mb51') }}
 where mov_type = '702'
 group by planta, material, material_desc, tipo_material, date_trunc('month', fecha_contab)

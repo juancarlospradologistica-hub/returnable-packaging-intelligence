@@ -7,7 +7,7 @@ with mart as (
 ),
 
 origen as (
-    select sum(abs(cantidad)) as unidades, sum(abs(cantidad) * costo_usd) as usd
+    select sum(abs(cantidad)) as unidades, sum(abs(cantidad) * costo_unitario_usd) as usd
     from {{ ref('stg_mb51') }}
     where mov_type = '702'
 )

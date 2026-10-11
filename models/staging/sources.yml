@@ -113,3 +113,22 @@ sources:
             tests: [not_null]
           - name: piezas
             tests: [not_null]
+
+      - name: raw_maestro_materiales
+        description: >
+          Maestro de materiales por planta, estilo MARA/MARC/MBEW (ADR-028): texto,
+          tipo de material SAP, grupo de artículos, unidad base, precio, unidad
+          de precio y moneda. Fuente única del tipo de empaque y del costo unitario.
+        columns:
+          - name: werks
+            tests: [not_null]
+          - name: matnr
+            tests: [not_null]
+          - name: matkl
+            tests: [not_null]
+          - name: verpr
+            tests: [not_null]
+          - name: peinh
+            tests: [not_null]
+          - name: waers
+            tests: [not_null]

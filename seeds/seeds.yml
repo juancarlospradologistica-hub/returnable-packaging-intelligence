@@ -33,6 +33,30 @@ seeds:
           - not_null
           - unique
 
+  - name: grupos_material
+    description: >
+      Grupo de artículos (MARA-MATKL) → tipo de empaque (ADR-028). El tipo sale
+      del maestro y no del código de material: un extracto real con Matnr
+      numérico se mapea aquí. mtart es el tipo de material SAP que se espera
+      para el grupo.
+    config:
+      column_types:
+        matkl: varchar
+        tipo_material: varchar
+        mtart: varchar
+    columns:
+      - name: matkl
+        tests: [not_null, unique]
+      - name: tipo_material
+        description: Un extracto real puede tener varios grupos por tipo (KLT chico, KLT grande).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK', 'CARTON']
+      - name: mtart
+        tests: [not_null]
+
   - name: parametros_flota
     description: >
       Parámetros de política por tipo de empaque (ADR-017, punto 11; ADR-021;

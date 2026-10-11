@@ -33,7 +33,7 @@ flujo as (
             where m.mov_type = '621' and m.fecha_contab <= u.fecha - {{ var('antiguedad_conciliacion_dias') }}
         )                                                               as salidas_conciliadas,
         coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
-        coalesce(sum(abs(m.cantidad) * m.costo_usd)
+        coalesce(sum(abs(m.cantidad) * m.costo_unitario_usd)
             filter (where m.mov_type = '702'), 0)                       as perdida_reconocida_usd
     from movimientos m
     cross join ultima_conciliacion u

@@ -30,7 +30,7 @@ models:
                 field: lgort
 
       - name: tipo_material
-        description: Derivado del prefijo de Matnr (KLT, RCK, CTN).
+        description: Del grupo de artículos del maestro (ADR-028).
         tests:
           - not_null
           - accepted_values:
