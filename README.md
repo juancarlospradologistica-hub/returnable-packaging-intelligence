@@ -46,6 +46,11 @@ flowchart LR
     raw[raw_mb51] --> stg[stg_mb51]
     rawsi[raw_stock_inicial] --> stgsi[stg_stock_inicial]
     rawplan[raw_partes, raw_instruccion_empaque, raw_plan_produccion] --> stgplan[stg_partes, stg_instruccion_empaque, stg_plan_produccion]
+    rawm[raw_maestro_materiales] --> stgm[stg_maestro_materiales]
+    grupos[seed grupos_material] --> stgm
+    stgm --> stg
+    stgm --> stgsi
+    stgm --> stgplan
     stg --> mov[int_mov_cuenta]
     stg --> tcoi[int_tco_por_material]
     stg --> perd[mart_perdidas_usd]
@@ -115,6 +120,8 @@ Dentro de la planta el contenedor se mueve con 311 entre vacíos (VACI), línea 
 
 El generador produce los movimientos con reglas explícitas: ciclo 621→622 log-normal con cola larga, merma de 0.5% por viaje concentrada en ~20% de las cuentas, conciliación trimestral y lag Cpudt/Budat con distribución 92/6/2. Los parámetros están en `PROYECTO.md` sección 4.
 
+El tipo de empaque y el costo unitario salen de un maestro de materiales por planta, con los campos de MARA, MARC y MBEW que importan aquí: tipo de material, grupo de artículos, unidad, precio y unidad de precio. El grupo de artículos se mapea a KLT, Rack o cartón en un seed, así que un extracto real con Matnr numérico se clasifica sin tocar modelos (ADR-028).
+
 Los modelos no emparejan salida con retorno por documento: los contenedores son fungibles y ningún MB51 real lo permite. El ciclo sale de un saldo por cuenta planta × cliente × material con antigüedad FIFO; la merma, de la tasa conciliada; y el saldo esperado en cliente, de la curva de supervivencia del ciclo (ADR-011 y ADR-012).
 
 ## Stack
@@ -154,7 +161,7 @@ cd returnable-packaging-intelligence
 uv sync
 ```
 
-Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas, la foto de stock inicial y el plan de producción de 12 semanas):
+Generar el dataset sintético (14 plantas, 18 meses, 20,981,396 filas, la foto de stock inicial, el plan de producción de 12 semanas y el maestro de materiales):
 
 ```bash
 uv run python -m rpi
@@ -162,14 +169,14 @@ uv run python -m rpi
 
 `uv run python -m rpi --help` lista las opciones: horizonte, número de plantas, país, merma, seed y directorio de salida.
 
-Ingestar a DuckDB (MB51, stock inicial y plan):
+Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales):
 
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (35 modelos, 5 seeds, 241 tests de datos y 11 unit tests):
+Construir modelos y correr los tests de dbt (36 modelos, 6 seeds, 263 tests de datos y 11 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -194,13 +201,14 @@ returnable-packaging-intelligence/
 ├── .github/workflows/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
-│   └── raw/                    # Parquet por planta, stock inicial y plan (excluido de Git)
+│   └── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
 ├── docs/
 │   └── img/                    # Gráficas que escriben los notebooks
-├── macros/                     # tipo_material y fórmula de necesidad: una sola regla por concepto
+├── macros/                     # fórmula de necesidad: una sola regla para el mart y el backtest
 ├── models/
 │   ├── staging/
 │   │   ├── sources.yml
+│   │   ├── stg_maestro_materiales.sql  # tipo de empaque y costo unitario (fuente única)
 │   │   ├── stg_mb51.sql
 │   │   ├── stg_stock_inicial.sql
 │   │   ├── stg_partes.sql
@@ -211,7 +219,7 @@ returnable-packaging-intelligence/
 │   │   ├── int_tramos_fifo.sql             # salida → cierre con antigüedad FIFO
 │   │   ├── int_supervivencia_retorno.sql   # curva S(edad) por tipo
 │   │   ├── int_cuenta_mensual.sql          # saldo real y esperado por cierre
-│   │   ├── int_tco_por_material.sql        # parámetros TCO (fuente única)
+│   │   ├── int_tco_por_material.sql        # insumos TCO: costo del maestro, política del seed
 │   │   ├── int_mov_stock.sql               # movimiento → ubicación y tipo de stock
 │   │   ├── int_stock_diario.sql            # saldo por almacén y tipo al cierre del día
 │   │   ├── int_calendario_necesidad.sql    # ventanas de la necesidad y del backtest
@@ -238,7 +246,7 @@ returnable-packaging-intelligence/
 │       ├── mart_brecha_flota.sql
 │       ├── mart_sensibilidad_brecha.sql
 │       └── mart_red_prestamos.sql
-├── seeds/                      # almacenes, clases de movimiento, plantas, política de flota y escenarios
+├── seeds/                      # almacenes, clases de movimiento, grupos de artículos, plantas, política y escenarios
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -249,9 +257,9 @@ returnable-packaging-intelligence/
 │   ├── __main__.py             # CLI del generador
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
-│   ├── generator.py            # Generador sintético MB51, stock inicial y plan
+│   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
-│   └── schema.py               # Schemas Pandera: MB51 y plan
+│   └── schema.py               # Schemas Pandera: MB51, plan y maestro
 ├── tests/                      # pytest: generador, ciclo interno, plan, huella, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt
 ├── dbt_project.yml
@@ -432,13 +440,13 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 35 modelos dbt y 5 seeds con 241 tests de datos y 11 unit tests → notebooks → dashboard Marimo con tres pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 36 modelos dbt y 6 seeds con 263 tests de datos y 11 unit tests → notebooks → dashboard Marimo con tres pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
-Siguiente: Fase 4, calidad de datos sobre MB51 y maestro de materiales. Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
+Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

@@ -8,8 +8,8 @@ models:
     columns:
       - name: tipo_material
         description: >
-          Derivado del prefijo de Matnr. Solo retornables: el cartón no tiene
-          flota que contar.
+          Del grupo de artículos del maestro (ADR-028). Solo retornables: el
+          cartón no tiene flota que contar.
         tests:
           - not_null
           - accepted_values:

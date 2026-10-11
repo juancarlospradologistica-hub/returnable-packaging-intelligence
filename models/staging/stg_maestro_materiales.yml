@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: stg_maestro_materiales
+    description: >
+      Una fila por planta y material con su tipo de empaque y costo unitario en
+      USD. stg_mb51, stg_stock_inicial y stg_instruccion_empaque toman de aquí
+      el tipo y el costo (ADR-028).
+    columns:
+      - name: planta
+        tests: [not_null]
+      - name: material
+        tests: [not_null]
+      - name: grupo_articulos
+        description: Matkl. Uno fuera del seed grupos_material deja el material sin tipo.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('grupos_material')
+                field: matkl
+      - name: tipo_material
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK', 'CARTON']
+      - name: costo_unitario_usd
+        tests: [not_null]
+      - name: moneda
+        description: >
+          Waers. Una planta que valora en moneda local (MXN, NIO) multiplica pérdida,
+          compra y capital ocioso por el tipo de cambio si se lee como USD.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['USD']

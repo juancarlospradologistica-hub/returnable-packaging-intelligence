@@ -9,7 +9,7 @@ with p as (
 ),
 
 costos as (
-    select planta, tipo_material, costo_unitario_usd from {{ ref('int_tco_por_material') }}
+    select planta, material, costo_unitario_usd from {{ ref('stg_maestro_materiales') }}
 ),
 
 pais as (
@@ -55,6 +55,6 @@ select
         * case f.etapa when 'mismo_pais' then k.flete_mismo_pais_pct
                        else k.flete_otro_pais_pct end) / 100, 2)            as usd_flete
 from flujos f
-join costos c on c.planta = f.planta_destino and c.tipo_material = f.tipo_material
+join costos c on c.planta = f.planta_destino and c.material = f.material
 join {{ ref('parametros_flota') }} k on k.tipo_material = f.tipo_material
 group by f.planta_origen, f.pais_origen, f.planta_destino, f.pais_destino, f.tipo_material, f.etapa

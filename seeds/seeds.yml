@@ -33,6 +33,30 @@ seeds:
           - not_null
           - unique
 
+  - name: grupos_material
+    description: >
+      Grupo de artículos (MARA-MATKL) → tipo de empaque (ADR-028). El tipo sale
+      del maestro y no del código de material: un extracto real con Matnr
+      numérico se mapea aquí. mtart es el tipo de material SAP que se espera
+      para el grupo.
+    config:
+      column_types:
+        matkl: varchar
+        tipo_material: varchar
+        mtart: varchar
+    columns:
+      - name: matkl
+        tests: [not_null, unique]
+      - name: tipo_material
+        description: Un extracto real puede tener varios grupos por tipo (KLT chico, KLT grande).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK', 'CARTON']
+      - name: mtart
+        tests: [not_null]
+
   - name: parametros_flota
     description: >
       Parámetros de política por tipo de empaque (ADR-017, punto 11; ADR-021;
@@ -42,7 +66,9 @@ seeds:
       factor de quiebre (manejo, urgencia, aprobación del cliente); el de pasarse,
       el costo de capital sobre el costo unitario. El flete de un préstamo entre
       plantas es un porcentaje del costo unitario, más caro entre países por
-      aduana e importación temporal.
+      aduana e importación temporal. Vida útil, mantenimiento por ciclo y
+      desechable equivalente son los supuestos del TCO (ADR-010, ADR-028); el
+      costo unitario no vive aquí, sale del maestro de materiales.
     config:
       column_types:
         tipo_material: varchar
@@ -52,6 +78,9 @@ seeds:
         costo_capital_anual_pct: double
         flete_mismo_pais_pct: double
         flete_otro_pais_pct: double
+        vida_util_ciclos: integer
+        mant_por_ciclo_usd: double
+        desechable_equiv_usd: double
     columns:
       - name: tipo_material
         tests:
@@ -71,6 +100,12 @@ seeds:
       - name: flete_mismo_pais_pct
         tests: [not_null]
       - name: flete_otro_pais_pct
+        tests: [not_null]
+      - name: vida_util_ciclos
+        tests: [not_null]
+      - name: mant_por_ciclo_usd
+        tests: [not_null]
+      - name: desechable_equiv_usd
         tests: [not_null]
 
   - name: plantas

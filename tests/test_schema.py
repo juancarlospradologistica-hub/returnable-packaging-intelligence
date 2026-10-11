@@ -7,6 +7,7 @@ from rpi.generator import INSTRUCCION, PLAN
 from rpi.schema import (
     BWART_VALIDOS,
     InstruccionEmpaqueSchema,
+    MaestroMaterialesSchema,
     MB51Schema,
     PartesSchema,
     PlanProduccionSchema,
@@ -65,6 +66,7 @@ def test_ingest_crea_tablas_con_filas(raw_ci, tmp_path):
         "raw_partes",
         "raw_instruccion_empaque",
         "raw_plan_produccion",
+        "raw_maestro_materiales",
     ):
         count = con.execute(f"SELECT COUNT(*) FROM {tabla}").fetchone()[0]
         columnas = [r[0] for r in con.execute(f"DESCRIBE {tabla}").fetchall()]
@@ -82,6 +84,17 @@ def test_ingest_crea_tablas_con_filas(raw_ci, tmp_path):
         "raw_partes": ["Werks", "Parte", "Kunnr", "Escenario"],
         "raw_instruccion_empaque": ["Werks", "Parte", "Matnr", "Piezas"],
         "raw_plan_produccion": ["Werks", "Parte", "Semana", "Piezas"],
+        "raw_maestro_materiales": [
+            "Werks",
+            "Matnr",
+            "Maktx",
+            "Mtart",
+            "Matkl",
+            "Meins",
+            "Verpr",
+            "Peinh",
+            "Waers",
+        ],
     }
     for tabla, esperadas in contrato.items():
         count, columnas = tablas[tabla]
@@ -109,3 +122,7 @@ def test_plan_cumple_schemas(partes_ci, instruccion_ci, plan_ci):
     PartesSchema.validate(partes_ci)
     InstruccionEmpaqueSchema.validate(instruccion_ci)
     PlanProduccionSchema.validate(plan_ci)
+
+
+def test_maestro_cumple_schema(maestro_ci):
+    MaestroMaterialesSchema.validate(maestro_ci)

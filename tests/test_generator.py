@@ -160,3 +160,39 @@ def test_bwart_y_lgort_en_seeds(df_ci: pl.DataFrame) -> None:
     lgort = set(df_ci["Lgort"].drop_nulls().unique()) - _llaves_seed("almacenes.csv")
     assert not bwart, f"Bwart fuera de clases_movimiento.csv: {sorted(bwart)}"
     assert not lgort, f"Lgort fuera de almacenes.csv: {sorted(lgort)}"
+
+
+def test_maestro_cubre_lo_que_se_mueve(df_ci: pl.DataFrame, maestro_ci: pl.DataFrame) -> None:
+    # Sin fila en el maestro un material no tiene tipo ni costo (ADR-028).
+    sin_maestro = (
+        df_ci.select("Werks", "Matnr").unique().join(maestro_ci, on=["Werks", "Matnr"], how="anti")
+    )
+    assert sin_maestro.is_empty(), sin_maestro.head()
+
+
+def test_precio_del_documento_igual_al_maestro(
+    df_ci: pl.DataFrame, maestro_ci: pl.DataFrame
+) -> None:
+    # En el limpio el documento y el maestro dicen lo mismo: las cifras de
+    # Fase 1 a 3 no se mueven al cambiar de fuente.
+    distintos = (
+        df_ci.select("Werks", "Matnr", "Costo_usd")
+        .unique()
+        .join(maestro_ci, on=["Werks", "Matnr"])
+        .filter(pl.col("Costo_usd") != pl.col("Verpr") / pl.col("Peinh"))
+    )
+    assert distintos.is_empty(), distintos.head()
+
+
+def test_grupo_del_maestro_en_seed(maestro_ci: pl.DataFrame) -> None:
+    # El prefijo es la verdad del sintético; el seed tiene que decir lo mismo.
+    seed = pl.read_csv(SEEDS / "grupos_material.csv").select(
+        pl.col("matkl").alias("Matkl"), "tipo_material", pl.col("mtart").alias("Mtart_seed")
+    )
+    prefijo = {"KLT": "KLT", "RCK": "RACK", "CTN": "CARTON"}
+    cruce = maestro_ci.join(seed, on="Matkl", how="left").with_columns(
+        pl.col("Matnr").str.slice(0, 3).replace_strict(prefijo).alias("tipo_prefijo")
+    )
+    assert cruce["tipo_material"].null_count() == 0
+    assert (cruce["tipo_material"] == cruce["tipo_prefijo"]).all()
+    assert (cruce["Mtart"] == cruce["Mtart_seed"]).all()

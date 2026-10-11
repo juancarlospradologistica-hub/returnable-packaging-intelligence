@@ -1,3 +1,3 @@
-tipo_material,dias_cobertura,lead_time_semanas,factor_costo_quiebre,costo_capital_anual_pct,flete_mismo_pais_pct,flete_otro_pais_pct
-KLT,3,4,2.0,12.0,5.0,15.0
-RACK,5,12,2.0,12.0,5.0,15.0
+tipo_material,dias_cobertura,lead_time_semanas,factor_costo_quiebre,costo_capital_anual_pct,flete_mismo_pais_pct,flete_otro_pais_pct,vida_util_ciclos,mant_por_ciclo_usd,desechable_equiv_usd
+KLT,3,4,2.0,12.0,5.0,15.0,150,0.20,4.50
+RACK,5,12,2.0,12.0,5.0,15.0,80,2.50,45.0

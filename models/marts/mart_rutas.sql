@@ -33,7 +33,7 @@ merma as (
         ) as bigint)                                                as salidas_conciliadas,
         cast(coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as bigint)
                                                                     as faltantes,
-        coalesce(round(sum(abs(m.cantidad) * m.costo_usd)
+        coalesce(round(sum(abs(m.cantidad) * m.costo_unitario_usd)
             filter (where m.mov_type = '702'), 2), 0)               as perdida_acum_usd
     from movimientos m
     cross join ultima_conciliacion u
