@@ -1,17 +1,10 @@
 -- Insumos del TCO por planta y tipo de material (ADR-011, punto 8).
--- Los parámetros de costo viven solo aquí (ADR-010). El cartón ya no entra:
--- es desechable y sale con 601 (ADR-011, punto 10).
-with parametros as (
-    select 'KLT' as tipo_material,
-           25.0  as costo_unitario_usd,
-           150   as vida_util_ciclos,
-           0.20  as mant_por_ciclo_usd,
-           4.50  as desechable_equiv_usd
-    union all
-    select 'RACK', 180.0, 80, 2.50, 45.0      -- desechable $34–66 (ADR-010)
-),
-
-movimientos as (
+-- El costo unitario sale del maestro (ADR-028), ponderado por viaje: con un
+-- precio por material, el costo por planta y tipo es el de la flota que viaja.
+-- Vida útil, mantenimiento y desechable equivalente son política y viven en
+-- parametros_flota (ADR-010, ADR-028). El cartón ya no entra: es desechable y
+-- sale con 601 (ADR-011, punto 10).
+with movimientos as (
     select * from {{ ref('stg_mb51') }}
     where mov_type in ('621', '702')
 ),
@@ -34,7 +27,9 @@ flujo as (
         )                                                               as salidas_conciliadas,
         coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
         coalesce(sum(abs(m.cantidad) * m.costo_unitario_usd)
-            filter (where m.mov_type = '702'), 0)                       as perdida_reconocida_usd
+            filter (where m.mov_type = '702'), 0)                       as perdida_reconocida_usd,
+        sum(abs(m.cantidad) * m.costo_unitario_usd) filter (where m.mov_type = '621')
+            / sum(abs(m.cantidad)) filter (where m.mov_type = '621')    as costo_unitario_usd
     from movimientos m
     cross join ultima_conciliacion u
     group by m.planta, m.tipo_material
@@ -55,7 +50,7 @@ select
     t.faltantes,
     round(t.p_merma * 100, 3)                                           as tasa_merma_pct,
     t.perdida_reconocida_usd,
-    p.costo_unitario_usd,
+    t.costo_unitario_usd,
     p.vida_util_ciclos,
     p.mant_por_ciclo_usd,
     p.desechable_equiv_usd,
@@ -66,4 +61,4 @@ select
         else (1 - power(1 - t.p_merma, p.vida_util_ciclos)) / t.p_merma
     end                                                                 as vida_esperada_ciclos
 from tasa t
-join parametros p on p.tipo_material = t.tipo_material
+join {{ ref('parametros_flota') }} p on p.tipo_material = t.tipo_material
