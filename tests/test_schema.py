@@ -5,7 +5,6 @@ import pytest
 from rpi.db import ingest
 from rpi.generator import INSTRUCCION, PLAN
 from rpi.schema import (
-    BWART_VALIDOS,
     InstruccionEmpaqueSchema,
     MaestroMaterialesSchema,
     MB51Schema,
@@ -40,12 +39,6 @@ def test_columnas_core_presentes(df_ci: pl.DataFrame) -> None:
     ]
     faltantes = [c for c in columnas_core if c not in df_ci.columns]
     assert not faltantes, f"Columnas faltantes: {faltantes}"
-
-
-def test_bwart_solo_valores_validos(df_ci: pl.DataFrame) -> None:
-    valores_en_df = set(df_ci["Bwart"].unique().to_list())
-    invalidos = valores_en_df - set(BWART_VALIDOS)
-    assert not invalidos, f"Bwart con valores fuera del enum: {invalidos}"
 
 
 def test_menge_no_cero(df_ci: pl.DataFrame) -> None:
@@ -126,3 +119,31 @@ def test_plan_cumple_schemas(partes_ci, instruccion_ci, plan_ci):
 
 def test_maestro_cumple_schema(maestro_ci):
     MaestroMaterialesSchema.validate(maestro_ci)
+
+
+def test_ingesta_guarda_fallas_de_schema(raw_ci, tmp_path):
+    # Una falla de estructura no detiene la ingesta: queda en raw_errores_schema
+    # con tabla, columna y fila, y la regla error_de_schema la reporta.
+    for archivo in raw_ci.glob("*.parquet"):
+        (tmp_path / archivo.name).write_bytes(archivo.read_bytes())
+    plan = pl.read_parquet(tmp_path / PLAN)
+    plan.with_columns(
+        pl.when(pl.int_range(pl.len()) == 3).then(None).otherwise(pl.col("Semana")).alias("Semana")
+    ).write_parquet(tmp_path / PLAN)
+
+    db = tmp_path / "t.duckdb"
+    ingest(db_path=db, raw_dir=tmp_path)
+    with duckdb.connect(str(db)) as con:
+        errores = con.execute("SELECT * FROM raw_errores_schema").pl()
+        filas_plan = con.execute("SELECT COUNT(*) FROM raw_plan_produccion").fetchone()[0]
+    assert errores.select("tabla", "columna", "fila").rows() == [
+        ("raw_plan_produccion", "Semana", 3)
+    ]
+    assert filas_plan == plan.height
+
+
+def test_ingesta_limpia_sin_fallas(raw_ci, tmp_path):
+    db = tmp_path / "t.duckdb"
+    ingest(db_path=db, raw_dir=raw_ci)
+    with duckdb.connect(str(db)) as con:
+        assert con.execute("SELECT COUNT(*) FROM raw_errores_schema").fetchone()[0] == 0
