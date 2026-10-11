@@ -63,7 +63,7 @@ Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaqu
 - Pipeline reproducible: `uv sync` + comando único para regenerar dataset y correr todo el stack analítico.
 - Notebook narrativo que traduzca KPIs técnicos en cifras de negocio en USD.
 - Diagramas Mermaid del dominio y del flujo de datos.
-- Contrato de entrada documentado: MB51, foto de stock inicial (MB5B), plan de producción (MD61) e instrucción de empaque. Un extracto real se carga cambiando seeds, no modelos.
+- Contrato de entrada documentado: MB51, foto de stock inicial (MB5B), plan de producción (MD61), instrucción de empaque y maestro de materiales (MARA/MARC/MBEW). Un extracto real se carga cambiando seeds, no modelos.
 
 ### Restricciones
 
@@ -237,7 +237,7 @@ Cada decisión importante queda registrada con fecha, contexto, alternativas des
 ### ADR-010 · Desechable equivalente del Rack y fuente única de parámetros TCO
 
 - **Fecha:** 2026-09-24
-- **Estado:** Accepted. Cifras de Consecuencias actualizadas con la base corregida de ADR-011.
+- **Estado:** Accepted. Cifras de Consecuencias actualizadas con la base corregida de ADR-011. Ubicación de los parámetros reemplazada por ADR-028: el costo unitario sale del maestro de materiales; vida útil, mantenimiento y desechable equivalente viven en parametros_flota.
 - **Contexto:** ADR-009 dejó el Rack sin equivalente desechable y su ahorro salía null. Además los parámetros TCO quedaron duplicados: TcoConfig en config.py y un CTE hardcodeado en int_tco_por_material.sql. dbt solo lee el SQL; TcoConfig nunca se usó y ya divergía (Rack en None contra $45 en SQL).
 - **Alternativas evaluadas:**
   - Dejar Rack sin equivalente: el TCO excluye el tipo con mayor valor por unidad. Se pierde el argumento.
@@ -574,7 +574,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-020 · Stock por almacén y flota semanal en dbt
 
 - **Fecha:** 2026-10-08
-- **Estado:** Accepted. Lleva ADR-017, punto 5, a los modelos: stock por almacén y tipo de stock, stock no negativo y conservación de flota. Cierra Fase 3a.
+- **Estado:** Accepted. Lleva ADR-017, punto 5, a los modelos: stock por almacén y tipo de stock, stock no negativo y conservación de flota. Cierra Fase 3a. Punto 1 reemplazado por ADR-028: el tipo de empaque sale del maestro, no de una macro por prefijo.
 - **Contexto:** Antes de escribir los modelos medí sobre el dataset completo (14 plantas, seed 42):
   - 6,696 combinaciones planta × material de retornables y 53,406 llaves planta × material × almacén × tipo de stock. SUCI bloqueado y REPA libre solo existen dentro del día: abren y cierran en cero.
   - 387 días hábiles con movimiento de 542 naturales; ninguno en fin de semana.
@@ -818,7 +818,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-027 · Fase 4: calidad de datos sobre MB51 y maestro de materiales; simulador a Fase 5
 
 - **Fecha:** 2026-10-10
-- **Estado:** Accepted. Reemplaza ADR-016, punto 5. Resuelve la decisión que ADR-017 dejó para el cierre de Fase 3. Fija alcance; el diseño y los valores van en el ADR de Semana 17.
+- **Estado:** Accepted. Reemplaza ADR-016, punto 5. Resuelve la decisión que ADR-017 dejó para el cierre de Fase 3. Fija alcance; el diseño y los valores van en ADR-028.
 - **Contexto:** Al cerrar Fase 3 medí qué tan preparado está el pipeline para un extracto real:
   - Los criterios de ADR-016 para el simulador se cumplen: Fase 3 cerrada, ninguna cifra de Fase 1 o 2 movida desde ADR-014 (2026-09-26) y test_readme verde.
   - Inyecté uno por uno 13 defectos típicos de un extracto MB51 en el dataset reducido. Seis los detecta una regla que nombra la causa: línea duplicada, almacén fuera del seed, 621 sin cliente, familia sin regla de tipo, signo invertido y parte sin instrucción. Cuatro solo por síntoma, con stock o saldo negativo: Bwart fuera del seed, material capturado en piezas, material sin stock inicial y 622 a un cliente equivocado. Piezas en cero en la instrucción tumba int_necesidad_escenario con división entre cero. Dos pasan sin que falle nada: Cpudt tardío y costo de Rack capturado como KLT, que baja la pérdida reconocida de Fase 1 31.5%.
@@ -844,6 +844,111 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - El generador gana un sub-stream propio para defectos, como ADR-017, punto 9: encenderlos no mueve ningún sorteo existente.
   - Cada defecto del catálogo lleva un test que lo enciende y exige que falle su regla por nombre, no por síntoma.
 
+### ADR-028 · Diseño de Fase 4: maestro de materiales, catálogo de defectos y reglas por causa
+
+- **Fecha:** 2026-10-10
+- **Estado:** Accepted. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
+- **Contexto:** Antes de diseñar reproduje main en d5c4007 y medí sobre el dataset completo (14 plantas, 18 meses, seed 42):
+  - Reproducción: 20,981,396 filas, huella de 621, 622 y 702 igual en las 14 plantas, dbt build 292/292, pytest 67.
+  - El tipo de empaque sale del prefijo KLT-/RCK-/CTN- en tres staging. Con Matnr numérico, que es lo normal en SAP, clasifica 0%.
+  - El costo unitario tiene dos fuentes. Costo_usd del documento alimenta mart_perdidas_usd, mart_rutas, la pérdida reconocida del TCO y su test de cuadre. Los $25 y $180 del CTE de int_tco_por_material alimentan TCO, z económica, brecha y red de préstamos.
+  - En SAP estándar el tipo de material LEIH se maneja solo por cantidad: no tiene precio en MBEW y sus 621, 622 y 702 no llevan importe. El diseño aprobado tomaba el precio de MBEW; con LEIH estándar ese dato no existe en el extracto. El precio de reposición vive en el registro info de compras (EINE: precio neto por unidad de precio) o en un tipo de material Z valorado.
+  - Prototipé el maestro con tipo y costo como fuente única: 7,440 filas (480 materiales globales en 14 plantas más 720 locales). dbt build 316/316 en el completo y en el reducido de CI. Los 12 marts salen iguales fila por fila contra main (hash por fila); en mart_tco_comparativo, con los mismos valores, tres columnas pasan de DECIMAL a DOUBLE. Ocho intermedios difieren en sumas de punto flotante: dos builds de main sobre el mismo dataset difieren en los mismos ocho.
+  - Línea base del limpio para las reglas nuevas: el lag de Cpudt llega a 9 días después del fin de mes; 47,756 líneas del ciclo con cliente se registran en el mes siguiente y 6,568 más de 5 días después. La Menge máxima de un 621 es 12 contra un mínimo de 23 piezas por KLT y 5 por Rack: ninguna línea limpia llega a sus piezas por contenedor.
+  - Pandera en modo lazy valida una planta (1.56M filas) en 0.1 s y devuelve columna, check, valor e índice de cada falla.
+  - Inyecté cada defecto solo, a su tasa, sobre el completo, y corrí dbt run y dbt test (~3.4 min por defecto). Con el maestro del prototipo:
+
+    | Defecto | Inyectado | Detección hoy | Lo que más mueve |
+    |---|---:|---|---|
+    | D01 Línea duplicada | 54,366 líneas | Causa (llave) | Brecha +11.4%, ocioso −5.7% |
+    | D02 Bwart fuera de catálogo | 3,968 líneas | Causa (accepted_values del source) | Brecha +1.3% |
+    | D03 Lgort fuera de catálogo | 968 líneas | Causa (relationships) | Brecha +9.1%, ocioso −5.3% |
+    | D04 621 sin cliente | 1,987 líneas | Causa (not_null) | Ciclo −0.1 días |
+    | D05 Signo invertido | 4,195 líneas | Causa (assert_signo_sap) | Brecha +52.4%, ocioso −12.4% |
+    | D06 Cantidad en piezas | 14 materiales, 4,640 líneas | Síntoma (stock negativo) | Ciclo 25.6 → 23.3 días, ahorro TCO +2.2%, brecha −3.5% |
+    | D07 622 a cliente sin saldo | 1,344 líneas | Síntoma (saldo negativo) | Ciclo +0.1 días |
+    | D08 Cpudt en periodo cerrado | 19,791 líneas | Ninguna | Nada |
+    | D09 Material sin foto inicial | 28 materiales | Síntoma (stock negativo) | Brecha +21.9% |
+    | D10 Parte sin instrucción | 139 partes | Causa | Ocioso +5.3%, brecha −1.7% |
+    | D11 Piezas en cero | 28 instrucciones | Truena int_necesidad_escenario | Sin brecha ni necesidad |
+    | D12 Instrucción a cartón | 57 partes | Causa | Ocioso +2.2% |
+    | D13 Unidad de precio 10 o 100 | 70 materiales | Ninguna | Pérdida −0.9%, brecha −0.9% |
+    | D14 Alta por referencia | 28 materiales | Síntoma parcial (Rack con dos clientes) | Brecha −1.4%, ahorro TCO +1.0% |
+    | D15 Material sin maestro | 42 materiales | Síntoma (tipo nulo) | Ocioso +2.2%, necesidad −1.2% |
+    | D16 Precio del documento distinto | 70 materiales | Ninguna | Nada |
+    | D17 Grupo de artículos fuera de catálogo | 14 materiales | Causa (relationships) | Ocioso +2.8% |
+    | D18 Precio en moneda local | 532 materiales, una planta | Ninguna | Pérdida +169%, ocioso +295% |
+
+  - Valor en juego contra cifra movida: D06 toca $16.3M de contenedores y mueve la brecha −$11k; D05 toca $1.13M y la mueve +$169k. El valor de lo afectado no predice cuánto se mueve un headline: la brecha pasa por la ley de Little, la z y compras en contenedores enteros.
+- **Alternativas evaluadas:**
+  - Precio solo de MBEW (diseño aprobado): con LEIH estándar no hay precio que extraer.
+  - Tipo por Mtart: LEIH no distingue KLT de Rack.
+  - Prefijo con seed de prefijos como fuente del tipo: depende de una convención de nombres que la mayoría de los SAP no tiene. Queda como regla de calidad, no como fuente.
+  - Severidad fija por objeto (todo MB51 bloquea): no distingue un registro tardío, que no mueve nada, de un signo invertido, que mueve la brecha 52%.
+  - Severidad por materialidad a la tasa del catálogo: D13 mueve la pérdida 0.93% a 1% de materiales y quedaría como alerta; en el techo de su rango (3%) la mueve ~2.8%. La tasa es un supuesto; el techo es el caso que hay que cubrir.
+  - Impacto en USD solo en el mart, con una fórmula por regla: no dice cuánto se mueve una cifra no lineal (tabla de contexto).
+  - Impacto solo con arnés: necesita una corrida limpia de contraste, que un extracto real no tiene.
+  - Severidad de dbt leída del seed: dbt fija la severidad al parsear el proyecto; no puede leer un seed.
+  - Great Expectations, Soda y elementary: descartadas al aprobar el diseño. dbt tests, unit tests y Pandera cubren todo lo de aquí.
+- **Decisión:**
+  1. Maestro de materiales en data/raw/maestro_materiales.parquet, una fila por planta y material: Werks, Matnr, Maktx, Mtart, Matkl, Meins, Verpr, Peinh y Waers. Verpr es el precio de reposición por Peinh unidades en la moneda de Waers; en un extracto real sale de MBEW si el tipo de material se valora y de EINE si es LEIH estándar. Mtart LEIH para KLT y Rack, VERP para cartón. El generador lo arma sin sortear nada, en USD y con el mismo precio que lleva el MB51. Waers entra porque en SAP el precio está en la moneda de la sociedad de la planta (MXN en México, NIO en Nicaragua) y D18 mostró que leerlo como USD multiplica pérdida y capital ocioso sin que falle un test. El pipeline reporta en USD; convertir queda fuera de alcance y una moneda distinta bloquea.
+  2. Seed grupos_material (matkl, tipo_material, mtart, descripcion): fuente única del tipo de empaque. stg_maestro_materiales calcula costo_unitario_usd = Verpr / Peinh. stg_mb51, stg_stock_inicial y stg_instruccion_empaque toman tipo y costo del maestro con left join: un material sin maestro queda con tipo nulo y lo reporta su regla, no desaparece. Sale la macro tipo_material.
+  3. Todo consumidor de costo lee el maestro: pérdida de Fase 1 y rutas por línea; TCO por planta y tipo y z por tipo, ponderados por viaje; compra, flete y capital ocioso por material. Costo_usd del documento queda en stg_mb51 como costo_documento_usd, solo para la regla de D16. La huella lo sigue incluyendo.
+  4. Vida útil, mantenimiento por ciclo y desechable equivalente pasan a parametros_flota, con los mismos valores. Es el seed de política por tipo de empaque (ADR-017, punto 11).
+  5. Catálogo de 18 defectos, con la tasa, el rango y la razón de la sección Supuestos. DefectosConfig en config.py, todos apagados por default; el CLI acepta --defectos todos o una lista. Sub-stream propio por planta y defecto: default_rng([seed, indice_planta, 3, k]), con k el número del defecto. Los defectos de MB51 se inyectan después de _assign_document_numbers; los demás, después de armar su tabla. Ningún sorteo existente se mueve. Dentro de una planta los objetivos no se repiten entre defectos, en el orden del catálogo, para que con todos encendidos uno no tape a otro. Mínimo un caso por planta y defecto: el reducido de CI tiene al menos dos de cada uno.
+  6. Bitácora en data/raw/bitacora_defectos.parquet: defecto, objeto, Werks, Matnr, Mjahr, Mblnr, Zeile, Parte, campo, valor_original y valor_inyectado. La ingesta la carga como raw_bitacora_defectos solo si existe; un extracto real no la trae.
+  7. Reglas por causa en dbt:
+     - Seed reglas_calidad: regla, defecto, objeto, severidad (bloquea o alerta), cifra_afectada y descripcion.
+     - Un modelo de violaciones por objeto (int_calidad_mb51, int_calidad_stock_inicial, int_calidad_plan, int_calidad_maestro) con la llave del objeto, unidades y usd_expuesto. int_calidad_violaciones los une con la severidad del seed.
+     - Un test genérico sin_violaciones aplicado dos veces sobre int_calidad_violaciones: una filtra severidad bloquea y corre como error; otra filtra alerta y corre como warn. Así la severidad sale del seed al correr. Con la var calidad_reporte en true las dos corren como warn.
+     - Los tests singulares que ya nombran una causa pasan a ser reglas: llave MB51, signo, Lgort, cliente nulo, plan sin instrucción, instrucción fuera de retornable, llaves del plan. Los de síntoma se quedan como están: stock no negativo, saldo en cliente no negativo y conservación de flota.
+     - Unit test por regla, con una fila que la dispara y una que no.
+     - int_necesidad_escenario divide entre nullif(piezas, 0): una instrucción en cero la reporta su regla y no tumba el build.
+  8. Catálogos de dominio solo en seeds. Bwart sale de BWART_VALIDOS en Pandera y del accepted_values del source; la regla bwart_fuera_de_catalogo lee clases_movimiento. test_contrato_bwart cambia a: el generador limpio solo emite clases del seed.
+  9. Ingesta con Pandera lazy por tabla, solo estructura: tipos, nulos, longitudes y llave. Las fallas van a raw_errores_schema (tabla, columna, check, valor, fila) y la ingesta no truena salvo que falte un archivo. La regla error_de_schema bloquea.
+  10. Severidad por materialidad en el techo del rango: bloquea si el defecto rompe una identidad (llave, stock, saldo o conservación) o si en el techo de su rango mueve un headline publicado más de 1%; alerta en lo demás. El techo se estima escalando lo medido a la tasa del catálogo; el arnés de 4b lo mide directo. Headlines: pérdida reconocida, ahorro TCO, brecha y capital ocioso.
+  11. Impacto en USD con dos cifras de nombre distinto:
+      - usd_expuesto en mart_calidad_datos, por regla, calculable sobre un extracto real: valor de las líneas afectadas a costo del maestro (en D06, solo el exceso de contenedores); flota que falta para que el stock no quede negativo (D09); diferencia de costo contra la mediana del grupo por la flota al corte (D13, D14 y D18); diferencia entre documento y maestro por cantidad (D16). Sin costo posible queda nulo y reporta unidades (partes y piezas del plan).
+      - Delta por headline con el arnés rpi.calidad: corre el limpio y cada defecto solo sobre el completo y escribe data/calidad/impacto_defectos.parquet. Un source y mart_impacto_defectos lo publican; README y notebook 05 leen de ahí y test_readme lo cuadra cuando existe. Corre en local al cerrar una fase, no en CI.
+  12. CI con dos pasos. Limpio, igual que hoy: dbt build en verde y cero violaciones. Sucio, después del limpio: reducido con --defectos todos, dbt run, dbt test --select tag:calidad con calidad_reporte, y test_bitacora en pytest: cada registro de la bitácora lo reporta la regla de su defecto (100%), y las violaciones fuera de la bitácora se reportan como falsas alarmas.
+  13. Sub-bloques: 4a.1 maestro y staging; 4a.2 catálogo y bitácora en el generador; 4a.3 ingesta lazy, reglas, seed, tests y CI sucio; 4b mart de calidad, arnés de impacto, notebook 05 y pestaña del dashboard.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+
+  | Defecto | Tasa (rango) | Razón |
+  |---|---|---|
+  | D01 Línea duplicada | 1 día por planta en 18 meses (0–3) | Re-extracción con ventanas que se traslapan; llega en bloque, no línea suelta |
+  | D02 Bwart fuera de catálogo | 0.1% de 621 (0.05–0.5%) | Clase Z copiada de 621 para un flujo especial y sin mapear |
+  | D03 Lgort fuera de catálogo | 0.05% de entradas 311 a VACI (0.01–0.2%) | Almacén nuevo capturado en MIGO antes de darlo de alta en el seed |
+  | D04 621 sin cliente | 0.05% de 621 (0.01–0.2%) | Extracto armado sin el cliente del stock especial, o carga manual |
+  | D05 Signo invertido | 0.02% de líneas (0.01–0.1%) | Parte del extracto sin aplicar el indicador debe/haber (SHKZG) |
+  | D06 Cantidad en piezas | 0.2% de materiales retornables, desde una fecha (0.1–1%) | Entrega capturada con la cantidad de la parte en la posición del empaque |
+  | D07 622 a cliente sin saldo | 0.05% de 622 (0.02–0.2%) | Recogida en ruta con varios clientes contabilizada a otra cuenta |
+  | D08 Cpudt en periodo cerrado | 0.1% de documentos, 11 a 40 días después del fin de mes (0.05–0.5%) | Contabilización retroactiva con el periodo anterior abierto en MM |
+  | D09 Material sin foto inicial | 0.5% de materiales con foto (0.2–2%) | MB5B corrido con un rango de materiales o de almacenes incompleto |
+  | D10 Parte sin instrucción | 0.5% de partes (0.2–2%) | Parte nueva en el plan antes de liberar su instrucción de empaque |
+  | D11 Piezas en cero | 0.1% de instrucciones (0.05–0.5%) | Instrucción creada con la cantidad pendiente |
+  | D12 Instrucción a cartón | 0.2% de instrucciones (0.1–1%) | Cambio a desechable capturado en la parte equivocada |
+  | D13 Unidad de precio 10 o 100 | 1% de materiales (0.5–3%) | Precio por pieza con la unidad de precio heredada al crear por referencia |
+  | D14 Alta por referencia | 0.5% de retornables (0.2–2%) | Material copiado de otra familia: arrastra grupo de artículos y precio |
+  | D15 Material sin maestro | 0.5% de materiales con movimiento (0.2–2%) | Maestro extraído con filtro de tipo de material o antes de extender a la planta |
+  | D16 Precio del documento distinto | 1% de materiales, ±20% (0.5–5%) | Documento anterior a una revaluación del precio |
+  | D17 Grupo fuera de catálogo | 0.2% de materiales (0.1–1%) | Grupo nuevo creado por compras sin avisar a gobierno de RPL |
+  | D18 Precio en moneda local | una planta MX, factor 18.5 (una planta por país con moneda propia) | Precio en moneda de la sociedad leído como USD; el factor es ilustrativo |
+
+  - Cierre de periodo para D08: 10 días naturales después del fin de mes (rango 5–15). Un cierre real a 5 días hábiles son ~7 naturales; con 5 la regla marcaría 6,568 líneas que el generador produce por diseño (2% con más de 48 h). En un extracto real se ajusta en el seed.
+  - Banda de precio por grupo de artículos: factor 3 contra la mediana del grupo (rango 2–5). Un KLT de $8 y uno de $40 caben; un precio por 100 piezas no.
+  - Tolerancia entre precio del documento y del maestro: 5% (rango 1–10%).
+  - Materialidad: 1% de un headline (rango 0.5–5%). Con la brecha en $322,675, 1% son $3,227.
+- **Severidad que resulta:** bloquean D01 a D07, D09 a D15, D17 y D18; alertan D08 y D16, los únicos que no mueven un headline.
+- **Consecuencias:**
+  - Las cifras de Fase 1 a 3 no cambian: maestro y costo dan los mismos valores (prototipo verificado mart por mart). Tres columnas de mart_tco_comparativo pasan a DOUBLE.
+  - parametros_flota cambia de columnas: dbt seed --full-refresh en una base existente.
+  - dbt build tras 4a.1: 36 modelos, 6 seeds, 263 tests de datos y 11 unit tests.
+  - Desde 4a.1, D17 lo para el relationships del grupo de artículos y D18 el test de moneda de stg_maestro_materiales. En 4a.3 los dos pasan a reglas del seed.
+  - CI suma ~1.5 min por el paso sucio (el build del reducido tarda 33 s). El arnés de impacto tarda ~65 min en el completo y corre en local.
+  - Límites que quedan escritos, todos sobre un extracto real: D07 solo se detecta si la cuenta equivocada no tenía saldo de ese material; si lo tenía, solo lo ve la conciliación. D14 solo se detecta si la empresa codifica la familia en el Matnr o en el texto; sin convención pasa. D06 supone menos contenedores por línea que piezas por contenedor, que es lo normal en KLT y Rack.
+  - Un tablero o notebook que publica una cifra lee cifra_afectada del seed y no la presenta si hay una violación que bloquea sobre ella.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -864,7 +969,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 | Lifnr | Proveedor | Retornable con socio (461/462, 501/502) |
 | Kunnr | Cliente / consignatario | Cuenta de stock especial V (621/622) |
 | Xblnr | Referencia / documento externo | Número embarque, delivery, pedido físico |
-| Costo_usd | Costo unitario del empaque en USD | Pérdida y TCO en dinero |
+| Costo_usd | Costo unitario del documento en USD | Solo para cuadrar contra el maestro; ninguna cifra lo usa (ADR-028) |
 
 ### Columnas extras opcionales (6)
 
@@ -874,6 +979,20 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 | Sgtxt | Texto de posición (placas, folios, comentarios) |
 | Umwrk / Umlgo | Centro y almacén destino en traslados (301/311) |
 | Usnam | Usuario que registró (trazabilidad de errores) |
+
+### Maestro de materiales (ADR-028)
+
+Una fila por planta y material. Fuente única del tipo de empaque y del costo unitario.
+
+| Campo | Descripción | Uso analítico |
+|-------|-------------|---------------|
+| Werks / Matnr | Planta y material (MARC) | Llave |
+| Maktx | Texto breve (MAKT) | Lectura |
+| Mtart | Tipo de material (MARA): LEIH retornable, VERP desechable | Coherencia con el grupo |
+| Matkl | Grupo de artículos (MARA) | Tipo de empaque vía el seed grupos_material |
+| Meins | Unidad de medida base | Contenedores en PC |
+| Verpr / Peinh | Precio por unidad de precio (MBEW si se valora; EINE con LEIH estándar) | Costo unitario = Verpr / Peinh |
+| Waers | Moneda del precio | El pipeline reporta en USD; otra moneda bloquea |
 
 ### Parámetros del generador
 
@@ -891,8 +1010,9 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 - **Lag Cpudt vs Budat:** 92% mismo día, 6% 1-2 días tarde, 2% >48h.
 - **Cartón:** desechable, sale con 601 y no regresa.
 - **Traslados:** 311/411/309 en dos posiciones del mismo documento, suma cero por Matnr.
+- **Maestro de materiales (ADR-028):** 7,440 filas, una por material asignado a cada planta. Matkl EMB-KLT, EMB-RCK y EMB-CTN; Mtart LEIH o VERP; Verpr $25, $180 y $8 con Peinh 1 y Waers USD, el mismo precio que lleva el MB51.
 - **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
-- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet y el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
+- **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, y el maestro en maestro_materiales.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
 
@@ -925,6 +1045,27 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-10 · Sesión 45 — Semana 17
+
+- **Duración:** ~6 h
+- **Hecho:**
+  - Reproducción de main en d5c4007 con el dataset completo: 20,981,396 filas, huella igual en las 14 plantas, dbt build 292/292, pytest 67.
+  - Medición para el diseño: dependencia del prefijo, las dos fuentes de costo, línea base del limpio para las reglas nuevas y Pandera lazy.
+  - Arnés de prueba: 18 defectos inyectados uno por uno sobre el completo, con dbt run y dbt test por defecto. Ocho los detecta una regla por causa, cinco solo por síntoma, cuatro pasan sin que falle nada y uno tumba el build. El precio en moneda local de una planta sube la pérdida 169% y el capital ocioso 295% sin que falle un test.
+  - Diseño de Fase 4 (ADR-028), con Waers en el maestro y D18 en el catálogo.
+  - 4a.1: maestro de materiales en el generador con schema Pandera e ingesta; stg_maestro_materiales y seed grupos_material; tipo y costo de staging salen del maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota; brecha, red de préstamos y z leen el costo del maestro. Sale la macro tipo_material.
+  - Cifras sin cambio: los 12 marts iguales fila por fila contra main; mart_tco_comparativo con los mismos valores y tres columnas en DOUBLE.
+  - Tests nuevos verificados rompiendo: maestro sin un material, precio del maestro distinto al del documento, seed con el tipo cruzado, Peinh en cero, material repetido en el maestro, grupo fuera del seed, Verpr nulo, moneda MXN, columnas de política vacías y grupo repetido en el seed.
+  - Dataset completo: dbt build 316/316, pytest 71. Reducido de 18 meses: dbt build 316/316, pytest 62 y 9 saltados.
+- **Decisiones tomadas:** ADR-028.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - En SAP estándar LEIH se maneja solo por cantidad: no hay precio en MBEW ni importe en el 621. El precio de reposición se busca en EINE o en un tipo de material valorado.
+  - El valor de lo que toca un defecto no dice cuánto mueve un headline: un signo invertido en 0.02% de las líneas mueve la brecha 52%; capturar en piezas 14 materiales la baja 3.5%.
+  - La severidad se decide en el techo del rango del supuesto, no en el punto medio.
+  - Dos builds de main sobre el mismo dataset difieren en ocho intermedios por sumas en punto flotante; los marts no, por el redondeo. Comparar corridas pide tolerancia en los intermedios.
+- **Próximo paso:** PR de fase-4a1 con CI verde y merge. Después 4a.2: catálogo de defectos y bitácora en el generador.
 
 ### 2026-10-10 · Sesión 44 — Semana 16
 
@@ -1702,7 +1843,15 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Kunnr** — Cliente.
 - **PO / OC** — Purchase Order / Orden de Compra.
 - **Stock especial V** — Empaque retornable en ubicación del cliente que sigue siendo propiedad de la empresa. Se ve en MMBE.
-- **LEIH** — Grupo de tipos de posición estándar SAP para empaque retornable.
+- **LEIH** — Tipo de material SAP estándar para empaque retornable. Se maneja solo por cantidad: no tiene precio en MBEW. También nombra el grupo de tipos de posición del empaque retornable en SD.
+- **VERP** — Tipo de material SAP estándar para empaque desechable, valorado por cantidad y valor.
+- **MARA / MARC / MBEW** — Tablas del maestro de materiales: datos generales (tipo y grupo de artículos), datos por planta y valoración (precio y unidad de precio).
+- **EINE** — Registro info de compras por organización: precio neto por unidad de precio. Fuente del precio de un LEIH no valorado.
+- **Mtart** — Tipo de material (MARA-MTART).
+- **Matkl** — Grupo de artículos (MARA-MATKL). Aquí define si el empaque es KLT, Rack o cartón.
+- **Verpr / Peinh** — Precio medio variable y unidad de precio de MBEW. Un precio de $180 con Peinh 100 es $1.80 por pieza.
+- **Waers** — Moneda. En SAP el precio está en la moneda de la sociedad de la planta.
+- **SHKZG** — Indicador debe/haber de MSEG. Sin él la cantidad sale sin signo.
 - **Pedido LA** — Pedido de recogida de empaque retornable; su entrada contabiliza 622.
 - **OMJJ** — Transacción SAP: configuración de clases de movimiento.
 - **RTP** — Returnable Transport Packaging. Proceso estándar SD para empaque retornable con cliente: 621 salida, 622 recogida, 623 el cliente se queda el empaque.
@@ -1765,7 +1914,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Marimo** — notebooks reactivos de Python guardados como `.py`; corren como app con `marimo run`.
 - **UTF-8 / UTF-16** — codificaciones de texto. El repo usa UTF-8; Windows PowerShell 5.1 escribe UTF-16 por default con `>`.
 - **HUGEINT** — entero de 128 bits de DuckDB; es lo que devuelve sum() sobre enteros. Polars no lo maneja bien. Los marts castean a BIGINT (ADR-013).
-- **Macro (dbt)** — Función Jinja reutilizable que genera SQL. Aquí tipo_material, para que la regla viva en un solo lugar.
+- **Macro (dbt)** — Función Jinja reutilizable que genera SQL. Aquí necesidad_flota y stock_seguridad, para que la fórmula viva en un solo lugar.
 - **Unit test (dbt)** — Test con datos de entrada y salida definidos a mano que valida la lógica de un modelo sin depender del dataset.
 - **.git-blame-ignore-revs** — Lista de commits que git blame y GitHub ignoran; se usa para commits de solo formato.
 - **Censura al corte** — No emitir movimientos posteriores a la fecha de corte del dataset.
@@ -1775,6 +1924,10 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Escenario de sensibilidad** — Juego de valores de los supuestos que corre por el mismo cálculo que el base. Aquí, una fila de seeds/escenarios_brecha.csv.
 - **Diagrama de tornado** — Gráfica de sensibilidad con una barra por supuesto, del valor bajo al alto de su rango, alrededor del resultado base y ordenada por impacto.
 - **Inyección de defectos** — Meter a propósito errores conocidos en los datos para medir cuáles detectan los tests y cuánto mueven las cifras los que pasan.
+- **Materialidad** — Tamaño de error a partir del cual una cifra publicada deja de ser confiable. Aquí 1% de un headline, medido en el techo del rango de cada defecto (ADR-028).
+- **Arnés de impacto** — Corrida del pipeline con un defecto a la vez contra la corrida limpia; da cuánto mueve cada defecto cada headline.
+- **Bitácora de defectos** — Registro que escribe el generador de cada defecto inyectado; es la verdad contra la que se mide cada regla.
+- **USD expuesto** — Valor a costo del maestro de lo que toca una violación. Se calcula sobre un extracto real; no es lo que se mueve un headline.
 - **Regla por causa / por síntoma** — Una regla por causa nombra el defecto (almacén fuera del catálogo). Una por síntoma solo ve el efecto (stock negativo) y deja el diagnóstico por hacer.
 
 ---
