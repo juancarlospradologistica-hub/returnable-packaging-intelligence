@@ -127,11 +127,14 @@ def test_tablas_solo_cambian_lo_de_la_bitacora(
 def test_al_menos_un_caso_por_planta(cfg_ci, bitacora):
     conteo = bitacora.group_by("defecto", "Werks").len()
     plantas = {p.werks for p in cfg_ci.plants}
+    moneda_local = {cfg_ci.plants[0].werks}
     for d in DEFECTOS[:-1]:
         con_caso = set(conteo.filter(pl.col("defecto") == d)["Werks"])
-        assert con_caso == plantas, f"{d}: {con_caso}"
+        # D16 no cae donde el maestro queda en moneda local (ADR-030).
+        esperadas = plantas - moneda_local if d == "D16" else plantas
+        assert con_caso == esperadas, f"{d}: {con_caso}"
     # La moneda local cae en la primera planta de cada país con moneda propia.
-    assert set(conteo.filter(pl.col("defecto") == "D18")["Werks"]) == {cfg_ci.plants[0].werks}
+    assert set(conteo.filter(pl.col("defecto") == "D18")["Werks"]) == moneda_local
 
 
 def test_objetivos_no_se_repiten(bitacora):
