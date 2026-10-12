@@ -1,9 +1,15 @@
 """
-Schemas Pandera del dataset sintetico.
+Schemas Pandera del contrato de entrada.
 
 MB51Schema define el contrato de las 22 columnas (16 core + 6 opcionales) que
 produce el generador y que consume el resto del pipeline. Partes, instruccion de
-empaque y plan de produccion son el contrato de entrada de Fase 3b (ADR-022).
+empaque y plan de produccion son el contrato de entrada de Fase 3b (ADR-022); la
+foto de stock inicial y el maestro de materiales completan el de Fase 4.
+
+Solo estructura: tipos, nulos, longitudes y llaves (ADR-028, punto 9). Lo que
+cambia entre empresas (clases de movimiento, almacenes, grupos de articulos)
+vive en seeds de dbt y lo revisan las reglas de calidad. La ingesta valida en
+modo lazy y guarda las fallas en raw_errores_schema sin detenerse.
 
 Referencias:
 - PROYECTO.md seccion 4 (diccionario de datos y parametros del generador)
@@ -14,21 +20,6 @@ from datetime import date
 
 import pandera.polars as pa
 from pandera.typing.polars import Series
-
-BWART_VALIDOS = [
-    "101",
-    "102",
-    "261",
-    "311",
-    "325",
-    "343",
-    "344",
-    "555",
-    "601",
-    "621",
-    "622",
-    "702",
-]
 
 MEINS_VALIDAS = ["PC", "EA", "KG"]
 
@@ -61,8 +52,8 @@ class MB51Schema(pa.DataFrameModel):
         description="Texto breve del material.",
     )
     Bwart: Series[str] = pa.Field(
-        isin=BWART_VALIDOS,
-        description="Clase de movimiento SAP.",
+        str_length={"min_value": 3, "max_value": 3},
+        description="Clase de movimiento SAP. El catalogo vive en el seed clases_movimiento.",
     )
     Mjahr: Series[int] = pa.Field(
         ge=2024,
@@ -186,11 +177,30 @@ class InstruccionEmpaqueSchema(pa.DataFrameModel):
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
     Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
     Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
-    Piezas: Series[int] = pa.Field(gt=0, description="Piezas por contenedor.")
+    Piezas: Series[int] = pa.Field(
+        description="Piezas por contenedor. Cero o negativo lo reporta piezas_en_cero."
+    )
 
     class Config:
         strict = True
         unique = ["Werks", "Parte"]
+
+
+class StockInicialSchema(pa.DataFrameModel):
+    """Foto de stock al abrir la ventana (MB5B). Llave: Werks, Lgort, Matnr, Kunnr."""
+
+    Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Lgort: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Kunnr: Series[str] = pa.Field(
+        nullable=True, description="Cuenta de stock especial V; vacío en almacén."
+    )
+    Menge: Series[int] = pa.Field()
+    Fecha: Series[date] = pa.Field()
+
+    class Config:
+        strict = True
+        unique = ["Werks", "Lgort", "Matnr", "Kunnr"]
 
 
 class MaestroMaterialesSchema(pa.DataFrameModel):

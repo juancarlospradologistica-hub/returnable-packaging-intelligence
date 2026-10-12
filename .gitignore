@@ -224,6 +224,7 @@ __marimo__/
 
 # Datos generados (regenerables con el generador sintetico)
 data/raw/*.parquet
+data/sucio/
 data/raw/*.csv
 data/processed/*.parquet
 data/processed/*.csv

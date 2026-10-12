@@ -58,6 +58,12 @@ class Planta:
     def werks(self) -> str:
         return self.planta.werks
 
+    def moneda_local(self, cfg: DefectosConfig) -> bool:
+        """La planta recibe D18: su maestro queda en moneda local."""
+        return (
+            "D18" in cfg.activos and self.primera_del_pais and self.planta.country in cfg.d18_moneda
+        )
+
     def marca_docs(self, df: pl.DataFrame) -> None:
         self.docs = pl.concat([self.docs, df.select(_DOC)]).unique()
 
@@ -295,8 +301,12 @@ def d08_cpudt_cerrado(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) 
 def d16_precio_documento(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -> None:
     """
     El documento de un material lleva un precio anterior a una revaluación:
-    entre d16_desvio_min y d16_desvio_max arriba o abajo del maestro.
+    entre d16_desvio_min y d16_desvio_max arriba o abajo del maestro. No cae en
+    la planta de D18: con el maestro en otra moneda no hay precio con el cual
+    comparar el documento (ADR-030).
     """
+    if p.moneda_local(cfg):
+        return
     mb51 = p.tablas["mb51"].with_row_index("_i")
     universo = mb51.select("Matnr").unique()
     candidatos = universo.filter(~pl.col("Matnr").is_in(sorted(p.materiales))).sort("Matnr")
@@ -411,6 +421,9 @@ def d12_instruccion_carton(p: Planta, cfg: DefectosConfig, rng: np.random.Genera
     nuevos = [cartones[int(i)] for i in rng.integers(0, len(cartones), sel.height)]
     sel = sel.with_columns(pl.Series("_nuevo", nuevos, dtype=pl.String))
     _cambia_partes(p, sel, "Matnr")
+    # El cartón al que apunta queda tocado: si un defecto de maestro le quitara
+    # el tipo, la instrucción ya no se vería como desechable.
+    p.materiales |= set(nuevos)
     p.registra(
         sel.with_columns(
             pl.lit("Matnr").alias("campo"),
@@ -517,7 +530,7 @@ def d18_moneda_local(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -
     La primera planta de un país con moneda propia entrega el maestro en esa
     moneda. No sortea nada; el generador del defecto queda sin uso.
     """
-    if not p.primera_del_pais or p.planta.country not in cfg.d18_moneda:
+    if not p.moneda_local(cfg):
         return
     moneda, factor = cfg.d18_moneda[p.planta.country]
     maestro = p.tablas["maestro"]

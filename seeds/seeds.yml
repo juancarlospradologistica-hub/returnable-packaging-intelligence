@@ -147,3 +147,47 @@ seeds:
           - accepted_values:
               arguments:
                 values: ['KLT', 'RACK']
+
+  - name: reglas_calidad
+    description: >
+      Una fila por regla de calidad (ADR-028, ADR-030): el defecto del catálogo
+      que la prueba, el objeto, la severidad y la cifra que afecta. Bloquea si
+      rompe una identidad o si en el techo del rango de su defecto mueve un
+      headline más de 1%; alerta en lo demás.
+    config:
+      column_types:
+        regla: varchar
+        defecto: varchar
+        objeto: varchar
+        severidad: varchar
+        cifra_afectada: varchar
+        descripcion: varchar
+    columns:
+      - name: regla
+        tests: [not_null, unique]
+      - name: defecto
+        tests: [unique]
+      - name: severidad
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['bloquea', 'alerta']
+
+  - name: prefijos_material
+    description: >
+      Prefijo del código de material → tipo de empaque, si la empresa codifica
+      la familia en el Matnr. Lo usa solo la regla grupo_contradice_codigo; sin
+      convención el seed va vacío y la regla no corre (ADR-028).
+    config:
+      column_types:
+        prefijo: varchar
+        tipo_material: varchar
+    columns:
+      - name: prefijo
+        tests: [not_null, unique]
+      - name: tipo_material
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK', 'CARTON']

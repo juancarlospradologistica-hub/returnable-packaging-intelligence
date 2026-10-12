@@ -13,6 +13,9 @@ with plan as (
     from {{ ref('stg_plan_produccion') }} p
     join {{ ref('stg_instruccion_empaque') }} i
         on i.planta = p.planta and i.parte = p.parte
+    -- Piezas en cero las reporta piezas_en_cero; la parte sale de la demanda
+    -- como una parte sin instrucción, en lugar de tumbar el modelo.
+    where i.piezas_por_contenedor > 0
     group by p.planta, i.material, i.tipo_material, p.semana
 ),
 

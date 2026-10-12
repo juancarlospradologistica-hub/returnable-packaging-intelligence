@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: int_calidad_mb51
+    description: Violaciones de reglas por causa en MB51, una fila por línea, llave o material.
+  - name: int_calidad_stock_inicial
+    description: Violaciones de reglas por causa en la foto de stock inicial.
+  - name: int_calidad_plan
+    description: Violaciones de reglas por causa en partes, instrucción de empaque y plan.
+  - name: int_calidad_maestro
+    description: Violaciones de reglas por causa en el maestro de materiales.
+  - name: int_calidad_violaciones
+    description: >
+      Todas las violaciones con severidad y cifra afectada del seed
+      reglas_calidad. Con calidad_reporte en true las reglas que bloquean
+      corren como warn: así se miden con los defectos encendidos.
+    tests:
+      - calidad_sin_violaciones:
+          arguments:
+            severidad: bloquea
+          config:
+            tags: ['calidad']
+            severity: "{{ 'warn' if var('calidad_reporte') else 'error' }}"
+      - calidad_sin_violaciones:
+          arguments:
+            severidad: alerta
+          config:
+            tags: ['calidad']
+            severity: warn
+    columns:
+      - name: regla
+        tests: [not_null]
+      - name: severidad
+        description: Nula si una regla del SQL no está en el seed.
+        tests: [not_null]

@@ -51,6 +51,30 @@ jobs:
             --cov-report=term-missing \
             -v
 
+      # Paso sucio (ADR-028, punto 12): mismo reducido con los 18 defectos.
+      # dbt run no puede tronar; las reglas corren como warn y pytest exige que
+      # cada registro de la bitácora lo reporte la regla de su defecto.
+      - name: generar dataset CI con defectos
+        run: uv run python -m rpi --months 18 --plants 2 --country MX --defectos todos --output data/sucio
+
+      - name: ingestar dataset con defectos
+        run: uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/sucio')"
+        env:
+          RPI_DB: data/sucio.duckdb
+
+      - name: dbt con defectos
+        run: |
+          uv run dbt seed --profiles-dir .
+          uv run dbt run --profiles-dir .
+          uv run dbt test --profiles-dir . --select tag:calidad --vars '{calidad_reporte: true}'
+        env:
+          RPI_DB: data/sucio.duckdb
+
+      - name: reglas contra la bitácora
+        run: uv run pytest tests/test_calidad.py -v -s
+        env:
+          RPI_DB: data/sucio.duckdb
+
       - name: subir reporte de cobertura
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
