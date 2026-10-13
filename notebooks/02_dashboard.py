@@ -18,6 +18,7 @@ def _(mo):
 def _():
     import base64
     import io
+    import os
     from pathlib import Path
 
     import duckdb
@@ -25,7 +26,10 @@ def _():
     import matplotlib.pyplot as plt
     import polars as pl
 
-    db_path = Path("data/rpi.duckdb")
+    from rpi.publicacion import bloqueadas
+
+    # RPI_DB abre otra base, por ejemplo la del dataset con defectos (ADR-030).
+    db_path = Path(os.environ.get("RPI_DB", "data/rpi.duckdb"))
 
     if not db_path.exists():
         mo.stop(
@@ -46,13 +50,42 @@ def _():
 
     con = duckdb.connect(str(db_path), read_only=True)
 
+    try:
+        bloqueos = bloqueadas(con)
+    except duckdb.Error:
+        mo.stop(
+            True,
+            mo.callout(
+                mo.md(
+                    "**mart_calidad_datos no encontrado.**\n\n"
+                    "Corre `uv run dbt seed --profiles-dir . --full-refresh` y "
+                    "`uv run dbt build --profiles-dir .`."
+                ),
+                kind="warn",
+            ),
+        )
+
+    def publica(vista, cifras):
+        """
+        La vista, o un aviso con las reglas que bloquean si alguna de sus
+        cifras tiene una (ADR-031, punto 8). Nada de la sección se muestra.
+        """
+        _hay = {c: bloqueos[c] for c in cifras if c in bloqueos}
+        if not _hay:
+            return vista
+        _lineas = "\n".join(f"- **{c}**: {', '.join(r)}" for c, r in _hay.items())
+        return mo.callout(
+            mo.md(f"**No se publica: hay reglas de calidad que bloquean.**\n\n{_lineas}"),
+            kind="danger",
+        )
+
     def a_imagen(fig):
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=120)
         plt.close(fig)
         return mo.image(src=f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}")
 
-    return a_imagen, con, mo, pl, plt
+    return a_imagen, con, mo, pl, plt, publica
 
 
 @app.cell
@@ -232,7 +265,7 @@ def _(a_imagen, exceso, pl, plt):
 def _(exceso, mo, pl):
     _ultimo = exceso["mes"].max()
     _tabla = (
-        exceso.filter(pl.col("mes") == _ultimo)
+        exceso.filter(pl.col("mes") == pl.col("mes").max())
         .select(
             "planta",
             "cliente",
@@ -246,11 +279,19 @@ def _(exceso, mo, pl):
         .head(20)
     )
 
-    tabla_exceso = mo.vstack(
-        [
-            mo.md(f"Cierre de {_ultimo:%Y-%m}. Top 20 rutas por exceso de los últimos 3 cierres."),
-            mo.ui.table(_tabla, selection=None),
-        ]
+    # Sin cierres válidos (un extracto corto o con defectos) no hay tabla que
+    # mostrar; la sección no debe tumbar la pestaña completa.
+    tabla_exceso = (
+        mo.md("Sin cierres con alerta válida.")
+        if _ultimo is None
+        else mo.vstack(
+            [
+                mo.md(
+                    f"Cierre de {_ultimo:%Y-%m}. Top 20 rutas por exceso de los últimos 3 cierres."
+                ),
+                mo.ui.table(_tabla, selection=None),
+            ]
+        )
     )
     return (tabla_exceso,)
 
@@ -270,7 +311,9 @@ def _(con, mo, pl):
         FROM mart_ciclo_cohortes
     """).pl()
 
-    _flota = _ciclo.filter(pl.col("nivel") == "flota").row(0, named=True)
+    # Sin cohortes completas el mart sale vacío: D06 en el techo de su rango
+    # lo deja así (ADR-031).
+    _flota = _ciclo.filter(pl.col("nivel") == "flota").rows(named=True)
 
     # El promedio casi no se mueve entre plantas; la diferencia está en la cola.
     _plantas = (
@@ -279,25 +322,29 @@ def _(con, mo, pl):
         .sort(["ciclo_p90_dias", "ciclo_promedio_dias"], descending=True)
     )
 
-    vista_ciclo = mo.vstack(
-        [
-            mo.hstack(
-                [
-                    mo.stat(
-                        label="Ciclo promedio", value=f"{_flota['ciclo_promedio_dias']:.1f} días"
-                    ),
-                    mo.stat(label="p50", value=f"{_flota['ciclo_p50_dias']} días"),
-                    mo.stat(label="p90", value=f"{_flota['ciclo_p90_dias']} días"),
-                    mo.stat(
-                        label="Contenedores recogidos",
-                        value=f"{_flota['contenedores_recogidos']:,}",
-                        caption="cohortes completas",
-                    ),
-                ]
-            ),
-            mo.ui.table(_plantas, selection=None),
-        ]
-    )
+    if not _flota:
+        vista_ciclo = mo.callout(mo.md("Sin cohortes completas: no hay ciclo que medir."))
+    else:
+        _f = _flota[0]
+        vista_ciclo = mo.vstack(
+            [
+                mo.hstack(
+                    [
+                        mo.stat(
+                            label="Ciclo promedio", value=f"{_f['ciclo_promedio_dias']:.1f} días"
+                        ),
+                        mo.stat(label="p50", value=f"{_f['ciclo_p50_dias']} días"),
+                        mo.stat(label="p90", value=f"{_f['ciclo_p90_dias']} días"),
+                        mo.stat(
+                            label="Contenedores recogidos",
+                            value=f"{_f['contenedores_recogidos']:,}",
+                            caption="cohortes completas",
+                        ),
+                    ]
+                ),
+                mo.ui.table(_plantas, selection=None),
+            ]
+        )
     return (vista_ciclo,)
 
 
@@ -306,6 +353,7 @@ def _(
     grafica_exceso,
     grafica_perdidas,
     mo,
+    publica,
     tabla_exceso,
     tabla_rutas,
     vista_ciclo,
@@ -314,7 +362,7 @@ def _(
     vista_fase1 = mo.vstack(
         [
             mo.md("## KPIs globales"),
-            vista_kpis,
+            publica(vista_kpis, ["perdida"]),
             mo.md("""
         ## Pérdida por mes de conciliación
 
@@ -322,14 +370,14 @@ def _(
         saldo con al menos 120 días. La pérdida cae en el mes de conciliación,
         no en el mes en que el contenedor dejó de volver.
         """),
-            grafica_perdidas,
+            publica(grafica_perdidas, ["perdida", "serie_mensual"]),
             mo.md("""
         ## Rutas rotas
 
         Rutas planta × cliente con merma conciliada mayor a 1.0 % por viaje o
         ciclo promedio mayor a 45 días. Ordenadas por pérdida acumulada.
         """),
-            tabla_rutas,
+            publica(tabla_rutas, ["perdida"]),
             mo.md("""
         ## Alerta temprana: exceso de saldo en cliente
 
@@ -342,8 +390,7 @@ def _(
         indicador suma los últimos 3 cierres. Es alerta, no clasificador;
         la ruta rota se define por tasa conciliada.
         """),
-            grafica_exceso,
-            tabla_exceso,
+            publica(mo.vstack([grafica_exceso, tabla_exceso]), ["saldo_cliente"]),
             mo.md("""
         ## Ciclo de retorno por planta
 
@@ -351,7 +398,7 @@ def _(
         Solo cohortes de salida completas. Plantas ordenadas por p90: el
         promedio casi no cambia entre plantas, la cola sí.
         """),
-            vista_ciclo,
+            publica(vista_ciclo, ["ciclo"]),
         ]
     )
     return (vista_fase1,)
@@ -666,12 +713,14 @@ def _(escenario, grafica_necesidad, mo, pl, red, sens):
 
 
 @app.cell
-def _(mo, vista_fase1, vista_necesidad, vista_tco):
+def _(mo, publica, vista_fase1, vista_necesidad, vista_tco):
     mo.ui.tabs(
         {
             "Rotación y pérdidas": vista_fase1,
-            "TCO": vista_tco,
-            "Necesidad de flota": vista_necesidad,
+            "TCO": publica(vista_tco, ["perdida", "tco"]),
+            "Necesidad de flota": publica(
+                vista_necesidad, ["necesidad", "brecha", "ocioso", "flota"]
+            ),
         }
     )
     return

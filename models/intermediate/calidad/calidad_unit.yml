@@ -287,10 +287,10 @@ unit_tests:
         rows: [{tabla: raw_mb51, archivo: mb51_P1.parquet, columna: Menge, check: not_nullable, valor: null, fila: 7}]
       - input: ref('reglas_calidad')
         rows:
-          - {regla: llave_duplicada, defecto: D01, objeto: mb51, severidad: bloquea, cifra_afectada: todas}
-          - {regla: error_de_schema, defecto: null, objeto: ingesta, severidad: bloquea, cifra_afectada: todas}
+          - {regla: llave_duplicada, defecto: D01, objeto: mb51, unidad: linea, severidad: bloquea, cifra_afectada: todas}
+          - {regla: error_de_schema, defecto: null, objeto: ingesta, unidad: fila, severidad: bloquea, cifra_afectada: todas}
     expect:
       rows:
-        - {regla: llave_duplicada, defecto: D01, severidad: bloquea, material: M1, detalle: null}
-        - {regla: regla_nueva, defecto: null, severidad: null, material: M2, detalle: null}
-        - {regla: error_de_schema, defecto: null, severidad: bloquea, material: null, detalle: 'raw_mb51.Menge not_nullable: nulo (fila 7)'}
+        - {regla: llave_duplicada, defecto: D01, unidad: linea, severidad: bloquea, material: M1, detalle: null}
+        - {regla: regla_nueva, defecto: null, unidad: null, severidad: null, material: M2, detalle: null}
+        - {regla: error_de_schema, defecto: null, unidad: fila, severidad: bloquea, material: null, detalle: 'raw_mb51.Menge not_nullable: nulo (fila 7)'}

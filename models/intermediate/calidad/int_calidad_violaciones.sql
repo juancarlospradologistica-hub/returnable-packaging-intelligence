@@ -19,6 +19,7 @@ select
     v.regla,
     r.defecto,
     r.objeto,
+    r.unidad,
     r.severidad,
     r.cifra_afectada,
     v.planta,

@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: mart_calidad_datos
+    description: >
+      Violaciones de las reglas de calidad por regla, planta y material, con
+      severidad, cifras afectadas, unidades, valor expuesto y el universo de la
+      planta para la tasa (ADR-031). Solo trae reglas con violaciones; el
+      tablero cruza con reglas_calidad para mostrar las que están en cero. Los
+      notebooks y el dashboard lo leen para no publicar una cifra bloqueada.
+    tests:
+      - unique:
+          arguments:
+            column_name: "regla || '|' || coalesce(planta, '-') || '|' || coalesce(material, '-')"
+    columns:
+      - name: regla
+        tests: [not_null]
+      - name: severidad
+        tests: [not_null]
+      - name: violaciones
+        tests: [not_null]
+      - name: universo_planta
+        description: Nulo solo en error_de_schema, que no tiene planta.
+
+unit_tests:
+  - name: calidad_datos_universo_por_unidad
+    description: >
+      Cada regla toma el universo de su unidad en su planta; dos violaciones
+      del mismo material se suman en una fila y el material sin maestro queda
+      sin tipo.
+    model: mart_calidad_datos
+    given:
+      - input: ref('int_calidad_violaciones')
+        rows:
+          - {regla: signo_invertido, unidad: linea, severidad: bloquea, planta: P1, material: M1, unidades: 2, usd_expuesto: 50.0}
+          - {regla: signo_invertido, unidad: linea, severidad: bloquea, planta: P1, material: M1, unidades: 3, usd_expuesto: 75.0}
+          - {regla: material_sin_maestro, unidad: material, severidad: bloquea, planta: P1, material: M9, unidades: 4, usd_expuesto: 100.0}
+          - {regla: piezas_en_cero, unidad: parte, severidad: bloquea, planta: P1, material: M1, unidades: 40, usd_expuesto: null}
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: M1}
+          - {planta: P1, material: M1}
+          - {planta: P1, material: M9}
+      - input: ref('stg_maestro_materiales')
+        rows:
+          - {planta: P1, material: M1, tipo_material: KLT}
+          - {planta: P1, material: M2, tipo_material: RACK}
+      - input: ref('stg_partes')
+        rows:
+          - {planta: P1, parte: A}
+      - input: ref('stg_plan_produccion')
+        rows:
+          - {planta: P1, parte: A}
+          - {planta: P1, parte: B}
+    expect:
+      rows:
+        - {regla: signo_invertido, material: M1, tipo_material: KLT, violaciones: 2, unidades: 5, usd_expuesto: 125.0, universo_planta: 3}
+        - {regla: material_sin_maestro, material: M9, tipo_material: null, violaciones: 1, unidades: 4, usd_expuesto: 100.0, universo_planta: 3}
+        - {regla: piezas_en_cero, material: M1, tipo_material: KLT, violaciones: 1, unidades: 40, usd_expuesto: null, universo_planta: 2}
