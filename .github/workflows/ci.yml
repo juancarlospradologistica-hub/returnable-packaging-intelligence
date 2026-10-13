@@ -70,8 +70,9 @@ jobs:
         env:
           RPI_DB: data/sucio.duckdb
 
-      - name: reglas contra la bitácora
-        run: uv run pytest tests/test_calidad.py -v -s
+      # Con los defectos encendidos las nueve cifras quedan bloqueadas (ADR-031).
+      - name: reglas contra la bitácora y bloqueo de publicación
+        run: uv run pytest tests/test_calidad.py tests/test_publicacion.py -v -s
         env:
           RPI_DB: data/sucio.duckdb
 
