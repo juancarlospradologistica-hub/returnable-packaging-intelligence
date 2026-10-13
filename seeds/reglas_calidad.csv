@@ -1,24 +1,24 @@
-regla,defecto,objeto,severidad,cifra_afectada,descripcion
-error_de_schema,,ingesta,bloquea,todas,"Tipo, nulo, longitud o llave fuera del contrato en la ingesta"
-llave_duplicada,D01,mb51,bloquea,todas,Planta + año + documento + posición repetidos
-bwart_fuera_de_catalogo,D02,mb51,bloquea,flota y saldo en cliente,Clase de movimiento sin evento en clases_movimiento
-lgort_fuera_de_catalogo,D03,mb51,bloquea,flota,Almacén sin estado en almacenes
-cliente_vacio,D04,mb51,bloquea,saldo en cliente,"Salida, recogida o faltante de stock especial V sin cliente"
-signo_invertido,D05,mb51,bloquea,flota,Signo contrario al del evento o a la posición del traslado
-cantidad_en_piezas,D06,mb51,bloquea,ciclo y TCO,Salida a cliente múltiplo de las piezas por contenedor del material
-recogida_sin_saldo,D07,mb51,bloquea,saldo en cliente,Recogida a una cuenta que nunca recibió el material o que la cruza a negativo
-registro_despues_del_cierre,D08,mb51,alerta,serie mensual,Registro después del cierre del mes de contabilización
-precio_documento_distinto,D16,mb51,alerta,ninguna,Precio del documento distinto al del maestro arriba de la tolerancia
-material_sin_foto,D09,stock_inicial,bloquea,flota y brecha,Retornable con movimientos sin foto inicial y sin entrada de flota nueva
-parte_sin_instruccion,D10,plan,bloquea,necesidad y brecha,Parte con plan sin instrucción de empaque
-parte_sin_registro,,plan,bloquea,necesidad y brecha,Parte con plan fuera de la tabla de partes
-piezas_en_cero,D11,instruccion_empaque,bloquea,necesidad y brecha,Instrucción con cero piezas por contenedor
-instruccion_a_desechable,D12,instruccion_empaque,bloquea,necesidad y brecha,Instrucción que apunta a un empaque desechable
-instruccion_fuera_de_planta,,instruccion_empaque,bloquea,necesidad y brecha,Instrucción a un material sin movimientos en la planta
-llave_plan_duplicada,,plan,bloquea,necesidad y brecha,"Parte o parte y semana repetidas en partes, instrucción o plan"
-unidad_de_precio,D13,maestro,bloquea,pérdida y brecha,Unidad de precio distinta de 1 con costo fuera de la banda del grupo
-grupo_contradice_codigo,D14,maestro,bloquea,pérdida y TCO,Grupo de artículos de otra familia que la del código de material
-material_sin_maestro,D15,maestro,bloquea,todas,Material con movimientos o foto sin fila en el maestro de la planta
-grupo_fuera_de_catalogo,D17,maestro,bloquea,todas,Grupo de artículos sin tipo en grupos_material
-moneda_distinta,D18,maestro,bloquea,pérdida y brecha,Precio del maestro en una moneda distinta de USD
-llave_maestro_duplicada,,maestro,bloquea,todas,Planta + material repetidos en el maestro
+regla,defecto,objeto,unidad,severidad,cifra_afectada,descripcion
+error_de_schema,,ingesta,fila,bloquea,todas,"Tipo, nulo, longitud o llave fuera del contrato en la ingesta"
+llave_duplicada,D01,mb51,linea,bloquea,todas,Planta + año + documento + posición repetidos
+bwart_fuera_de_catalogo,D02,mb51,linea,bloquea,brecha ocioso ciclo flota saldo_cliente,Clase de movimiento sin evento en clases_movimiento
+lgort_fuera_de_catalogo,D03,mb51,linea,bloquea,brecha ocioso flota,Almacén sin estado en almacenes
+cliente_vacio,D04,mb51,linea,bloquea,ciclo saldo_cliente,"Salida, recogida o faltante de stock especial V sin cliente"
+signo_invertido,D05,mb51,linea,bloquea,brecha ocioso necesidad flota,Signo contrario al del evento o a la posición del traslado
+cantidad_en_piezas,D06,mb51,linea,bloquea,tco brecha ocioso ciclo necesidad,Salida a cliente múltiplo de las piezas por contenedor del material
+recogida_sin_saldo,D07,mb51,linea,bloquea,ciclo saldo_cliente,Recogida a una cuenta que nunca recibió el material o que la cruza a negativo
+registro_despues_del_cierre,D08,mb51,linea,alerta,serie_mensual,Registro después del cierre del mes de contabilización
+precio_documento_distinto,D16,mb51,material,alerta,,Precio del documento distinto al del maestro arriba de la tolerancia
+material_sin_foto,D09,stock_inicial,material,bloquea,brecha ocioso flota,Retornable con movimientos sin foto inicial y sin entrada de flota nueva
+parte_sin_instruccion,D10,plan,parte,bloquea,brecha ocioso necesidad,Parte con plan sin instrucción de empaque
+parte_sin_registro,,plan,parte,bloquea,brecha ocioso necesidad,Parte con plan fuera de la tabla de partes
+piezas_en_cero,D11,instruccion_empaque,parte,bloquea,brecha ocioso necesidad,Instrucción con cero piezas por contenedor
+instruccion_a_desechable,D12,instruccion_empaque,parte,bloquea,brecha ocioso necesidad,Instrucción que apunta a un empaque desechable
+instruccion_fuera_de_planta,,instruccion_empaque,parte,bloquea,brecha ocioso necesidad,Instrucción a un material sin movimientos en la planta
+llave_plan_duplicada,,plan,parte,bloquea,brecha ocioso necesidad,"Parte o parte y semana repetidas en partes, instrucción o plan"
+unidad_de_precio,D13,maestro,material,bloquea,perdida brecha ocioso,Unidad de precio distinta de 1 con costo fuera de la banda del grupo
+grupo_contradice_codigo,D14,maestro,material,bloquea,perdida tco brecha ocioso,Grupo de artículos de otra familia que la del código de material
+material_sin_maestro,D15,maestro,material,bloquea,todas,Material con movimientos o foto sin fila en el maestro de la planta
+grupo_fuera_de_catalogo,D17,maestro,material,bloquea,todas,Grupo de artículos sin tipo en grupos_material
+moneda_distinta,D18,maestro,material,bloquea,perdida tco brecha ocioso necesidad,Precio del maestro en una moneda distinta de USD
+llave_maestro_duplicada,,maestro,material,bloquea,todas,Planta + material repetidos en el maestro

@@ -150,15 +150,16 @@ seeds:
 
   - name: reglas_calidad
     description: >
-      Una fila por regla de calidad (ADR-028, ADR-030): el defecto del catálogo
-      que la prueba, el objeto, la severidad y la cifra que afecta. Bloquea si
-      rompe una identidad o si en el techo del rango de su defecto mueve un
-      headline más de 1%; alerta en lo demás.
+      Una fila por regla de calidad (ADR-028, ADR-030, ADR-031): el defecto del
+      catálogo que la prueba, el objeto, la unidad que cuenta, la severidad y
+      las cifras que afecta. Bloquea si rompe una identidad o si mueve una cifra
+      publicada más que la materialidad; alerta en lo demás.
     config:
       column_types:
         regla: varchar
         defecto: varchar
         objeto: varchar
+        unidad: varchar
         severidad: varchar
         cifra_afectada: varchar
         descripcion: varchar
@@ -167,6 +168,17 @@ seeds:
         tests: [not_null, unique]
       - name: defecto
         tests: [unique]
+      - name: unidad
+        description: Lo que cuenta una violación; da el universo de la tasa por planta.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['linea', 'material', 'parte', 'fila']
+      - name: cifra_afectada
+        description: >
+          Claves del seed cifras separadas por espacio; todas vale por las
+          nueve y vacío por ninguna. assert_cifras_conocidas revisa las claves.
       - name: severidad
         tests:
           - not_null
@@ -191,3 +203,17 @@ seeds:
           - accepted_values:
               arguments:
                 values: ['KLT', 'RACK', 'CARTON']
+
+  - name: cifras
+    description: >
+      Cifras publicadas que una regla puede afectar (ADR-031). Las que mide el
+      arnés de impacto deciden la materialidad; saldo_cliente y serie_mensual
+      solo se declaran.
+    config:
+      column_types:
+        cifra: varchar
+        descripcion: varchar
+        medida_en_arnes: boolean
+    columns:
+      - name: cifra
+        tests: [not_null, unique]

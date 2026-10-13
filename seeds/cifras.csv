@@ -1,0 +1,10 @@
+cifra,descripcion,medida_en_arnes
+perdida,Pérdida reconocida (702) en USD,true
+tco,Ahorro neto retornable contra desechable en USD,true
+brecha,Costo de cubrir la brecha de flota en USD,true
+ocioso,Capital ocioso después de prestar en USD,true
+ciclo,Ciclo de flota de las cohortes completas,true
+necesidad,Necesidad de flota de la primera semana del plan,true
+flota,Flota al corte,true
+saldo_cliente,Saldo en cliente y exceso de saldo por ruta,false
+serie_mensual,Series por mes de contabilización,false
