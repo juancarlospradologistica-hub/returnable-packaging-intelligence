@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-11
+**Última actualización:** 2026-10-12
 
 ---
 
@@ -847,7 +847,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-028 · Diseño de Fase 4: maestro de materiales, catálogo de defectos y reglas por causa
 
 - **Fecha:** 2026-10-10
-- **Estado:** Accepted. Puntos 5 y 6 precisados por ADR-029; puntos 7, 9, 11 y 12 por ADR-030. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
+- **Estado:** Accepted. Puntos 5 y 6 precisados por ADR-029; puntos 7, 9, 11 y 12 por ADR-030; puntos 4, 10 y 11 por ADR-031. Reemplaza ADR-010 en la ubicación de los parámetros TCO (el costo unitario pasa al maestro; vida útil, mantenimiento y desechable equivalente a parametros_flota) y ADR-020, punto 1, en el origen del tipo de empaque (la macro por prefijo sale). Precisa ADR-027, puntos 2 a 4.
 - **Contexto:** Antes de diseñar reproduje main en d5c4007 y medí sobre el dataset completo (14 plantas, 18 meses, seed 42):
   - Reproducción: 20,981,396 filas, huella de 621, 622 y 702 igual en las 14 plantas, dbt build 292/292, pytest 67.
   - El tipo de empaque sale del prefijo KLT-/RCK-/CTN- en tres staging. Con Matnr numérico, que es lo normal en SAP, clasifica 0%.
@@ -1007,7 +1007,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-030 · Reglas de calidad en dbt, severidad desde el seed e ingesta con Pandera lazy
 
 - **Fecha:** 2026-10-11
-- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16.
+- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16. Punto 1 precisado por ADR-031 (columnas de reglas_calidad).
 - **Contexto:** Al correr las reglas contra el completo con los 18 defectos encendidos encontré:
   - Con reglas del maestro excluyentes (la primera que aplica), los materiales con D13 en la planta de D18 salían como moneda y no como unidad de precio. Y la banda de precio calculada en USD no sirve para un precio en MXN.
   - D16 en la planta de D18 no tiene contra qué compararse: el documento está en USD y el maestro en MXN.
@@ -1066,6 +1066,78 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - El valor expuesto de D18 es la flota de una planta leída en MXN como si fuera USD; el de D01 y D06 cuenta líneas y contenedores, no cifras publicadas. Cuánto mueve cada defecto cada headline lo mide el arnés de 4b.
   - CI suma ~1.5 min en el reducido: dbt run sucio tarda 25 s y las reglas 8 s.
   - test_calidad.py corre en el paso sucio de CI y salta en una base limpia, donde revisa que no haya violaciones.
+
+### ADR-031 · Diseño de Fase 4b: tablero de calidad, arnés de impacto y bloqueo de publicación
+
+- **Fecha:** 2026-10-12
+- **Estado:** Accepted. Precisa ADR-028, puntos 4, 10 y 11 (bloqueo, severidad y salida del arnés), y ADR-030, punto 1 (columnas del seed reglas_calidad).
+- **Contexto:** Antes de diseñar reproduje main en 7a2bee3 y prototipé el arnés sobre el completo (14 plantas, 18 meses, seed 42):
+  - Reproducción: huella igual en las 14 plantas, dbt build 333/333, pytest 86 y 2 saltados. Reducido de CI: 333/333, pytest 77 y 11 saltados, paso sucio con 100% de la bitácora.
+  - Inyectar sobre el limpio ya escrito da lo mismo que regenerar: con el MB51 ordenado por año, documento y posición, el orden en que el generador inyecta, los ocho archivos del reducido salen iguales frame por frame que con --defectos todos; la bitácora trae las mismas filas en otro orden. Cada corrida se ahorra ~70 s de generador.
+  - Cada corrida parte de una copia de la base limpia, carga solo las tablas raw que cambiaron y corre los modelos que dependen de ellas y llevan a una cifra medida. Ese linaje tarda 94 s contra 224 s del build: deja fuera int_cuenta_mensual (98 s), las reglas y lo que ninguna cifra lee.
+  - 37 corridas (limpio, 18 defectos a la tasa del catálogo y 18 en el techo de su rango): 79 min. Limpio 146 s; defecto de MB51 ~170 s; de maestro ~112 s; foto 84 s; plan 43 s. Inyectar un defecto de MB51 en las 14 plantas tarda 17 s con pico de 2.5 GB (D01 en el techo).
+  - La primera versión juntaba los 14 MB51 sucios en memoria y murió por memoria a 6 GB. DuckDB guarda el nombre del archivo (el catálogo) en la definición de las vistas de staging: la copia de la base tiene que llamarse igual que la original.
+  - Resultado por defecto, cifra que más mueve:
+
+    | Defecto | Identidad rota | Tasa del catálogo | Techo del rango |
+    |---|---|---|---|
+    | D01 | llave, stock, saldo | Brecha +11.4% | Brecha +90.8% |
+    | D02 | stock, saldo | Brecha +1.3% | Brecha +7.6% |
+    | D03 | stock, conservación | Brecha +9.1% | Brecha +47.9% |
+    | D04 | saldo | Ciclo −0.4% | Ciclo −1.6% |
+    | D05 | stock, conservación | Brecha +52.4% | Brecha +451.2% |
+    | D06 | stock | Ciclo −9.4% | Ciclo sin valor |
+    | D07 | saldo | Ciclo +0.4% | Ciclo +1.6% |
+    | D08 | — | nada | nada |
+    | D09 | stock | Brecha +21.9% | Brecha +293.4% |
+    | D10 | — | Ocioso +5.3% | Ocioso +19.4% |
+    | D11 | — | Ocioso +0.7% | Ocioso +3.3% |
+    | D12 | — | Ocioso +2.2% | Ocioso +9.0% |
+    | D13 | — | Pérdida −0.9% | Ocioso −6.4% |
+    | D14 | — | Brecha −1.4% | Ocioso +6.8% |
+    | D15 | — | Ocioso +2.2% | Brecha −3.7% |
+    | D16 | — | nada | nada |
+    | D17 | — | Ocioso +2.8% | Brecha −2.0% |
+    | D18 | — | Ocioso +294.9% | Ocioso +1060.4% |
+
+  - La severidad del seed se confirma en los 18. D11 y D13 solo cruzan el 1% en el techo (0.66% y 0.93% a la tasa del catálogo). ADR-028 estimó D13 en el techo escalando lo medido (~2.8% en pérdida); medido da −2.2% en pérdida y −6.4% en ocioso.
+  - El techo no siempre es el peor caso: D15 mueve el ocioso +2.2% a tasa y +0.6% en el techo; D17 +2.8% y +1.9%; D13 cambia de signo en la brecha (−0.85% y +6.3%).
+  - D06 en el techo (1% de los materiales capturados en piezas) deja sin cohortes completas: mart_ciclo_cohortes sale vacío y el ciclo de Fase 1 desaparece sin que truene un test.
+  - cifra_afectada se quedaba corto en 13 de 18 reglas. Casi todas omitían el capital ocioso, que sale del mismo balance que la brecha. Además era texto libre: un notebook no puede leerlo para decidir qué no publicar.
+  - Sensibilidad de la materialidad: la severidad no cambia de 0.5% a 2.8%. A partir de 2.84% D17 pasa a alerta; con 5%, también D11 y D15.
+  - Prototipo del tablero sobre el completo con los 18 defectos: 26,470 filas por regla, planta y material en 1.2 s.
+- **Alternativas evaluadas:**
+  - Regenerar con --defectos en cada corrida: mismo resultado, ~40 min más.
+  - dbt build completo en cada corrida: 224 s contra 94 s, recalcula modelos que ninguna cifra medida lee.
+  - Techo solo donde la tasa no decide la severidad: ahorra ~38 min, pero las tasas son supuestos y un supuesto que mueve un headline pide sensibilidad a su rango.
+  - Severidad solo en el techo (ADR-028, punto 10): con D15 y D17 el techo no es el peor caso medido.
+  - Parquet sin versionar en data/calidad (ADR-028, punto 11): binario, no se lee en un diff, y sin el archivo test_readme se salta y el notebook 05 pide 80 min de arnés para correr.
+  - Cargar la medición en la ingesta: mete un archivo de medición en el contrato de entrada de un extracto.
+  - Seed largo (regla, cifra): dos seeds para describir una regla. Una lista de claves de un vocabulario cerrado y un test que la revise alcanzan.
+  - Bloquear en dbt: el build ya truena con una violación que bloquea, pero los marts quedan escritos y un notebook los publica igual. El bloqueo tiene que vivir donde se publica.
+  - Bloquear cada valor en el dashboard: deja gráficas y tablas de la misma sección a la vista. Se cambia la sección completa.
+  - Materialidad solo sobre las cuatro cifras en USD: D04 y D07 solo mueven el ciclo; el bloqueo nunca taparía esa cifra.
+- **Decisión:**
+  1. Seed cifras (cifra, descripcion, medida_en_arnes): perdida, tco, brecha, ocioso, ciclo, necesidad y flota, que el arnés mide; saldo_cliente y serie_mensual, que solo se declaran. reglas_calidad.cifra_afectada pasa a claves de ese seed separadas por espacio: todas vale por las nueve y vacío por ninguna. reglas_calidad gana unidad (linea, material, parte o fila). assert_cifras_conocidas revisa cada clave. Regla que declara brecha declara ocioso.
+  2. mart_calidad_datos, una fila por regla, planta y material con violaciones: regla, defecto, objeto, unidad, severidad, cifra_afectada, planta, material, tipo_material, violaciones, unidades, usd_expuesto (nulo sin costo) y universo_planta (líneas, materiales o partes de la planta, según la unidad). La tasa por planta es la suma de violaciones entre universo_planta. Con datos limpios sale vacío; el tablero cruza con el seed para mostrar las reglas en cero. assert_calidad_datos_cuadra lo compara regla por regla con int_calidad_violaciones.
+  3. Arnés python -m rpi.calidad: limpio y cada defecto solo, a la tasa del catálogo y en el techo del rango (TECHO_DEFECTOS en config.py, los techos de ADR-028). Inyecta sobre el limpio ya escrito; un test exige que salga igual que generate con --defectos. Copia la base limpia, carga lo que cambió y corre source:raw.<tabla>+ intersectado con el linaje de las cifras. Mide las siete cifras, cuatro identidades (llave en staging; stock, saldo y conservación con sus tests de dbt), violaciones y USD expuesto por regla, y los casos de la bitácora que reporta la regla del defecto. --niveles tasa para una corrida corta.
+  4. Escribe docs/calidad/impacto_defectos.csv, versionado, en formato largo: defecto, nivel, parametro, casos, detectados, tipo (cifra, identidad o regla), medida, valor, usd_expuesto, segundos, plantas, meses y seed. Corre en local al cerrar una fase, no en CI.
+  5. Un source lee el CSV con external_location de dbt-duckdb y mart_impacto_defectos agrega valor_limpio, delta, delta_pct, supera_materialidad (cifra: |delta_pct| mayor que calidad_materialidad_pct o la cifra desaparece; identidad: alguna violación) y declarada (la cifra está en cifra_afectada).
+  6. Severidad medida: bloquea si en cualquiera de los dos niveles rompe una identidad o mueve una de las siete cifras más que la materialidad (var calidad_materialidad_pct: 1); alerta en lo demás. Con lo medido no cambia ninguna severidad.
+  7. Tests sobre mart_impacto_defectos que corren en CI porque el CSV está en el repo: assert_severidad_medida, assert_cifras_declaradas y assert_impacto_completo (un limpio y los 18 defectos en los dos niveles). test_readme: el limpio del CSV cuadra con los marts del completo y la tabla de Fase 4 del README con el mart.
+  8. Bloqueo de publicación en rpi/publicacion.py: bloqueadas(con) da cifra → reglas que bloquean con violaciones, desde mart_calidad_datos. Los notebooks 01, 03 y 04 llaman exige(con, cifras) en la primera celda: con una cifra bloqueada la ejecución se detiene y no se publica nada. El dashboard lee RPI_DB y cambia cada sección con una cifra bloqueada por un aviso con las reglas. Una sección sin datos (sin cohortes completas o sin cierres válidos) muestra un aviso en lugar de tumbar la pestaña.
+  9. Notebook 05 y pestaña "Calidad de datos": tablero por regla y planta; impacto por defecto y cifra a tasa y en el techo; valor expuesto contra delta; severidad del seed contra la medida y sensibilidad a la materialidad de 0.5% a 5%.
+  10. README de Fase 4: detección 18 de 18 por su causa (contra 6 de 13 al cerrar Fase 3), tabla por defecto, hallazgos y cómo correr el arnés. Todo sale de mart_impacto_defectos.
+  11. Sub-bloques: 4b.1 seeds cifras y unidad, cifra_afectada corregida, mart_calidad_datos y bloqueo en notebooks y dashboard; 4b.2 arnés, CSV, mart_impacto_defectos y sus tests; 4b.3 notebook 05 y pestaña; 4b.4 cierre, con la revisión de runner y actions de ADR-024 en un PR propio.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+  - Techo de D18: una planta por país con moneda propia, MX en MXN y NI en NIO. El factor de NIO (36.6) es ilustrativo, como el de MXN.
+  - Materialidad: 1% (rango 0.5–5%, ADR-028). La severidad aguanta hasta 2.8%.
+- **Consecuencias:**
+  - cifra_afectada corregida en 13 reglas con defecto; las tres reglas del plan sin defecto ganan ocioso por la misma razón.
+  - reglas_calidad cambia de columnas: dbt seed --full-refresh en una base existente.
+  - Tras 4b.1: dbt build 346/346 (42 modelos, 9 seeds, 273 tests de datos y 22 unit tests). Completo con los 18 defectos: mart_calidad_datos con 26,470 filas y las nueve cifras bloqueadas; dashboard con los avisos en las siete secciones y notebooks detenidos en la primera celda.
+  - El arnés tarda ~90 min en el completo: 79 medidos más las reglas de cada corrida.
+  - Límite: el arnés mide cada defecto solo. Las combinaciones solo se ven en la detección del paso sucio de CI.
 
 ---
 
@@ -1164,6 +1236,29 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-12 · Sesión 48 — Semana 19
+
+- **Duración:** ~6 h
+- **Hecho:**
+  - PR #14 (fase-4a3) mergeado. Reproducción de main en 7a2bee3: completo con huella igual en las 14 plantas, dbt build 333/333 y pytest 86 y 2 saltados; reducido de CI 333/333, pytest 77 y 11 saltados y paso sucio con 100% de la bitácora.
+  - Prototipo del arnés de impacto sobre el completo: 37 corridas (limpio, 18 defectos a la tasa del catálogo y 18 en el techo) en 79 min. Inyectar sobre el limpio ya escrito sale igual que regenerar con --defectos, archivo por archivo.
+  - Diseño de 4b (ADR-031): seed cifras, cifra_afectada por claves, tablero por regla, planta y material, arnés con CSV versionado y bloqueo de publicación.
+  - 4b.1: seed cifras; reglas_calidad con unidad y cifra_afectada corregida en 13 reglas con lo que midió el arnés; mart_calidad_datos con universo por planta; rpi/publicacion.py; bloqueo en los notebooks 01, 03 y 04 y en el dashboard, que ahora lee RPI_DB; CI corre test_publicacion.py en el paso sucio.
+  - Completo con los 18 defectos: mart_calidad_datos con 26,470 filas, las nueve cifras bloqueadas, los tres notebooks detenidos en la primera celda y el dashboard con avisos en las siete secciones.
+  - Verificados rompiendo: clave de cifra mal escrita, unidad fuera del catálogo, cifra repetida en el seed, universo sin unidad (unit test), tablero que no cuadra con int_calidad_violaciones, filas repetidas por regla, planta y material, bloqueo sin filtro de severidad, todas sin expandir, cifra desconocida aceptada y nada bloqueado con defectos.
+  - Dataset completo: dbt build 346/346, pytest 92 y 2 saltados. Reducido: 346/346, pytest 83 y 11 saltados; paso sucio con 100% de detección y las nueve cifras bloqueadas.
+- **Decisiones tomadas:** ADR-031.
+- **Bloqueos:**
+  - La primera versión del arnés juntaba los 14 MB51 sucios en memoria y murió a 6 GB. Ahora escribe planta por planta: pico de 2.5 GB.
+  - La copia de la base para cada corrida rompió las vistas de staging: DuckDB guarda el nombre del archivo como catálogo dentro de la vista. La copia lleva el mismo nombre en otra carpeta.
+  - D06 en el techo dejó vacío mart_ciclo_cohortes y el arnés tronó al leer el ciclo. La cifra ahora puede salir nula y cuenta como movida.
+  - Con los defectos encendidos el dashboard tronaba antes de llegar al bloqueo: la tabla de exceso de saldo no tenía cierres válidos. Las secciones sin datos ahora muestran un aviso.
+- **Notas de la sesión:**
+  - El seed decía qué cifra toca cada defecto por diseño; el arnés mide lo que mueve. 13 de 18 se quedaban cortos, casi todos sin el capital ocioso.
+  - El techo del rango no siempre es el peor caso: D15 y D17 mueven más a la tasa del catálogo. La severidad se decide con los dos niveles.
+  - Bloquear en dbt no basta: el build truena, pero los marts quedan escritos. El bloqueo vive donde se publica.
+- **Próximo paso:** PR de fase-4b1 con CI verde y merge. Después 4b.2: arnés rpi.calidad, docs/calidad/impacto_defectos.csv, mart_impacto_defectos y sus tests.
 
 ### 2026-10-11 · Sesión 47 — Semana 18
 
@@ -2085,7 +2180,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Escenario de sensibilidad** — Juego de valores de los supuestos que corre por el mismo cálculo que el base. Aquí, una fila de seeds/escenarios_brecha.csv.
 - **Diagrama de tornado** — Gráfica de sensibilidad con una barra por supuesto, del valor bajo al alto de su rango, alrededor del resultado base y ordenada por impacto.
 - **Inyección de defectos** — Meter a propósito errores conocidos en los datos para medir cuáles detectan los tests y cuánto mueven las cifras los que pasan.
-- **Materialidad** — Tamaño de error a partir del cual una cifra publicada deja de ser confiable. Aquí 1% de un headline, medido en el techo del rango de cada defecto (ADR-028).
+- **Materialidad** — Tamaño de error a partir del cual una cifra publicada deja de ser confiable. Aquí 1% de cualquiera de las siete cifras que mide el arnés, a la tasa del catálogo o en el techo del rango de cada defecto (ADR-028, ADR-031).
 - **Arnés de impacto** — Corrida del pipeline con un defecto a la vez contra la corrida limpia; da cuánto mueve cada defecto cada headline.
 - **Bitácora de defectos** — Registro que escribe el generador de cada defecto inyectado; es la verdad contra la que se mide cada regla.
 - **USD expuesto** — Valor a costo del maestro de lo que toca una violación. Se calcula sobre un extracto real; no es lo que se mueve un headline.
@@ -2094,6 +2189,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Detección (recall)** — Fracción de lo inyectado que reporta la regla de su defecto. CI exige 100%.
 - **Falsa alarma** — Violación de una regla fuera de la bitácora de su defecto. Aquí todas se explican por otro defecto que tocó la misma cuenta o material.
 - **Regla por causa / por síntoma** — Una regla por causa nombra el defecto (almacén fuera del catálogo). Una por síntoma solo ve el efecto (stock negativo) y deja el diagnóstico por hacer.
+- **Techo del rango** — Valor más alto del rango de un supuesto. El arnés corre cada defecto a la tasa del catálogo y en el techo; el peor caso puede caer en cualquiera de los dos.
+- **Bloqueo de publicación** — Un notebook o el dashboard no presentan una cifra si una regla que bloquea tiene violaciones sobre ella. Las cifras de cada regla viven en cifra_afectada del seed reglas_calidad (ADR-031).
+- **Universo de una regla** — Lo que una regla cuenta en una planta: líneas de MB51, materiales o partes. Tasa de violaciones = violaciones / universo.
 
 ---
 

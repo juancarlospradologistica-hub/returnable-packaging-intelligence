@@ -102,6 +102,7 @@ flowchart LR
     cal --> viol[int_calidad_violaciones]
     reglas[seeds reglas_calidad y prefijos_material] --> viol
     errs[raw_errores_schema] --> viol
+    viol --> mcal[mart_calidad_datos]
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -184,7 +185,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (41 modelos, 8 seeds, 263 tests de datos y 21 unit tests):
+Construir modelos y correr los tests de dbt (42 modelos, 9 seeds, 273 tests de datos y 22 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -209,6 +210,12 @@ uv run pytest tests/test_calidad.py -v -s
 ```
 
 Cada regla vive en `models/intermediate/calidad/` y su severidad en `seeds/reglas_calidad.csv`: una que bloquea truena `dbt build`; una alerta solo avisa. Con `calidad_reporte` las dos avisan, y `test_calidad.py` exige que cada registro de la bitácora lo reporte la regla de su defecto.
+
+`mart_calidad_datos` junta las violaciones por regla, planta y material. Con una regla que bloquea encima de una cifra, los notebooks se detienen y el dashboard cambia la sección por un aviso con las reglas (ADR-031). Para verlo, abre el dashboard con `RPI_DB` todavía apuntando a la base con defectos:
+
+```bash
+uv run marimo run notebooks/02_dashboard.py
+```
 
 Abrir el dashboard:
 
@@ -268,8 +275,9 @@ returnable-packaging-intelligence/
 │       ├── mart_necesidad_flota.sql
 │       ├── mart_brecha_flota.sql
 │       ├── mart_sensibilidad_brecha.sql
-│       └── mart_red_prestamos.sql
-├── seeds/                      # catálogos SAP, plantas, política, escenarios y reglas de calidad
+│       ├── mart_red_prestamos.sql
+│       └── mart_calidad_datos.sql   # violaciones por regla, planta y material
+├── seeds/                      # catálogos SAP, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -283,6 +291,7 @@ returnable-packaging-intelligence/
 │   ├── defectos.py             # Catálogo de defectos inyectables y bitácora
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
+│   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
 ├── tests/                      # pytest: generador, defectos, ciclo interno, plan, huella, schema, marts y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
@@ -464,13 +473,13 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 41 modelos dbt y 8 seeds con 263 tests de datos y 21 unit tests → notebooks → dashboard Marimo con tres pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 42 modelos dbt y 9 seeds con 273 tests de datos y 22 unit tests → notebooks → dashboard Marimo con tres pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
-Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029) y cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed; CI corre el reducido con los defectos encendidos y exige que cada regla reporte todo lo de su defecto (ADR-030). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
+Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029) y cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed; CI corre el reducido con los defectos encendidos y exige que cada regla reporte todo lo de su defecto (ADR-030). `mart_calidad_datos` publica las violaciones por regla, planta y material, y ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
