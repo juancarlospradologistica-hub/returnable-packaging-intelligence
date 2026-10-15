@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-12
+**Última actualización:** 2026-10-14
 
 ---
 
@@ -1136,8 +1136,16 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - cifra_afectada corregida en 13 reglas con defecto; las tres reglas del plan sin defecto ganan ocioso por la misma razón.
   - reglas_calidad cambia de columnas: dbt seed --full-refresh en una base existente.
   - Tras 4b.1: dbt build 346/346 (42 modelos, 9 seeds, 273 tests de datos y 22 unit tests). Completo con los 18 defectos: mart_calidad_datos con 26,470 filas y las nueve cifras bloqueadas; dashboard con los avisos en las siete secciones y notebooks detenidos en la primera celda.
-  - El arnés tarda ~90 min en el completo: 79 medidos más las reglas de cada corrida.
+  - El arnés tarda ~90 min en el completo: 79 medidos más las reglas de cada corrida. Corregido en 4b.2: 120 min.
   - Límite: el arnés mide cada defecto solo. Las combinaciones solo se ven en la detección del paso sucio de CI.
+  - 4b.2 (2026-10-14), medido en el completo:
+    - 37 corridas en 120 min: limpio 230 s; defecto de MB51 ~240 s; de maestro ~178 s; foto 145 s; plan ~93 s. Las reglas en cada corrida suman ~41 min a los 79 del prototipo.
+    - Con las reglas en la misma corrida que las cifras, int_calidad_mb51 corrió en paralelo con int_stock_diario y D02 en el techo se quedó sin los 4 GB del perfil. El arnés construye en dos etapas: primero los marts de las cifras, después las reglas. Precisa el punto 3.
+    - Las 36 corridas dan los mismos deltas que el prototipo. La regla de cada defecto reporta el 100% de su bitácora en los dos niveles; assert_deteccion_por_defecto lo exige en cada build.
+    - Con un defecto solo, tres disparan la regla de otro: D01, D02 y D04 dan 6,235, 3,130 y 1,584 recogidas sin saldo a la tasa del catálogo, y D13 y D14 dan 70 y 28 materiales con precio del documento distinto. Son las falsas alarmas del paso sucio de ADR-030, medidas una por una.
+    - mart_impacto_defectos: 442 filas, 101 sobre la materialidad (76 de cifras). La severidad del seed coincide con la medida en los 18 y ninguna cifra que supera la materialidad queda sin declarar. Con la materialidad en 5%, assert_severidad_medida truena en D11, D15 y D17.
+    - El CSV entra como texto y stg_impacto_defectos fija los tipos; la materialidad se compara sobre el delta redondeado a cuatro decimales (99 contra 100 es 1% exacto).
+    - dbt build 361/361: 44 modelos, 9 seeds, 285 tests de datos y 23 unit tests.
 
 ---
 
@@ -1203,6 +1211,7 @@ Una fila por planta y material. Fuente única del tipo de empaque y del costo un
 - **Maestro de materiales (ADR-028):** 7,440 filas, una por material asignado a cada planta. Matkl EMB-KLT, EMB-RCK y EMB-CTN; Mtart LEIH o VERP; Verpr $25, $180 y $8 con Peinh 1 y Waers USD, el mismo precio que lleva el MB51.
 - **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
 - **Defectos (ADR-028, ADR-029):** 18 defectos inyectables, apagados por default; `--defectos todos` o una lista. Tasas: D01 un día por planta; D02 0.1% de los 621; D03 0.05% de las entradas 311 a VACI; D04 0.05% de los 621; D05 0.02% de las líneas; D06 0.2% de los retornables con instrucción; D07 0.05% de los 622; D08 0.1% de los documentos, 11 a 40 días después del fin de mes; D09 0.5% de los materiales con foto; D10 0.5%, D11 0.1% y D12 0.2% de las partes; D13 1% de los materiales, unidad de precio 10 o 100; D14 0.5% de los retornables; D15 0.5% y D16 1% de los materiales, D16 con desvío de 6 a 20%; D17 0.2% de los materiales; D18 la primera planta de cada país con moneda propia (MXN, factor 18.5). Al menos un caso por planta.
+- **Techo del rango por defecto (ADR-031):** D01 tres días; D02 0.5%, D03 0.2%, D04 0.2%, D05 0.1%, D06 1%, D07 0.2%, D08 0.5%, D09 2%, D10 2%, D11 0.5%, D12 1%, D13 3%, D14 2%, D15 2%, D16 5% y D17 1%; D18 una planta MX en MXN (18.5) y una NI en NIO (36.6, ilustrativo). Viven en TECHO_DEFECTOS de config.py.
 - **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, el maestro en maestro_materiales.parquet y, con defectos, bitacora_defectos.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
@@ -1236,6 +1245,27 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-14 · Sesión 49 — Semana 19
+
+- **Duración:** ~4 h
+- **Hecho:**
+  - PR #15 (fase-4b1) mergeado.
+  - 4b.2: TECHO_DEFECTOS en config.py; carga de una tabla raw en db.py; arnés python -m rpi.calidad con inyección sobre el limpio, base copiada por corrida, dos etapas de dbt, siete cifras, cuatro identidades, reglas disparadas y detección por la regla del defecto; acepta las opciones de dataset del CLI para correr en el reducido.
+  - Medición del completo en docs/calidad/impacto_defectos.csv: 37 corridas, 453 filas, 120 min. Mismos deltas que el prototipo de la sesión 48 y 100% de detección en los 18 defectos a los dos niveles.
+  - Source calidad con external_location al CSV, stg_impacto_defectos y mart_impacto_defectos; var calidad_materialidad_pct. Tests: assert_severidad_medida, assert_cifras_declaradas, assert_impacto_completo, assert_deteccion_por_defecto, unique, relationships con el seed y unit test de materialidad y declaración. tests/test_arnes.py: inyectar sobre el limpio barajado da lo mismo que generar con --defectos; el limpio del CSV cuadra con los marts del completo.
+  - Verificados rompiendo: D16 bloquea y D11 alerta en el seed, D10 sin ocioso, CSV sin D18 en el techo, un caso sin detectar, fila repetida, defecto fuera del seed, nivel mal escrito, materialidad en 5% (D11, D15 y D17), materialidad con >=, todas sin expandir, inyección sin el orden del generador y limpio del CSV distinto a los marts.
+  - Dataset completo: dbt build 361/361, pytest 95 y 2 saltados. Reducido: 361/361, pytest 85 y 12 saltados; paso sucio igual que en 4b.1.
+- **Decisiones tomadas:** consecuencias de 4b.2 en ADR-031 (dos etapas en el arnés, 120 min).
+- **Bloqueos:**
+  - Con las reglas en la misma corrida que las cifras, D02 en el techo se quedó sin memoria. Dos etapas de dbt lo resuelven sin tocar el perfil.
+  - La prueba de inyección pasó con el sort quitado: el generador escribe el MB51 en un orden equivalente al de inyección. Se repitió con el limpio barajado y ahí sí truena.
+  - python -m dbt.cli.main avisa de un módulo importado dos veces; el arnés llama al ejecutable dbt del mismo entorno.
+- **Notas de la sesión:**
+  - Un test que pasa con la protección quitada no prueba la protección; hay que darle el caso que la necesita.
+  - Las falsas alarmas del paso sucio tienen dueño: el arnés las mide defecto por defecto.
+  - El costo de medir las reglas en cada corrida (41 min) es la mitad del costo de las cifras; sin ellas no hay detección por defecto en el CSV.
+- **Próximo paso:** PR de fase-4b2 con CI verde y merge. Después 4b.3: notebook 05 y pestaña "Calidad de datos" en el dashboard.
 
 ### 2026-10-12 · Sesión 48 — Semana 19
 
