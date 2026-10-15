@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_impacto_defectos
+    description: >
+      Medición versionada del arnés de impacto (docs/calidad/impacto_defectos.csv)
+      con sus tipos. Una fila por corrida (limpio, defecto y nivel) y medida.
+    columns:
+      - name: nivel
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['limpio', 'tasa', 'techo']
+      - name: medida
+        tests: [not_null]

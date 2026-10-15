@@ -132,3 +132,15 @@ sources:
           Fallas de Pandera en la ingesta, una fila por falla (ADR-028, punto 9):
           tabla, columna, check, valor y fila. Vacía si todo cumple el contrato.
           La regla error_de_schema las reporta.
+
+  # Mediciones del arnés de impacto (ADR-031). El CSV vive en el repo: CI lo lee
+  # sin correr el arnés, que tarda ~90 min en el completo. Todo entra como texto
+  # y stg_impacto_defectos fija los tipos: la detección automática cambiaría
+  # con el contenido del archivo.
+  - name: calidad
+    description: Salida versionada de python -m rpi.calidad.
+    config:
+      external_location: "read_csv('docs/calidad/{name}.csv', header = true, all_varchar = true)"
+    tables:
+      - name: impacto_defectos
+        description: Una fila por corrida (limpio, defecto y nivel) y medida.

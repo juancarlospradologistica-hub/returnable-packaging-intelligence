@@ -40,3 +40,6 @@ vars:
   calidad_banda_precio: 3
   calidad_tolerancia_precio_pct: 5
   calidad_reporte: false
+  # Materialidad (ADR-028, ADR-031): un defecto bloquea si en algún nivel del
+  # arnés mueve una cifra publicada más que este porcentaje.
+  calidad_materialidad_pct: 1
