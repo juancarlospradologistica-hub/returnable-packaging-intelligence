@@ -11,17 +11,9 @@ import duckdb
 import polars as pl
 import pytest
 
-DB_PATH = os.environ.get("RPI_DB", "data/rpi.duckdb")
+from rpi.calidad import LLAVE
 
-# Llave con la que la bitácora y las violaciones se encuentran, por defecto.
-LINEA = ["planta", "anio_contable", "doc_material", "posicion"]
-MATERIAL = ["planta", "material"]
-PARTE = ["planta", "parte"]
-LLAVE = {
-    **dict.fromkeys(["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08"], LINEA),
-    **dict.fromkeys(["D09", "D13", "D14", "D15", "D16", "D17", "D18"], MATERIAL),
-    **dict.fromkeys(["D10", "D11", "D12"], PARTE),
-}
+DB_PATH = os.environ.get("RPI_DB", "data/rpi.duckdb")
 
 
 @pytest.fixture(scope="module")
