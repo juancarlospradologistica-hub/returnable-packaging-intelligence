@@ -15,6 +15,7 @@ limpia y reconstruye solo los modelos que dependen de lo que cambió.
 Uso:
     uv run python -m rpi.calidad                          # 18 defectos, tasa y techo
     uv run python -m rpi.calidad --defectos D05,D13 --niveles tasa
+    uv run python -m rpi.calidad --defectos ciegos --salida docs/calidad/ciegos_antes.csv
     uv run python -m rpi.calidad --months 18 --plants 2 --country MX --salida data/calidad/ci.csv
 """
 
@@ -32,7 +33,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from rpi.config import DEFECTOS, TECHO_DEFECTOS, GeneratorConfig
+from rpi.config import CIEGOS, DEFECTOS, TECHO_DEFECTOS, GeneratorConfig
 from rpi.db import carga, ingest
 from rpi.defectos import inyecta
 from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL
@@ -41,6 +42,7 @@ DIR = Path("data/calidad")
 # dbt del mismo entorno que corre el arnés: Scripts\dbt.exe en Windows, bin/dbt en Linux.
 DBT = Path(sys.executable).parent / ("dbt.exe" if os.name == "nt" else "dbt")
 SALIDA = Path("docs/calidad/impacto_defectos.csv")
+REGLAS = Path("seeds/reglas_calidad.csv")
 
 # Tabla de cada defecto en el generador → tabla raw y archivo.
 TABLAS = {
@@ -100,7 +102,7 @@ LINEA = ["planta", "anio_contable", "doc_material", "posicion"]
 MATERIAL = ["planta", "material"]
 PARTE = ["planta", "parte"]
 LLAVE = {
-    **dict.fromkeys(["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08"], LINEA),
+    **dict.fromkeys(["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", *CIEGOS], LINEA),
     **dict.fromkeys(["D09", "D13", "D14", "D15", "D16", "D17", "D18"], MATERIAL),
     **dict.fromkeys(["D10", "D11", "D12"], PARTE),
 }
@@ -159,6 +161,16 @@ def bitacora_llaves(bitacora: pl.DataFrame) -> pl.DataFrame:
         pl.col("Zeile").cast(pl.Int32).alias("posicion"),
         pl.col("Parte").alias("parte"),
     )
+
+
+def con_regla() -> set[str]:
+    """
+    Defectos que alguna regla del seed nombra. Un ciego (ADR-033) aparece aquí
+    cuando su regla entra al seed; antes, detectados queda nulo y no en 0,
+    porque 0 diría que la regla existe y no atrapó nada.
+    """
+    reglas = pl.read_csv(REGLAS, columns=["defecto"])
+    return set(reglas["defecto"].drop_nulls())
 
 
 def sin_reportar(bitacora: pl.DataFrame, violaciones: pl.DataFrame, defecto: str) -> int:
@@ -297,6 +309,7 @@ def corre(
     corrida = {"nivel": "limpio", "casos": 0, "segundos": round(time.perf_counter() - t0)}
     filas = _filas(corrida | meta, cifras, identidades, violaciones)
     limpias = cifras
+    nombrados = con_regla()
     print(f"limpio: {corrida['segundos']} s")
 
     for defecto in defectos:
@@ -328,17 +341,20 @@ def corre(
                 print(f"{defecto} {nivel}: dbt run falló\n{r.stdout[-1500:]}")
                 continue
             cifras, identidades, violaciones = _medidas(db)
-            corrida["detectados"] = corrida["casos"] - sin_reportar(llaves, violaciones, defecto)
+            if defecto in nombrados:
+                corrida["detectados"] = corrida["casos"] - sin_reportar(
+                    llaves, violaciones, defecto
+                )
             corrida["segundos"] = round(time.perf_counter() - t)
             filas += _filas(corrida | meta, cifras, identidades, violaciones)
             mueve = ", ".join(
                 f"{k} sin valor" if v is None else f"{k} {100 * (v / limpias[k] - 1):+.2f}%"
                 for k, v in cifras.items()
             )
-            print(
-                f"{defecto} {nivel}: {corrida['casos']} casos, {corrida['detectados']} "
-                f"detectados, {corrida['segundos']} s, {mueve}"
-            )
+            detectados = corrida.get("detectados")
+            detectados = "sin regla" if detectados is None else f"{detectados} detectados"
+            print(f"{defecto} {nivel}: {corrida['casos']} casos, {detectados}, ", end="")
+            print(f"{corrida['segundos']} s, {mueve}")
             pl.DataFrame(filas, schema=COLUMNAS).write_csv(DIR / "impacto_parcial.csv")
 
     df = pl.DataFrame(filas, schema=COLUMNAS)
@@ -352,7 +368,9 @@ def main(argv: list[str] | None = None) -> None:
     from rpi.__main__ import build_config
 
     p = argparse.ArgumentParser(prog="python -m rpi.calidad", description=__doc__.split("\n")[1])
-    p.add_argument("--defectos", default="todos", help="'todos' o IDs separados por coma.")
+    p.add_argument(
+        "--defectos", default="todos", help="'todos', 'ciegos' o IDs separados por coma."
+    )
     p.add_argument("--niveles", default="tasa,techo", help="tasa, techo o los dos.")
     p.add_argument("--limpio", default="data/raw", help="Dataset limpio ya generado.")
     p.add_argument("--salida", default=str(SALIDA))
@@ -371,7 +389,8 @@ def main(argv: list[str] | None = None) -> None:
             defectos=None,
         )
     )
-    defectos = list(DEFECTOS) if a.defectos == "todos" else a.defectos.upper().split(",")
+    grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
+    defectos = grupos.get(a.defectos) or a.defectos.upper().split(",")
     corre(defectos, a.niveles.split(","), Path(a.limpio), Path(a.salida), cfg)
 
 
