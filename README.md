@@ -106,6 +106,10 @@ flowchart LR
     csv[docs/calidad/impacto_defectos.csv] --> stgi[stg_impacto_defectos]
     stgi --> mimp[mart_impacto_defectos]
     reglas --> mimp
+    antes[docs/calidad/ciegos_antes.csv] --> stga[stg_ciegos_antes]
+    stga --> mdet[mart_deteccion_ciegos]
+    stgi --> mdet
+    reglas --> mdet
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -190,7 +194,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (44 modelos, 9 seeds, 285 tests de datos y 23 unit tests):
+Construir modelos y correr los tests de dbt (46 modelos, 9 seeds, 294 tests de datos y 27 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -254,7 +258,7 @@ returnable-packaging-intelligence/
 ├── docs/
 │   ├── calidad/                # impacto_defectos.csv y ciegos_antes.csv: mediciones versionadas del arnés
 │   └── img/                    # Gráficas que escriben los notebooks
-├── macros/                     # fórmula de necesidad: una sola regla para el mart y el backtest
+├── macros/                     # fórmula de necesidad, fecha de extracción y tipos de la medición del arnés
 ├── models/
 │   ├── staging/
 │   │   ├── sources.yml
@@ -298,7 +302,8 @@ returnable-packaging-intelligence/
 │       ├── mart_sensibilidad_brecha.sql
 │       ├── mart_red_prestamos.sql
 │       ├── mart_calidad_datos.sql   # violaciones por regla, planta y material
-│       └── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
+│       ├── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
+│       └── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
 ├── seeds/                      # catálogos SAP, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
@@ -543,7 +548,7 @@ Con los 22 defectos encendidos las nueve cifras quedan bloqueadas: los notebooks
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 44 modelos dbt y 9 seeds con 285 tests de datos y 23 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 9 seeds con 294 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
