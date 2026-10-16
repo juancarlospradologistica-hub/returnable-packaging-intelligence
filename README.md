@@ -35,7 +35,7 @@ flowchart LR
     B --> C[DuckDB ingesta]
     C --> D[dbt staging + tests]
     D --> E[dbt marts KPIs]
-    E --> F[Notebooks 01, 03 y 04]
+    E --> F[Notebooks 01, 03, 04 y 05]
     E --> G[Dashboard Marimo]
 ```
 
@@ -227,7 +227,7 @@ uv run python -m rpi.calidad
 uv run python -m rpi.calidad --defectos D05,D13 --niveles tasa   # corrida corta
 ```
 
-El CSV va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió.
+El CSV va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió. `notebooks/05_calidad_datos.ipynb` lo lee: detección por defecto, cuánto mueve cada defecto cada cifra, valor expuesto contra delta y la severidad contra el supuesto de materialidad. El dashboard tiene una pestaña "Calidad de datos" con el tablero del extracto abierto y la misma medición.
 
 Abrir el dashboard:
 
@@ -297,7 +297,8 @@ returnable-packaging-intelligence/
 │   ├── 01_analisis_perdidas.ipynb
 │   ├── 02_dashboard.py         # Dashboard Marimo
 │   ├── 03_tco_analysis.ipynb
-│   └── 04_necesidad_flota.ipynb
+│   ├── 04_necesidad_flota.ipynb
+│   └── 05_calidad_datos.ipynb  # detección, impacto por cifra y severidad medida
 ├── src/rpi/
 │   ├── __main__.py             # CLI del generador
 │   ├── calidad.py              # Arnés de impacto: un defecto a la vez contra el limpio
@@ -308,7 +309,7 @@ returnable-packaging-intelligence/
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, ciclo interno, plan, huella, schema, marts, bloqueo y cuadre del README
+├── tests/                      # pytest: generador, defectos, arnés, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -488,7 +489,7 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 44 modelos dbt y 9 seeds con 285 tests de datos y 23 unit tests → notebooks → dashboard Marimo con tres pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 44 modelos dbt y 9 seeds con 285 tests de datos y 23 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
