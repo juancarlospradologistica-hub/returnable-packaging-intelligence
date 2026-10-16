@@ -179,6 +179,121 @@ precio as (
       and abs(l.costo_documento_usd - l.costo_unitario_usd)
           > l.costo_unitario_usd * {{ var('calidad_tolerancia_precio_pct') }} / 100
     group by l.planta, l.material
+),
+
+-- Ciegos (ADR-033, ADR-034). Contabilizada después de la fecha del extracto.
+despues_del_corte as (
+    select
+        'budat_despues_del_corte'                           as regla,
+        planta, material, anio_contable, doc_material, posicion,
+        cast(null as varchar)                               as parte,
+        abs(cantidad)                                       as unidades,
+        abs(cantidad) * costo_unitario_usd                  as usd_expuesto,
+        'contabilizado ' || fecha_contab || ', extracto al ' || {{ fecha_extraccion() }} as detalle
+    from lineas
+    where fecha_contab > {{ fecha_extraccion() }}
+),
+
+-- La misma salida contabilizada otra vez con otro número: misma entrega
+-- (Xblnr), material, cliente, cantidad y fecha. Por contenido solo, el
+-- completo tiene 586,939 salidas legítimas iguales a otra del mismo día; con
+-- la entrega, ninguna. Se reportan los documentos registrados después del
+-- primero. Un mismo documento repetido es llave_duplicada, no esta.
+salidas_ref as (
+    select
+        planta, ref_externa, material, cliente, cantidad, fecha_contab,
+        anio_contable, doc_material,
+        min(fecha_registro)                                 as registro
+    from lineas
+    where evento = 'salida_cliente' and ref_externa is not null
+    group by all
+),
+
+orden_ref as (
+    select
+        *,
+        row_number() over w                                 as n,
+        first_value(doc_material) over w                    as primero
+    from salidas_ref
+    window w as (
+        partition by planta, ref_externa, material, cliente, cantidad, fecha_contab
+        order by registro, anio_contable, doc_material
+    )
+),
+
+repetido as (
+    select
+        'documento_repetido'                                as regla,
+        l.planta, l.material, l.anio_contable, l.doc_material, l.posicion,
+        cast(null as varchar)                               as parte,
+        abs(l.cantidad)                                     as unidades,
+        abs(l.cantidad) * l.costo_unitario_usd              as usd_expuesto,
+        'entrega ' || o.ref_externa || ', primero en ' || o.primero as detalle
+    from lineas l
+    join orden_ref o
+        on o.planta = l.planta and o.anio_contable = l.anio_contable
+       and o.doc_material = l.doc_material and o.ref_externa = l.ref_externa
+       and o.material = l.material and o.cliente = l.cliente
+       and o.cantidad = l.cantidad and o.fecha_contab = l.fecha_contab
+    where o.n > 1 and l.evento = 'salida_cliente'
+),
+
+-- Código con ceros a la izquierda que el maestro tiene sin ellos: cambió la
+-- conversión del extracto (MATN1 para el material, ALPHA para el cliente).
+maestro_codigo as (
+    select
+        planta, ltrim(material, '0') as codigo,
+        min(material)                                       as material,
+        max(costo_unitario_usd)                             as costo_unitario_usd
+    from {{ ref('stg_maestro_materiales') }}
+    group by planta, ltrim(material, '0')
+),
+
+matnr_formato as (
+    select
+        'matnr_con_formato'                                 as regla,
+        l.planta, l.material, l.anio_contable, l.doc_material, l.posicion,
+        cast(null as varchar)                               as parte,
+        abs(l.cantidad)                                     as unidades,
+        abs(l.cantidad) * m.costo_unitario_usd              as usd_expuesto,
+        'en el maestro como ' || m.material                 as detalle
+    from lineas l
+    join maestro_codigo m
+        on m.planta = l.planta and m.codigo = ltrim(l.material, '0')
+       and m.material <> l.material
+    where l.tipo_material is null
+),
+
+-- La cuenta buena es la que tiene salidas: el cliente con ceros solo aparece
+-- en recogidas o faltantes. Si las dos versiones tienen salidas, no hay cómo
+-- saber cuál es la buena y la regla no marca ninguna.
+clientes_salida as (
+    select distinct planta, cliente
+    from lineas
+    where evento = 'salida_cliente' and cliente is not null
+),
+
+cuentas as (
+    select planta, ltrim(cliente, '0') as codigo, min(cliente) as cliente
+    from clientes_salida
+    group by planta, ltrim(cliente, '0')
+),
+
+kunnr_formato as (
+    select
+        'kunnr_con_formato'                                 as regla,
+        l.planta, l.material, l.anio_contable, l.doc_material, l.posicion,
+        cast(null as varchar)                               as parte,
+        abs(l.cantidad)                                     as unidades,
+        abs(l.cantidad) * l.costo_unitario_usd              as usd_expuesto,
+        'cuenta ' || c.cliente                              as detalle
+    from lineas l
+    join cuentas c
+        on c.planta = l.planta and c.codigo = ltrim(l.cliente, '0')
+       and c.cliente <> l.cliente
+    left join clientes_salida x on x.planta = l.planta and x.cliente = l.cliente
+    where l.evento in ('salida_cliente', 'recogida_cliente', 'faltante_cliente')
+      and x.cliente is null
 )
 
 select * from llave
@@ -187,3 +302,7 @@ union all select * from en_piezas
 union all select * from sin_saldo
 union all select * from tardio
 union all select * from precio
+union all select * from despues_del_corte
+union all select * from repetido
+union all select * from matnr_formato
+union all select * from kunnr_formato

@@ -154,6 +154,112 @@ unit_tests:
       rows:
         - {regla: precio_documento_distinto, material: M1, unidades: 4, usd_expuesto: 20.0}
 
+  - name: calidad_budat_despues_del_corte
+    description: Con el extracto al 30 de junio, el 2 de julio no existe todavía; el 30 sí.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-07-02, fecha_registro: 2026-06-29, tipo_material: KLT, costo_unitario_usd: 25.0}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -1, fecha_contab: 2026-06-30, fecha_registro: 2026-06-30, tipo_material: KLT, costo_unitario_usd: 25.0}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}, {bwart: '622', evento: recogida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: SUCI, estado: sucios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: budat_despues_del_corte, doc_material: D1, unidades: 2, usd_expuesto: 50.0}
+
+  - name: calidad_documento_repetido
+    description: >
+      D2 repite la entrega, material, cliente, cantidad y fecha de D1 y se
+      registró después; D3 trae otra entrega. D4 viene dos veces con el mismo
+      número: eso es llave_duplicada, no un documento repetido.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, ref_externa: E1, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-06, ref_externa: E1, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, ref_externa: E2, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D4, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -3, fecha_contab: 2026-01-07, fecha_registro: 2026-01-07, ref_externa: E4, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D4, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -3, fecha_contab: 2026-01-07, fecha_registro: 2026-01-07, ref_externa: E4, tipo_material: KLT}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}, {bwart: '622', evento: recogida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: SUCI, estado: sucios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: documento_repetido, doc_material: D2}
+        - {regla: llave_duplicada, doc_material: D4}
+
+  - name: calidad_matnr_con_formato
+    description: >
+      00012345 no tiene maestro y sin los ceros es 12345: se reporta a costo del
+      maestro. X9 tampoco tiene maestro pero no se parece a nada; esa la ve
+      material_sin_maestro. 12345 y 012345 están los dos en el maestro: 12345
+      tiene el suyo y no se reporta aunque sin ceros choque con otro código.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: '00012345', anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+          - {planta: P1, material: '12345', anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, tipo_material: KLT, costo_unitario_usd: 25.0}
+          - {planta: P1, material: 'X9', anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -2, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}, {bwart: '622', evento: recogida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: SUCI, estado: sucios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: [{planta: P1, material: '12345', costo_unitario_usd: 25.0}, {planta: P1, material: '012345', costo_unitario_usd: 25.0}]
+    expect:
+      rows:
+        - {regla: matnr_con_formato, doc_material: D1, material: '00012345', unidades: 2, usd_expuesto: 50.0}
+
+  - name: calidad_kunnr_con_formato
+    description: >
+      00C1 solo recoge y sin los ceros es C1, que tiene salidas. C2 y 00C2
+      tienen salidas los dos: no hay cómo saber cuál es la buena y no se marca
+      ninguno.
+    model: int_calidad_mb51
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D1, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C1', cantidad: -5, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D2, posicion: 1, mov_type: '622', almacen: SUCI, cliente: '00C1', cantidad: 2, fecha_contab: 2026-01-20, fecha_registro: 2026-01-20, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D3, posicion: 1, mov_type: '621', almacen: LLEN, cliente: 'C2', cantidad: -5, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, tipo_material: KLT}
+          - {planta: P1, material: 'M1', anio_contable: 2026, doc_material: D4, posicion: 1, mov_type: '621', almacen: LLEN, cliente: '00C2', cantidad: -5, fecha_contab: 2026-01-05, fecha_registro: 2026-01-05, tipo_material: KLT}
+      - input: ref('clases_movimiento')
+        rows: [{bwart: '621', evento: salida_cliente}, {bwart: '622', evento: recogida_cliente}]
+      - input: ref('almacenes')
+        rows: [{lgort: LLEN, estado: llenos}, {lgort: SUCI, estado: sucios}]
+      - input: ref('stg_instruccion_empaque')
+        rows: []
+      - input: ref('stg_stock_inicial')
+        rows: []
+      - input: ref('stg_maestro_materiales')
+        rows: []
+    expect:
+      rows:
+        - {regla: kunnr_con_formato, doc_material: D2}
+        - {regla: recogida_sin_saldo, doc_material: D2}
+
   - name: calidad_foto_inicial
     description: >
       M1 se mueve sin foto y su primer movimiento es una salida: falta foto por lo
