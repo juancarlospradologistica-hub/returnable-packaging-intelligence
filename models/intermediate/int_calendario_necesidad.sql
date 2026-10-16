@@ -12,7 +12,7 @@
 -- Si la foto inicial no trae stock en cliente, el saldo V arranca en cero y
 -- tarda semanas en llenarse: ese tramo no entra a ninguna ventana.
 with limites as (
-    select min(fecha) as apertura, max(fecha) as corte
+    select min(fecha) as apertura, {{ fecha_extraccion() }} as corte
     from {{ ref('int_stock_diario') }}
 ),
 

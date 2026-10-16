@@ -43,3 +43,6 @@ vars:
   # Materialidad (ADR-028, ADR-031): un defecto bloquea si en algún nivel del
   # arnés mueve una cifra publicada más que este porcentaje.
   calidad_materialidad_pct: 1
+  # Fecha en que se corrió el extracto (ADR-034). Igual que reference_date del
+  # generador; con un extracto real, la de quien lo corrió.
+  fecha_extraccion: '2026-06-30'
