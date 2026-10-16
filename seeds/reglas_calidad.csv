@@ -22,3 +22,7 @@ material_sin_maestro,D15,maestro,material,bloquea,todas,Material con movimientos
 grupo_fuera_de_catalogo,D17,maestro,material,bloquea,todas,Grupo de artículos sin tipo en grupos_material
 moneda_distinta,D18,maestro,material,bloquea,perdida tco brecha ocioso necesidad,Precio del maestro en una moneda distinta de USD
 llave_maestro_duplicada,,maestro,material,bloquea,todas,Planta + material repetidos en el maestro
+budat_despues_del_corte,B04,mb51,linea,bloquea,brecha ocioso necesidad saldo_cliente,Fecha de contabilización posterior a la fecha de extracción
+documento_repetido,B03,mb51,linea,bloquea,tco brecha ocioso ciclo necesidad,Salida con la misma entrega material cliente cantidad y fecha que otro documento
+matnr_con_formato,B01,mb51,linea,bloquea,todas,Material sin maestro que sin ceros a la izquierda sí está en el maestro de la planta
+kunnr_con_formato,B02,mb51,linea,bloquea,ciclo saldo_cliente,Cliente sin salidas que sin ceros a la izquierda es una cuenta con salidas de la planta

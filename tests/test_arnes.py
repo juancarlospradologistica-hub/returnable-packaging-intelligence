@@ -72,11 +72,10 @@ def test_cli_del_arnes(monkeypatch, argv, esperado):
     assert corridas == [esperado]
 
 
-def test_ciegos_sin_regla_en_el_seed():
-    # Cuando una regla de 4c.2 nombre a un ciego, este test cambia con ella.
-    nombrados = con_regla()
-    assert set(DEFECTOS) <= nombrados
-    assert not nombrados & set(CIEGOS)
+def test_cada_defecto_tiene_su_regla():
+    # Los ciegos se midieron sin regla en docs/calidad/ciegos_antes.csv; desde
+    # ADR-034 cada uno tiene la suya y el arnés cuenta su detección.
+    assert set(DEFECTOS) | set(CIEGOS) <= con_regla()
 
 
 def test_seleccion_por_tabla():

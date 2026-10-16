@@ -499,7 +499,7 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 La pregunta de Fase 4: qué defecto de un extracto MB51 y de su maestro rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada cifra publicada (ADR-027). Al cerrar Fase 3, de 13 defectos típicos el pipeline detectaba seis por su causa, cuatro solo por síntoma y dos pasaban en silencio.
 
-El catálogo tiene hoy 18 defectos y cada uno tiene una regla en dbt que lo nombra. El arnés `rpi.calidad` inyecta cada defecto solo sobre el dataset limpio, a la tasa del catálogo y en el techo de su rango, y mide siete cifras publicadas, cuatro identidades (llave, stock, saldo en cliente y conservación de flota) y las reglas que se disparan: 37 corridas en 120 min. Con cada defecto solo, la regla de su defecto reporta el 100% de lo inyectado en los dos niveles. Ese 100% se mide contra un catálogo que escribí junto con las reglas; qué tanto ven las reglas un defecto que no conocían lo mide Fase 4c.
+El catálogo tiene hoy 22 defectos y cada uno tiene una regla en dbt que lo nombra: los 18 de Fase 4 y cuatro ciegos que medí antes de tener regla (Fase 4c, más abajo). El arnés `rpi.calidad` inyecta cada defecto solo sobre el dataset limpio, a la tasa del catálogo y en el techo de su rango, y mide siete cifras publicadas, cuatro identidades (llave, stock, saldo en cliente y conservación de flota) y las reglas que se disparan: 45 corridas en 114 min. Con cada defecto solo, la regla de su defecto reporta el 100% de lo inyectado en los dos niveles. Para los 18 de Fase 4 ese 100% se mide contra defectos que conocía al escribir sus reglas; los ciegos dicen qué pasa con los que no.
 
 | Defecto | Regla | Severidad | Identidad rota | Más mueve a tasa | En el techo |
 |---|---|---|---|---|---|
@@ -521,6 +521,10 @@ El catálogo tiene hoy 18 defectos y cada uno tiene una regla en dbt que lo nomb
 | D16 | `precio_documento_distinto` | alerta | — | nada | nada |
 | D17 | `grupo_fuera_de_catalogo` | bloquea | — | Ocioso +2.8% | Brecha -2.0% |
 | D18 | `moneda_distinta` | bloquea | — | Ocioso +294.9% | Ocioso +1060.4% |
+| B01 | `matnr_con_formato` | bloquea | stock, saldo | Brecha +616.8% | Ocioso +250.0% |
+| B02 | `kunnr_con_formato` | bloquea | saldo | Ciclo -0.4% | Ciclo -0.4% |
+| B03 | `documento_repetido` | bloquea | stock | Brecha -1.6% | Brecha -6.1% |
+| B04 | `budat_despues_del_corte` | bloquea | saldo | Brecha +1.4% | Brecha +5.6% |
 
 ![Movimiento de cada cifra con un defecto a la vez](docs/img/impacto_defectos.png)
 
@@ -529,11 +533,11 @@ Lo que encontré:
 - **Un precio en otra moneda es el defecto más caro.** Una planta con el maestro en MXN leído como USD (D18) sube la pérdida reconocida +169.3% y el capital ocioso +294.9%. Antes de Fase 4 no tronaba ningún test.
 - **El signo importa más que el volumen.** El signo invertido (D05) mueve la brecha +52.4% a la tasa del catálogo y +451.2% en el techo.
 - **Una cifra puede desaparecer.** Con la cantidad capturada en piezas (D06) el ciclo de flota baja -9.4%; en el techo no queda ninguna cohorte completa y el ciclo de Fase 1 no se puede publicar.
-- **El capital ocioso es la cifra más frágil.** La mueven 14 de los 18 defectos: sale del mismo balance que la brecha y cualquier cosa que cambie flota o necesidad lo mueve.
-- **El valor expuesto no dice cuánto se mueve una cifra.** D06 expone $16.1M y mueve 4.6% una cifra en USD; D05 expone $1.1M y mueve la brecha 52.4%. La correlación de rangos entre los dos, en los 15 defectos con valor expuesto, es 0.29. El valor expuesto sirve para priorizar la revisión; el impacto lo mide el arnés.
+- **El capital ocioso es la cifra más frágil.** La mueven 17 de los 22 defectos: sale del mismo balance que la brecha y cualquier cosa que cambie flota o necesidad lo mueve.
+- **El valor expuesto no dice cuánto se mueve una cifra.** D06 expone $16.1M y mueve 4.6% una cifra en USD; D05 expone $1.1M y mueve la brecha 52.4%. La correlación de rangos entre los dos, en los 19 defectos con valor expuesto, es 0.22. El valor expuesto sirve para priorizar la revisión; el impacto lo mide el arnés.
 - **Las falsas alarmas tienen dueño.** Con el defecto solo, D01, D02 y D04 dejan 6,235, 3,130 y 1,584 recogidas sin saldo: rompen el saldo de la cuenta y la regla de D07 lo ve. No son errores de esa regla.
 
-La severidad del seed coincide con la medición en los 18 defectos y un test la revisa en cada build. Ocho bloquean por romper una identidad; D11 y D13 bloquean solo por lo que mueven en el techo de su rango. La severidad no cambia mientras la materialidad quede debajo de 2.84%; con 5%, D11, D15 y D17 pasarían a alerta.
+La severidad del seed coincide con la medición en los 22 defectos y un test la revisa en cada build. Doce bloquean por romper una identidad; D11 y D13 bloquean solo por lo que mueven en el techo de su rango. La severidad no cambia mientras la materialidad quede debajo de 2.84%; con 5%, D11, D15 y D17 pasarían a alerta.
 
 Con los 18 defectos encendidos las nueve cifras quedan bloqueadas: los notebooks 01, 03 y 04 se detienen en la primera celda y el dashboard cambia cada sección por un aviso con las reglas. Detección por defecto, valor expuesto contra impacto y sensibilidad a la materialidad en `notebooks/05_calidad_datos.ipynb`; el dashboard tiene la pestaña "Calidad de datos".
 
