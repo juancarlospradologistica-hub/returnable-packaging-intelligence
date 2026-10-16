@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-15
+**Última actualización:** 2026-10-16
 
 ---
 
@@ -51,9 +51,13 @@ Necesidad de flota retornable por planta, empaque y semana contra el plan de pro
 
 Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaque y maestro de materiales. Contesta qué defecto de un extracto real rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada headline en USD. Semanas 17–19. Cerrada en semana 19 (ADR-028 a ADR-032).
 
+### Alcance IN — Fase 4c (ADR-033)
+
+Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20.
+
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4 cerrada y los criterios de ADR-016 (ADR-027).
+- Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4c cerrada y los criterios de ADR-016 (ADR-027, ADR-033).
 - Corrección automática de datos: Fase 4 detecta y cuantifica; corregir es decisión del dueño del dato.
 - EDI del cliente (DELFOR/DELJIT), S&OP mensual, HU/EWM y empaque alterno.
 
@@ -1171,6 +1175,63 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Tres dbt run seguidos del completo con defectos sin errores, 1:35 cada uno (antes de 2:05 a 2:43, y uno de dos murió). int_calidad_mb51 dentro del run baja de 109 s a 49 s.
   - Mismas violaciones regla por regla y tests sin cambio. El build limpio del completo baja de 4:20 a 2:15: la memoria que el CTE ya no ocupa la usan los modelos que corren en paralelo. La medición del arnés no se repite: las reglas dan lo mismo y el CSV no guarda memoria ni tiempos de este modelo por separado.
 
+### ADR-033 · Fase 4c: defectos ciegos medidos antes de escribir sus reglas
+
+- **Fecha:** 2026-10-16
+- **Estado:** Accepted. Agrega Fase 4c entre Fase 4 y Fase 5: precisa ADR-027, punto 6 (Fase 5 arranca con Fase 4c cerrada). Precisa ADR-028, punto 5 (catálogo), y ADR-031, punto 3 (arnés). Las reglas de 4c.2, su severidad y la medición de después se agregan a este ADR cuando se midan.
+- **Contexto:**
+  - Las 23 reglas de Fase 4 las escribí conociendo los 18 defectos. El 100% de detección de ADR-030 y ADR-031 mide que cada regla ve el defecto para el que se escribió; no dice nada de un defecto que nadie anticipó, que es lo que trae un extracto real.
+  - Con Fase 4 cerrada prototipé cuatro defectos fuera del catálogo sobre el reducido, con un script aparte del generador. Ninguno llegó con su causa. Esa medición usaba otra selección de materiales y fechas y no se compara con la de este ADR.
+  - Medido con el generador sobre el completo (14 plantas, 18 meses, seed 42), cada ciego solo y con las 23 reglas de Fase 4. La medición está en docs/calidad/ciegos_antes.csv, en un commit anterior a cualquier regla nueva:
+
+    | Ciego | Líneas, tasa / techo | Lo reporta hoy | Identidad rota (tasa) | Lo que más mueve a tasa | En el techo |
+    |---|---:|---|---|---|---|
+    | B01 Matnr con ceros desde una fecha | 209,117 / 510,453 | material_sin_maestro (140 materiales) y recogida_sin_saldo (3,100) | stock 54,603, saldo 30,527 | Brecha +616.8% (+$1.99M), ocioso −57.2% | Brecha −97.1%, ocioso +250.0% (+$14.7M) |
+    | B02 Kunnr con ceros desde una fecha | 293,408 / 647,246 | recogida_sin_saldo, todas las líneas | saldo 293,408 | Ciclo −0.4% | Ciclo −0.4% |
+    | B03 Documento 621 contabilizado otra vez | 3,968 / 19,846 | Ninguna regla | stock 179,273 | Brecha −1.6%, ciclo +0.8% | Brecha −6.1%, ocioso +4.5%, ciclo +3.5% |
+    | B04 Budat después del corte | 1,987 / 7,940 | recogida_sin_saldo (5 y 28) | saldo 7 | Brecha +31.0% (+$99,894), ocioso −13.7% | Igual que a tasa |
+
+  - Detección por su causa: 0 de 4. B01 y B02 los reporta una regla de otro defecto: quien lee "material sin maestro" o "recogida sin saldo" no llega al formato del código sin revisar línea por línea. B03 solo lo ve el test de stock no negativo. B04 mueve la brecha 31% con cinco alarmas.
+  - B04 mueve lo mismo con 1,987 líneas que con 7,940. Seis modelos toman la fecha de corte de max(Budat): int_calendario_necesidad, mart_flota_semanal, mart_rutas, mart_rotacion_planta, int_cuenta_mensual e int_tco_por_material. Una sola línea con fecha posterior al corte corre las ventanas de necesidad, la de conciliación y la semana del plan.
+  - B01 es el defecto más caro medido en el proyecto. El mismo material queda con dos códigos a mitad de la historia: el viejo deja de moverse y el nuevo no tiene maestro, foto ni plan. En la brecha y el ocioso el signo cambia entre la tasa y el techo, igual que D13 en ADR-031.
+  - B02 rompe el saldo en las 293,408 recogidas y no mueve una cifra en USD: el saldo del cliente con ceros nunca sube y el del cliente original nunca baja.
+- **Alternativas evaluadas:**
+  - Ir a Fase 5 con B03 y B04 como límites conocidos en el README: el simulador hace replay del MB51 y heredaría el documento repetido y la fecha posterior al corte sin que nada avise.
+  - Detección de anomalías estadística sobre MB51: pide una línea base de varios extractos y el dueño del dato no puede saber por qué se marcó algo.
+  - Escribir las reglas sin medir antes: la detección después de la regla no tendría contra qué compararse y repite el sesgo de Fase 4.
+  - La medición de antes en mart_impacto_defectos desde 4c.1: assert_impacto_completo y assert_severidad_medida piden regla y severidad para cada defecto del CSV y los ciegos no tienen. Va en un CSV aparte y entra al mart en 4c.2, con su regla.
+  - Una sola regla codigo_con_formato para Matnr y Kunnr: el Matnr se cruza contra el maestro y el Kunnr contra las cuentas de la planta. Son objetos y cifras afectadas distintos; van en dos reglas.
+  - Mblnr de B03 en un rango propio (48 más ocho dígitos): único sin límite. Elegí 4999 más los seis últimos dígitos del original porque en la bitácora se lee de qué documento salió la copia; el límite queda en Consecuencias.
+- **Decisión:**
+  1. Catálogo de ciegos B01 a B04 en defectos.py, al final de CATALOGO: sus generadores son default_rng([seed, indice_planta, 3, k]) con k de 19 a 22 y ningún sorteo de D01 a D18 se mueve. Apagados por default; --defectos ciegos o una lista. Mismas reglas que el catálogo: bitácora por línea, lo tocado por un defecto queda fuera de los siguientes y al menos un caso por planta.
+     - B01: desde una fecha del tercio central de la ventana, todos los movimientos de los retornables elegidos llegan con b01_ceros ceros a la izquierda en el Matnr. El maestro no cambia.
+     - B02: desde una fecha del tercio central, los 622 de b02_clientes clientes por planta llegan con dos ceros a la izquierda en el Kunnr.
+     - B03: documentos 621 contabilizados otra vez al día siguiente (Cpudt + 1, sin pasar del corte), con Mblnr 4999 más los seis últimos dígitos del original. La llave no se repite.
+     - B04: 621 de los últimos b04_dias antes del corte con Budat de 1 a 5 días después del corte. Cpudt no cambia: se registraron antes de extraer.
+  2. Arnés: --defectos ciegos. detectados queda nulo mientras ninguna regla de seeds/reglas_calidad.csv nombre al defecto; 0 diría que la regla existe y no atrapó nada.
+  3. La medición de antes se hace en el completo, a la tasa y en el techo, y se versiona en docs/calidad/ciegos_antes.csv en su propio commit, antes del de cualquier regla: el historial de git muestra que no se ajustó a las reglas.
+  4. 4c.2: cuatro reglas. budat_despues_del_corte: Budat posterior a la fecha de extracción, que entra como var y no se infiere del dato. documento_repetido: mismo material, cliente, cantidad y posición en otro documento de la planta, contabilizado poco después. matnr_con_formato: Matnr sin maestro que, sin los ceros a la izquierda, sí está en el maestro de la planta. kunnr_con_formato: Kunnr que, sin los ceros, es una cuenta con salidas en la planta. Después se mide otra vez y la detección de antes y la de después se publican lado a lado en un mart, el README y el notebook 05.
+  5. CI: el paso sucio sigue con --defectos todos y test_calidad recorre D01 a D18. tests/test_ciegos.py prueba los ciegos contra el limpio.
+  6. La bitácora sale en orden canónico, por todas sus columnas. D09 y D16 la armaban con group_by sin orden: con la misma semilla, el reducido y el completo daban el mismo contenido en otro orden.
+  7. Un solo parser de --defectos (lista_defectos en config.py) para el generador y el arnés; ya habían divergido en el manejo de espacios.
+- **Supuestos (práctica de industria, sin datos de empleador):**
+
+  | Ciego | Tasa (rango) | Techo | Razón |
+  |---|---|---|---|
+  | B01 Matnr con ceros | 2% de los retornables con 621 (0.5–5%), tres ceros (1–9) | 5% | SAP guarda el Matnr numérico con ceros a la izquierda y lo muestra sin ellos (conversión MATN1). Un extracto que pasa de un reporte a una descarga de tabla o a una interfaz trae los ceros desde ese día |
+  | B02 Kunnr con ceros | 1 cliente por planta (1–2) | 2 | El Kunnr se guarda con diez dígitos (conversión ALPHA). La interfaz que confirma las recogidas del transportista lo manda en formato interno |
+  | B03 Documento repetido | 0.1% de los documentos 621 (0.05–0.5%) | 0.5% | Contabilización repetida después de un error de la interfaz o de un usuario que no vio el primer documento; sale al día siguiente con otro número |
+  | B04 Budat después del corte | 0.05% de los 621 (0.01–0.2%), de los últimos 14 días (7–21), 1 a 5 días después del corte | 0.2% | Salida contabilizada con la fecha del embarque planeado en el periodo siguiente, ya abierto en MM, antes de correr el extracto |
+
+- **Consecuencias:**
+  - Con los ciegos apagados el generador escribe los mismos archivos que main, y con --defectos todos D01 a D18 salen iguales. Comprobado en el reducido, tabla por tabla.
+  - Medición en 28 min: limpio 177 s y ~185 s por corrida. Las cifras del limpio son las de docs/calidad/impacto_defectos.csv.
+  - Con el criterio de ADR-031, punto 6, los cuatro bloquearían: todos rompen una identidad y tres mueven una cifra más que la materialidad. Si documento_repetido marca documentos legítimos en el limpio, la severidad se decide en 4c.2 con su medición.
+  - La regla de B04 necesita la fecha de extracción fuera del dato. Si los seis modelos que infieren el corte con max(Budat) pasan a leerla también, se decide en 4c.2: corregirlos movería el calendario de las cifras publicadas.
+  - B03 da un Mblnr único mientras ninguna planta pase de un millón de documentos en un año; en el completo la más grande llega a 784,258 (PLNT_US04, 2025). Si el generador sube de volumen, B03 empieza a repetir llaves y se confunde con D01.
+  - tests/test_ciegos.py con 17 casos; tres tests nuevos en test_arnes.py (CLI del arnés, ciegos sin regla en el seed, equivalencia del arnés con los ciegos) y uno en test_defectos.py (bitácora en orden canónico). Cada uno verificado con una mutación que lo hace fallar: 19 mutaciones, una por comportamiento.
+  - El paso sucio de CI no cambia. test_ciegos_sin_regla_en_el_seed fija que ningún ciego tenga regla todavía; en 4c.2 cambia junto con las reglas.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1236,6 +1297,7 @@ Una fila por planta y material. Fuente única del tipo de empaque y del costo un
 - **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
 - **Defectos (ADR-028, ADR-029):** 18 defectos inyectables, apagados por default; `--defectos todos` o una lista. Tasas: D01 un día por planta; D02 0.1% de los 621; D03 0.05% de las entradas 311 a VACI; D04 0.05% de los 621; D05 0.02% de las líneas; D06 0.2% de los retornables con instrucción; D07 0.05% de los 622; D08 0.1% de los documentos, 11 a 40 días después del fin de mes; D09 0.5% de los materiales con foto; D10 0.5%, D11 0.1% y D12 0.2% de las partes; D13 1% de los materiales, unidad de precio 10 o 100; D14 0.5% de los retornables; D15 0.5% y D16 1% de los materiales, D16 con desvío de 6 a 20%; D17 0.2% de los materiales; D18 la primera planta de cada país con moneda propia (MXN, factor 18.5). Al menos un caso por planta.
 - **Techo del rango por defecto (ADR-031):** D01 tres días; D02 0.5%, D03 0.2%, D04 0.2%, D05 0.1%, D06 1%, D07 0.2%, D08 0.5%, D09 2%, D10 2%, D11 0.5%, D12 1%, D13 3%, D14 2%, D15 2%, D16 5% y D17 1%; D18 una planta MX en MXN (18.5) y una NI en NIO (36.6, ilustrativo). Viven en TECHO_DEFECTOS de config.py.
+- **Defectos ciegos (ADR-033):** B01 a B04, apagados por default; `--defectos ciegos` o una lista. B01: 2% de los retornables con 621, Matnr con tres ceros a la izquierda desde una fecha del tercio central; B02: un cliente por planta, Kunnr de sus 622 con dos ceros desde una fecha del tercio central; B03: 0.1% de los documentos 621 contabilizados otra vez al día siguiente con Mblnr 4999 más los seis últimos dígitos; B04: 0.05% de los 621, tomados de los últimos 14 días, con Budat 1 a 5 días después del corte. Techos: B01 5%, B02 dos clientes, B03 0.5%, B04 0.2%. Generadores k = 19 a 22.
 - **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, el maestro en maestro_materiales.parquet y, con defectos, bitacora_defectos.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
@@ -1264,11 +1326,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR-028). Arranque de 4a: maestro de materiales (ADR-028).
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
-- [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027).
+- [ ] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
+- [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-16 · Sesión 52 — Semana 20
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - PR #18 (fase-4b4) mergeado. Fase 4c aprobada (ADR-033).
+  - 4c.1: defectos ciegos B01 a B04 en el generador, al final del catálogo y con generadores k = 19 a 22. Con los ciegos apagados el limpio sale igual que main en las siete tablas del reducido, y con --defectos todos D01 a D18 salen iguales.
+  - Arnés con --defectos ciegos y detectados nulo mientras ninguna regla del seed nombra al defecto. test_calidad recorre solo D01 a D18: con los ciegos en LLAVE el paso sucio fallaba con "sin casos en la bitácora".
+  - fix: la bitácora salía con D09 y D16 en otro orden entre dos corridas con la misma semilla (group_by sin orden). inyecta la ordena por todas sus columnas.
+  - Un solo parser de --defectos para el generador y el arnés.
+  - tests/test_ciegos.py: el cambio contra el limpio es exactamente la bitácora, las demás tablas no cambian, un caso por planta, valores de la bitácora contra el MB51 y la forma de cada ciego; exclusión con D01 forzada sobre los últimos tres días.
+  - Verificados rompiendo con 19 mutaciones, una por comportamiento: ceros fijos, B01 y B02 sin fecha, B01 tocando el maestro, B02 en cualquier clase de movimiento, B02 sin caso en una planta, B03 repitiendo la llave, con Cpudt +2, sin registrar o ignorando D01, B04 en el corte, en corte+6, moviendo Cpudt o con el valor de la bitácora mal, el parser y el arnés sin el grupo ciegos, el arnés sin ordenar el MB51 y el seed nombrando a B03.
+  - Medición de antes en el completo: docs/calidad/ciegos_antes.csv, 9 corridas en 28 min, en su propio commit. Detección por su causa: 0 de 4.
+  - README: Fase 4c en curso, cómo encender y medir los ciegos, y el 100% de Fase 4 aclarado como medido contra el catálogo propio.
+- **Decisiones tomadas:** ADR-033.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - Seis modelos infieren el corte con max(Budat). Una línea con fecha futura corre todo el calendario: B04 mueve la brecha 31% igual con 1,987 líneas que con 7,940. La fecha de extracción es un dato de entrada, no algo que se calcula del extracto.
+  - Un test de reproducibilidad que corre en el config chico de CI no ve el desorden de un group_by: con pocos datos Polars no paraleliza. La guarda tiene que ser una propiedad (orden canónico), no una comparación entre dos corridas.
+  - Una prueba forzada a tasa 1 encontró que B01 deja sin candidatos a B03 y B04: la exclusión se prueba un ciego a la vez.
+  - El número de B03 se apoya en los seis últimos dígitos del Mblnr; aguanta mientras ninguna planta pase de un millón de documentos en un año.
+- **Próximo paso:** PR de fase-4c1 con CI verde y merge. Después 4c.2: las cuatro reglas, la fecha de extracción como var y la medición de después junto a la de antes.
 
 ### 2026-10-15 · Sesión 51 — Semana 19
 
@@ -2219,6 +2304,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **STO** — Stock Transport Order. Pedido de traslado entre plantas.
 - **MB5B** — Transacción SAP: stock a una fecha. Da el stock inicial que MB51 no trae; movimientos más foto inicial reconstruyen el stock.
 - **MD61 / PBED** — Transacción y tabla SAP de necesidades independientes: el plan de producción por material y periodo.
+- **Conversión ALPHA / MATN1** — Rutinas de conversión de SAP: el Kunnr y el Matnr numéricos se guardan con ceros a la izquierda (formato interno) y se muestran sin ellos (formato externo). Un extracto puede traer cualquiera de los dos según cómo se arme.
 - **POP1** — Transacción SAP de instrucción de empaque. Alternativa en SD: registro info cliente-material (VD51).
 
 ### Términos de dominio (RPL)
@@ -2291,6 +2377,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Bloqueo de publicación** — Un notebook o el dashboard no presentan una cifra si una regla que bloquea tiene violaciones sobre ella. Las cifras de cada regla viven en cifra_afectada del seed reglas_calidad (ADR-031).
 - **Universo de una regla** — Lo que una regla cuenta en una planta: líneas de MB51, materiales o partes. Tasa de violaciones = violaciones / universo.
 - **Correlación de rangos (Spearman)** — Correlación entre los rangos de dos variables, no entre sus valores: mide si ordenan igual. Aquí, valor expuesto contra movimiento de las cifras.
+- **Defecto ciego** — Defecto que se inyecta y se mide antes de que exista una regla que lo nombre. Mide la detección del pipeline con defectos que no conocía al escribir sus reglas (ADR-033).
+- **Pre-registro** — Guardar una medición o un criterio antes de ver el resultado que lo pondría a prueba. Aquí la medición de los ciegos va en su propio commit antes de las reglas, y git muestra el orden.
+- **Fecha de extracción** — Día en que se corrió el extracto. Ningún movimiento puede tener Budat posterior; sale de quien extrae, no del dato.
 - **CTE materializado** — Resultado de un WITH que el motor guarda completo para reusarlo. Ahorra cómputo cuando varias partes lo leen, pero ocupa memoria; DuckDB lo hace por default si el CTE se lee más de una vez.
 
 ---
