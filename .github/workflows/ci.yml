@@ -51,11 +51,11 @@ jobs:
             --cov-report=term-missing \
             -v
 
-      # Paso sucio (ADR-028, punto 12): mismo reducido con los 18 defectos.
+      # Paso sucio (ADR-028, punto 12): mismo reducido con los 22 defectos (ADR-034).
       # dbt run no puede tronar; las reglas corren como warn y pytest exige que
       # cada registro de la bitácora lo reporte la regla de su defecto.
       - name: generar dataset CI con defectos
-        run: uv run python -m rpi --months 18 --plants 2 --country MX --defectos todos --output data/sucio
+        run: uv run python -m rpi --months 18 --plants 2 --country MX --defectos todos,ciegos --output data/sucio
 
       - name: ingestar dataset con defectos
         run: uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/sucio')"
