@@ -338,6 +338,14 @@ class MaterialCost(BaseModel):
 
 
 DEFECTOS = tuple(f"D{i:02d}" for i in range(1, 19))
+# Defectos ciegos (ADR-033): se miden antes de que exista una regla que los nombre.
+CIEGOS = tuple(f"B{i:02d}" for i in range(1, 5))
+
+
+def lista_defectos(texto: str) -> list[str]:
+    """'todos', 'ciegos' o IDs separados por coma. El generador y el arnés leen igual."""
+    grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
+    return grupos.get(texto.strip().lower()) or [d.strip().upper() for d in texto.split(",")]
 
 
 class DefectosConfig(BaseModel):
@@ -394,9 +402,23 @@ class DefectosConfig(BaseModel):
         ),
     )
 
+    # Ciegos (ADR-033).
+    b01_tasa: float = Field(
+        default=0.02, ge=0, le=1, description="De los retornables con 621 (0.5–5%)."
+    )
+    b01_ceros: int = Field(default=3, ge=1, le=9, description="Ceros que agrega el extracto.")
+    b02_clientes: int = Field(default=1, ge=0, description="Clientes por planta (1–2).")
+    b03_tasa: float = Field(
+        default=0.001, ge=0, le=1, description="De los documentos 621 (0.05–0.5%)."
+    )
+    b04_tasa: float = Field(default=0.0005, ge=0, le=1, description="De los 621 (0.01–0.2%).")
+    b04_dias: int = Field(
+        default=14, ge=1, description="Ventana antes del corte de la que salen las líneas."
+    )
+
     @model_validator(mode="after")
     def ids_validos(self) -> DefectosConfig:
-        fuera = sorted(set(self.activos) - set(DEFECTOS))
+        fuera = sorted(set(self.activos) - set(DEFECTOS) - set(CIEGOS))
         if fuera:
             raise ValueError(f"Defectos fuera del catálogo: {fuera}")
         if self.d08_dias_min > self.d08_dias_max:
@@ -429,6 +451,10 @@ TECHO_DEFECTOS: dict[str, dict] = {
     "D16": {"d16_tasa": 0.05},
     "D17": {"d17_tasa": 0.01},
     "D18": {"d18_moneda": {Country.MX: ("MXN", 18.5), Country.NI: ("NIO", 36.6)}},
+    "B01": {"b01_tasa": 0.05},
+    "B02": {"b02_clientes": 2},
+    "B03": {"b03_tasa": 0.005},
+    "B04": {"b04_tasa": 0.002},
 }
 
 

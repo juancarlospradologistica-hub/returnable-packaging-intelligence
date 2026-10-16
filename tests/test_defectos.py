@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from rpi.__main__ import build_config, parse_args
-from rpi.config import DEFECTOS, GeneratorConfig
+from rpi.config import CIEGOS, DEFECTOS, GeneratorConfig
 from rpi.db import ingest
 from rpi.defectos import BITACORA, inyecta
 from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL, generate
@@ -164,6 +164,13 @@ def test_defectos_reproducibles(cfg_sucio, bitacora, tmp_path):
     assert pl.read_parquet(tmp_path / BITACORA).equals(bitacora)
 
 
+def test_bitacora_en_orden_canonico(bitacora):
+    # El test de arriba corre con el config de CI, donde el orden sale estable
+    # aunque no esté garantizado; este atrapa el desorden en cualquier tamaño.
+    for _, g in bitacora.group_by("Werks", maintain_order=True):
+        assert g.equals(g.sort(g.columns, nulls_last=True))
+
+
 def test_limpio_sin_bitacora(raw_ci, cfg_ci, tmp_path):
     assert not (raw_ci / BITACORA).exists()
     # Una bitácora vieja en el directorio no sobrevive a una corrida limpia.
@@ -187,6 +194,8 @@ def test_ingesta_carga_y_borra_la_bitacora(raw_ci, raw_sucio, bitacora, tmp_path
 def test_cli_defectos():
     assert build_config(parse_args([])).defectos.activos == []
     assert build_config(parse_args(["--defectos", "todos"])).defectos.activos == list(DEFECTOS)
+    assert build_config(parse_args(["--defectos", "ciegos"])).defectos.activos == list(CIEGOS)
+    assert build_config(parse_args(["--defectos", "D01,b03"])).defectos.activos == ["D01", "B03"]
     assert build_config(parse_args(["--defectos", "d05, D13"])).defectos.activos == ["D05", "D13"]
     with pytest.raises(ValidationError, match="D99"):
         build_config(parse_args(["--defectos", "D99"]))

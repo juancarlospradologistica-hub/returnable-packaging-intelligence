@@ -549,6 +549,142 @@ def d18_moneda_local(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -
     )
 
 
+# ---------------------------------------------------------------------------
+# Ciegos (ADR-033): defectos de un extracto real que ninguna regla nombra al
+# medirse por primera vez. La medición se versiona antes de escribir su regla.
+# ---------------------------------------------------------------------------
+
+
+def _desde(mb51: pl.DataFrame, rng: np.random.Generator) -> object:
+    """Una fecha en el tercio central de la ventana: el cambio llega a media historia."""
+    dias = mb51["Budat"].unique().sort()
+    return dias[int(rng.integers(dias.len() // 3, 2 * dias.len() // 3))]
+
+
+def b01_matnr_formato(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -> None:
+    """
+    Desde una fecha, los movimientos de unos retornables llegan con el Matnr
+    con ceros a la izquierda: cambió la conversión del extracto y el maestro
+    sigue con el formato de antes.
+    """
+    mb51 = p.tablas["mb51"].with_row_index("_i")
+    s621 = mb51.filter(pl.col("Bwart") == "621")
+    candidatos = _lineas_libres(p, s621).select("Matnr").unique().sort("Matnr")
+    universo = s621["Matnr"].n_unique()
+    sel = _elige(candidatos, _cuantos(cfg.b01_tasa, universo, candidatos.height), rng)
+    desde = _desde(mb51, rng)
+    lineas = _lineas_libres(
+        p, mb51.filter(pl.col("Matnr").is_in(sel["Matnr"].implode()) & (pl.col("Budat") >= desde))
+    )
+    nuevo = pl.lit("0" * cfg.b01_ceros) + pl.col("Matnr")
+    p.tablas["mb51"] = _cambia_lineas(mb51, lineas, "Matnr", nuevo).drop("_i")
+    p.registra(
+        lineas.with_columns(
+            pl.lit("Matnr").alias("campo"),
+            _texto("Matnr").alias("valor_original"),
+            nuevo.alias("valor_inyectado"),
+        ),
+        "B01",
+        "mb51",
+    )
+    p.materiales |= set(sel["Matnr"])
+    p.marca_docs(lineas)
+
+
+def b02_kunnr_formato(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -> None:
+    """
+    Desde una fecha, las recogidas de un cliente llegan con el Kunnr con ceros
+    a la izquierda: el sistema del transportista lo manda con otro formato y
+    la cuenta queda partida en dos.
+    """
+    mb51 = p.tablas["mb51"].with_row_index("_i")
+    s622 = _lineas_libres(
+        p, mb51.filter((pl.col("Bwart") == "622") & pl.col("Kunnr").is_not_null())
+    )
+    clientes = s622.select("Kunnr").unique().sort("Kunnr")
+    n = min(cfg.b02_clientes, clientes.height)
+    if n == 0:
+        return
+    sel = _elige(clientes, n, rng)
+    desde = _desde(mb51, rng)
+    lineas = s622.filter(pl.col("Kunnr").is_in(sel["Kunnr"].implode()) & (pl.col("Budat") >= desde))
+    nuevo = pl.lit("00") + pl.col("Kunnr")
+    p.tablas["mb51"] = _cambia_lineas(mb51, lineas, "Kunnr", nuevo).drop("_i")
+    p.registra(
+        lineas.with_columns(
+            pl.lit("Kunnr").alias("campo"),
+            _texto("Kunnr").alias("valor_original"),
+            nuevo.alias("valor_inyectado"),
+        ),
+        "B02",
+        "mb51",
+    )
+    p.marca_docs(lineas)
+
+
+def b03_recontabiliza(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -> None:
+    """
+    Un documento 621 se contabiliza otra vez con otro número, al día
+    siguiente: la llave no se repite y la salida cuenta doble. El número
+    nuevo lleva el prefijo 4999, fuera de la secuencia del generador.
+    """
+    mb51 = p.tablas["mb51"]
+    docs = mb51.filter(pl.col("Bwart") == "621").select(_DOC).unique()
+    candidatos = (
+        docs.join(p.docs, on=_DOC, how="anti")
+        .join(
+            mb51.filter(pl.col("Matnr").is_in(sorted(p.materiales))).select(_DOC),
+            on=_DOC,
+            how="anti",
+        )
+        .sort(_DOC)
+    )
+    sel = _elige(candidatos, _cuantos(cfg.b03_tasa, docs.height, candidatos.height), rng)
+    dup = mb51.join(sel, on=_DOC).with_columns(
+        ("4999" + pl.col("Mblnr").str.slice(4)).alias("Mblnr"),
+        pl.min_horizontal(pl.col("Cpudt") + pl.duration(days=1), pl.lit(p.corte)).alias("Cpudt"),
+    )
+    p.tablas["mb51"] = pl.concat([mb51, dup])
+    p.registra(
+        dup.with_columns(
+            pl.lit("linea").alias("campo"),
+            pl.lit(None, dtype=pl.String).alias("valor_original"),
+            pl.lit("recontabilizada").alias("valor_inyectado"),
+        ),
+        "B03",
+        "mb51",
+    )
+    p.marca_docs(sel)
+    p.marca_docs(dup)
+
+
+def b04_budat_despues_del_corte(p: Planta, cfg: DefectosConfig, rng: np.random.Generator) -> None:
+    """
+    Salidas de las últimas semanas contabilizadas con fecha del periodo
+    siguiente, 1 a 5 días después del corte, y registradas antes de extraer:
+    el extracto trae movimientos que todavía no pasan.
+    """
+    mb51 = p.tablas["mb51"].with_row_index("_i")
+    base = mb51.filter(pl.col("Bwart") == "621")
+    ventana = base.filter(pl.col("Budat") > pl.lit(p.corte) - pl.duration(days=cfg.b04_dias))
+    candidatos = _lineas_libres(p, ventana)
+    sel = _elige(candidatos, _cuantos(cfg.b04_tasa, base.height, candidatos.height), rng)
+    sel = sel.with_columns(
+        pl.Series("_dias", rng.integers(1, 6, sel.height), dtype=pl.Int64)
+    ).with_columns((pl.lit(p.corte) + pl.duration(days=pl.col("_dias"))).alias("_budat"))
+    p.tablas["mb51"] = _cambia_lineas(mb51, sel, "Budat", pl.col("_budat")).drop("_i")
+    p.registra(
+        sel.with_columns(
+            pl.lit("Budat").alias("campo"),
+            _texto("Budat").alias("valor_original"),
+            _texto("_budat").alias("valor_inyectado"),
+        ),
+        "B04",
+        "mb51",
+    )
+    p.marca_docs(sel)
+
+
 Defecto = Callable[[Planta, DefectosConfig, np.random.Generator], None]
 
 CATALOGO: dict[str, Defecto] = {
@@ -570,6 +706,11 @@ CATALOGO: dict[str, Defecto] = {
     "D16": d16_precio_documento,
     "D17": d17_grupo_fuera,
     "D18": d18_moneda_local,
+    # Al final del catálogo: sus generadores son k = 19 a 22 y los de D01-D18 no cambian.
+    "B01": b01_matnr_formato,
+    "B02": b02_kunnr_formato,
+    "B03": b03_recontabiliza,
+    "B04": b04_budat_despues_del_corte,
 }
 
 
@@ -590,5 +731,9 @@ def inyecta(
     for k, (clave, defecto) in enumerate(CATALOGO.items(), start=1):
         if clave in cfg.activos:
             defecto(p, cfg, np.random.default_rng([seed, idx, 3, k]))
-    bitacora = pl.concat(p.bitacora) if p.bitacora else pl.DataFrame(schema=ESQUEMA_BITACORA)
-    return p.tablas, bitacora
+    if not p.bitacora:
+        return p.tablas, pl.DataFrame(schema=ESQUEMA_BITACORA)
+    # Orden canónico: los group_by de D09 y D16 no garantizan orden y con la
+    # bitácora en desorden la misma semilla no da el mismo archivo.
+    bitacora = pl.concat(p.bitacora)
+    return p.tablas, bitacora.sort(bitacora.columns, nulls_last=True)
