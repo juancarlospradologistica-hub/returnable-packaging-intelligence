@@ -805,10 +805,10 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
     _lineas = "\n".join(f"- **{c}**: {', '.join(r)}" for c, r in bloqueos.items())
     vista_calidad = mo.vstack(
         [
-            mo.md("""
+            mo.md(f"""
         ## Tablero del extracto abierto
 
-        Violaciones de las 23 reglas por causa sobre la base que abre el
+        Violaciones de las {calidad_reglas.height} reglas por causa sobre la base que abre el
         dashboard (`RPI_DB`). Una regla que bloquea con violaciones deja sin
         publicar las cifras que afecta; las alertas solo avisan.
         """),
@@ -825,7 +825,7 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
             mo.callout(mo.md(f"**Cifras que no se publican:**\n\n{_lineas}"), kind="danger")
             if bloqueos
             else mo.md("Ninguna cifra bloqueada."),
-            mo.ui.table(calidad_reglas, selection=None, page_size=23),
+            mo.ui.table(calidad_reglas, selection=None, page_size=calidad_reglas.height),
             mo.md("## Tasa de violaciones por regla y planta"),
             mo.ui.table(calidad_plantas, selection=None, page_size=10)
             if calidad_plantas.height
@@ -839,7 +839,7 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
         No depende de la base abierta.
         """),
             nivel_impacto,
-            mo.ui.table(tabla_impacto, selection=None, page_size=18),
+            mo.ui.table(tabla_impacto, selection=None, page_size=tabla_impacto.height),
         ]
     )
     return (vista_calidad,)

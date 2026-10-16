@@ -185,7 +185,7 @@ uv run python -m rpi
 
 Con `--defectos todos` (o una lista como `--defectos D05,D13`) el generador inyecta el catálogo de defectos de un extracto real (ADR-028) y escribe `data/raw/bitacora_defectos.parquet` con cada registro que tocó. Apagado por default: sin la opción el dataset sale igual.
 
-Con `--defectos ciegos` inyecta cuatro defectos que ninguna regla nombra todavía (ADR-033): Matnr y Kunnr con ceros a la izquierda desde una fecha, un documento 621 contabilizado otra vez con otro número y salidas con fecha de contabilización posterior al corte. Sirven para medir qué detecta el pipeline con defectos que no conocía al escribir sus reglas.
+Con `--defectos ciegos` inyecta cuatro defectos más, que medí antes de que existiera una regla para ellos (ADR-033, ADR-034): Matnr y Kunnr con ceros a la izquierda desde una fecha, un documento 621 contabilizado otra vez con otro número y salidas con fecha de contabilización posterior a la del extracto. `--defectos todos,ciegos` enciende los 22.
 
 Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales). Cada tabla pasa por su schema Pandera; una falla de estructura no detiene la carga y queda en `raw_errores_schema`:
 
@@ -210,7 +210,7 @@ Medir las reglas de calidad contra los defectos inyectados, en una base aparte p
 
 ```bash
 export RPI_DB=data/sucio.duckdb
-uv run python -m rpi --defectos todos --output data/sucio
+uv run python -m rpi --defectos todos,ciegos --output data/sucio
 uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/sucio')"
 uv run dbt seed --profiles-dir .
 uv run dbt run --profiles-dir .
@@ -226,20 +226,16 @@ Cada regla vive en `models/intermediate/calidad/` y su severidad en `seeds/regla
 uv run marimo run notebooks/02_dashboard.py
 ```
 
-Medir cuánto mueve cada defecto, solo, cada cifra publicada (ADR-031). El arnés inyecta cada defecto sobre el limpio de `data/raw`, a la tasa del catálogo y en el techo de su rango, reconstruye solo lo que cambió y escribe `docs/calidad/impacto_defectos.csv`. En el completo son 37 corridas y ~120 min; corre en local al cerrar una fase, no en CI:
+Medir cuánto mueve cada defecto, solo, cada cifra publicada (ADR-031). El arnés inyecta cada defecto sobre el limpio de `data/raw`, a la tasa del catálogo y en el techo de su rango, reconstruye solo lo que cambió y escribe `docs/calidad/impacto_defectos.csv`. Sin opciones mide los 22 defectos: en el completo son 45 corridas y ~115 min. Corre en local al cerrar una fase, no en CI:
 
 ```bash
 uv run python -m rpi.calidad
 uv run python -m rpi.calidad --defectos D05,D13 --niveles tasa   # corrida corta
 ```
 
-Los defectos ciegos se miden igual, antes de escribir sus reglas, y la medición queda en un CSV aparte:
+`docs/calidad/ciegos_antes.csv` es la medición de los ciegos antes de tener regla. No se vuelve a correr: es el antes contra el que `mart_deteccion_ciegos` compara la detección de hoy.
 
-```bash
-uv run python -m rpi.calidad --defectos ciegos --salida docs/calidad/ciegos_antes.csv
-```
-
-El CSV de impacto va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió. `notebooks/05_calidad_datos.ipynb` lo lee: detección por defecto, cuánto mueve cada defecto cada cifra, valor expuesto contra delta y la severidad contra el supuesto de materialidad. El dashboard tiene una pestaña "Calidad de datos" con el tablero del extracto abierto y la misma medición.
+El CSV de impacto va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió. `notebooks/05_calidad_datos.ipynb` lo lee: detección por defecto, cuánto mueve cada defecto cada cifra, valor expuesto contra delta, la severidad contra el supuesto de materialidad y los ciegos antes y después de su regla. El dashboard tiene una pestaña "Calidad de datos" con el tablero del extracto abierto y la misma medición.
 
 Abrir el dashboard:
 
@@ -546,6 +542,23 @@ La severidad del seed coincide con la medición en los 22 defectos y un test la 
 
 Con los 22 defectos encendidos las nueve cifras quedan bloqueadas: los notebooks 01, 03 y 04 se detienen en la primera celda y el dashboard cambia cada sección por un aviso con las reglas. Detección por defecto, valor expuesto contra impacto y sensibilidad a la materialidad en `notebooks/05_calidad_datos.ipynb`; el dashboard tiene la pestaña "Calidad de datos".
 
+### Defectos ciegos: antes y después de su regla
+
+Las reglas de Fase 4 las escribí conociendo los 18 defectos, así que su 100% no dice nada de un defecto que nadie anticipó. Para medirlo inyecté cuatro defectos de un extracto real que ninguna regla nombraba y medí su detección en el completo antes de escribir sus reglas (ADR-033). Esa medición está en `docs/calidad/ciegos_antes.csv`, en un commit anterior al de las reglas: el historial muestra que no la ajusté después. Luego escribí las cuatro reglas y volví a medir con la misma inyección (ADR-034).
+
+| Qué simula | Ciego | Casos a tasa | Antes de su regla | Después |
+|---|---|---:|---|---|
+| Matnr con ceros a la izquierda desde una fecha | B01 | 209,117 | `material_sin_maestro` 140, `recogida_sin_saldo` 3,100 | `matnr_con_formato` 100% |
+| Kunnr de las recogidas con ceros desde una fecha | B02 | 293,408 | `recogida_sin_saldo` 293,408 | `kunnr_con_formato` 100% |
+| Documento 621 contabilizado otra vez con otro número | B03 | 3,968 | ninguna regla | `documento_repetido` 100% |
+| Budat después de la fecha del extracto | B04 | 1,987 | `recogida_sin_saldo` 5 | `budat_despues_del_corte` 100%; también `recogida_sin_saldo` 5 |
+
+- **Detección por su causa: 0 de 4 antes, 4 de 4 después**, a la tasa del catálogo y en el techo, sin violaciones en el limpio.
+- **Antes, 3 de los 4 disparaban una regla de otro defecto, con el nombre equivocado.** B02 disparaba `recogida_sin_saldo` en cada una de sus líneas: quien lee eso busca un error en la recogida, no un cliente que cambió de formato. Ahora cada línea responde a una sola regla.
+- **B03 solo lo veía el test de stock no negativo.** Por contenido no se distingue de dos embarques iguales del mismo día; la regla usa la entrega (`Xblnr`): la misma salida con la misma entrega, contabilizada dos veces.
+- **B04 movía la brecha +31.0% con cualquier volumen.** Cuatro modelos tomaban el corte de `max(Budat)`, y una sola línea con fecha posterior corría todo el calendario: 1,987 líneas movían lo mismo que 7,940. Con la fecha de extracción como var, +1.4% a tasa y +5.6% en el techo.
+- **Límites.** `documento_repetido` necesita que el extracto traiga `Xblnr`. `kunnr_con_formato` toma como buena la versión del cliente que tiene salidas; si las dos tienen, no marca ninguna.
+
 ## Estado
 
 Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 9 seeds con 294 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
@@ -556,7 +569,7 @@ Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción 
 
 Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario salen del maestro, sin mover ninguna cifra de Fase 1 a 3 (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029); cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed (ADR-030). El arnés de impacto mide cuánto mueve cada defecto cada cifra, y los tests revisan en cada build que la severidad y las cifras afectadas del seed digan lo que el arnés midió. Ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031, ADR-032).
 
-Fase 4c en curso: defectos ciegos (ADR-033). Cuatro defectos de un extracto real que ninguna regla nombra se inyectan y se miden con el arnés antes de escribir sus reglas; la medición queda versionada en `docs/calidad/ciegos_antes.csv`. Después entran las cuatro reglas y se publica la detección de antes y la de después, lado a lado. El simulador de la red queda para Fase 5.
+Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extracto real que ninguna regla nombraba se midieron antes de escribir sus reglas, con 0 de 4 detectados por su causa, y después, con 4 de 4. La fecha de extracción pasó a ser un dato de entrada en lugar de inferirse del MB51. El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
