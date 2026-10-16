@@ -403,7 +403,7 @@ Observaciones:
 | Mantenimiento por ciclo (USD) | 0.20 | 2.50 |
 | Desechable equivalente (USD) | 4.50 | 45.00 |
 
-Los parámetros viven solo en `models/intermediate/int_tco_por_material.sql` (ADR-010).
+El costo unitario sale del maestro de materiales; vida útil, mantenimiento y desechable equivalente, de `seeds/parametros_flota.csv` (ADR-028).
 
 ### Desechable equivalente del Rack
 
@@ -487,6 +487,48 @@ Cada escenario de `seeds/escenarios_brecha.csv` corre por la misma lógica que e
 
 Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_necesidad_flota.ipynb`. El dashboard tiene una pestaña con la brecha de cada escenario.
 
+## Resultados Fase 4: calidad de datos
+
+La pregunta de Fase 4: qué defecto de un extracto MB51 y de su maestro rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada cifra publicada (ADR-027). Al cerrar Fase 3, de 13 defectos típicos el pipeline detectaba seis por su causa, cuatro solo por síntoma y dos pasaban en silencio.
+
+El catálogo tiene hoy 18 defectos y cada uno tiene una regla en dbt que lo nombra. El arnés `rpi.calidad` inyecta cada defecto solo sobre el dataset limpio, a la tasa del catálogo y en el techo de su rango, y mide siete cifras publicadas, cuatro identidades (llave, stock, saldo en cliente y conservación de flota) y las reglas que se disparan: 37 corridas en 120 min. Con cada defecto solo, la regla de su defecto reporta el 100% de lo inyectado en los dos niveles.
+
+| Defecto | Regla | Severidad | Identidad rota | Más mueve a tasa | En el techo |
+|---|---|---|---|---|---|
+| D01 | `llave_duplicada` | bloquea | llave, stock, saldo | Brecha +11.4% | Brecha +90.8% |
+| D02 | `bwart_fuera_de_catalogo` | bloquea | stock, saldo | Brecha +1.3% | Brecha +7.6% |
+| D03 | `lgort_fuera_de_catalogo` | bloquea | stock, conservación | Brecha +9.1% | Brecha +47.9% |
+| D04 | `cliente_vacio` | bloquea | saldo | Ciclo -0.4% | Ciclo -1.6% |
+| D05 | `signo_invertido` | bloquea | stock, conservación | Brecha +52.4% | Brecha +451.2% |
+| D06 | `cantidad_en_piezas` | bloquea | stock | Ciclo -9.4% | Ciclo sin valor |
+| D07 | `recogida_sin_saldo` | bloquea | saldo | Ciclo +0.4% | Ciclo +1.6% |
+| D08 | `registro_despues_del_cierre` | alerta | — | nada | nada |
+| D09 | `material_sin_foto` | bloquea | stock | Brecha +21.9% | Brecha +293.4% |
+| D10 | `parte_sin_instruccion` | bloquea | — | Ocioso +5.3% | Ocioso +19.4% |
+| D11 | `piezas_en_cero` | bloquea | — | Ocioso +0.7% | Ocioso +3.3% |
+| D12 | `instruccion_a_desechable` | bloquea | — | Ocioso +2.2% | Ocioso +9.0% |
+| D13 | `unidad_de_precio` | bloquea | — | Pérdida -0.9% | Ocioso -6.4% |
+| D14 | `grupo_contradice_codigo` | bloquea | — | Brecha -1.4% | Ocioso +6.8% |
+| D15 | `material_sin_maestro` | bloquea | — | Ocioso +2.2% | Brecha -3.7% |
+| D16 | `precio_documento_distinto` | alerta | — | nada | nada |
+| D17 | `grupo_fuera_de_catalogo` | bloquea | — | Ocioso +2.8% | Brecha -2.0% |
+| D18 | `moneda_distinta` | bloquea | — | Ocioso +294.9% | Ocioso +1060.4% |
+
+![Movimiento de cada cifra con un defecto a la vez](docs/img/impacto_defectos.png)
+
+Lo que encontré:
+
+- **Un precio en otra moneda es el defecto más caro.** Una planta con el maestro en MXN leído como USD (D18) sube la pérdida reconocida +169.3% y el capital ocioso +294.9%. Antes de Fase 4 no tronaba ningún test.
+- **El signo importa más que el volumen.** El signo invertido (D05) mueve la brecha +52.4% a la tasa del catálogo y +451.2% en el techo.
+- **Una cifra puede desaparecer.** Con la cantidad capturada en piezas (D06) el ciclo de flota baja -9.4%; en el techo no queda ninguna cohorte completa y el ciclo de Fase 1 no se puede publicar.
+- **El capital ocioso es la cifra más frágil.** La mueven 14 de los 18 defectos: sale del mismo balance que la brecha y cualquier cosa que cambie flota o necesidad lo mueve.
+- **El valor expuesto no dice cuánto se mueve una cifra.** D06 expone $16.1M y mueve 4.6% una cifra en USD; D05 expone $1.1M y mueve la brecha 52.4%. La correlación de rangos entre los dos, en los 15 defectos con valor expuesto, es 0.29. El valor expuesto sirve para priorizar la revisión; el impacto lo mide el arnés.
+- **Las falsas alarmas tienen dueño.** Con el defecto solo, D01, D02 y D04 dejan 6,235, 3,130 y 1,584 recogidas sin saldo: rompen el saldo de la cuenta y la regla de D07 lo ve. No son errores de esa regla.
+
+La severidad del seed coincide con la medición en los 18 defectos y un test la revisa en cada build. Ocho bloquean por romper una identidad; D11 y D13 bloquean solo por lo que mueven en el techo de su rango. La severidad no cambia mientras la materialidad quede debajo de 2.84%; con 5%, D11, D15 y D17 pasarían a alerta.
+
+Con los 18 defectos encendidos las nueve cifras quedan bloqueadas: los notebooks 01, 03 y 04 se detienen en la primera celda y el dashboard cambia cada sección por un aviso con las reglas. Detección por defecto, valor expuesto contra impacto y sensibilidad a la materialidad en `notebooks/05_calidad_datos.ipynb`; el dashboard tiene la pestaña "Calidad de datos".
+
 ## Estado
 
 Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 44 modelos dbt y 9 seeds con 285 tests de datos y 23 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
@@ -495,7 +537,7 @@ Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslado
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
-Fase 4 en curso: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario ya salen del maestro y no del código de material ni del documento, sin mover ninguna cifra (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029) y cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed; CI corre el reducido con los defectos encendidos y exige que cada regla reporte todo lo de su defecto (ADR-030). `mart_calidad_datos` publica las violaciones por regla, planta y material, y ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031). Medido al cerrar Fase 3: de 13 defectos típicos de un extracto real, el pipeline detecta seis por su causa, cuatro solo por síntoma y dos pasan en silencio; uno de esos dos baja la pérdida reconocida de Fase 1 31.5% (ADR-027). El simulador de la red queda para Fase 5.
+Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario salen del maestro, sin mover ninguna cifra de Fase 1 a 3 (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029); cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed (ADR-030). El arnés de impacto mide cuánto mueve cada defecto cada cifra, y los tests revisan en cada build que la severidad y las cifras afectadas del seed digan lo que el arnés midió. Ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031, ADR-032). El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
