@@ -181,6 +181,8 @@ uv run python -m rpi
 
 Con `--defectos todos` (o una lista como `--defectos D05,D13`) el generador inyecta el catálogo de defectos de un extracto real (ADR-028) y escribe `data/raw/bitacora_defectos.parquet` con cada registro que tocó. Apagado por default: sin la opción el dataset sale igual.
 
+Con `--defectos ciegos` inyecta cuatro defectos que ninguna regla nombra todavía (ADR-033): Matnr y Kunnr con ceros a la izquierda desde una fecha, un documento 621 contabilizado otra vez con otro número y salidas con fecha de contabilización posterior al corte. Sirven para medir qué detecta el pipeline con defectos que no conocía al escribir sus reglas.
+
 Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales). Cada tabla pasa por su schema Pandera; una falla de estructura no detiene la carga y queda en `raw_errores_schema`:
 
 ```bash
@@ -220,14 +222,20 @@ Cada regla vive en `models/intermediate/calidad/` y su severidad en `seeds/regla
 uv run marimo run notebooks/02_dashboard.py
 ```
 
-Medir cuánto mueve cada defecto, solo, cada cifra publicada (ADR-031). El arnés inyecta cada defecto sobre el limpio de `data/raw`, a la tasa del catálogo y en el techo de su rango, reconstruye solo lo que cambió y escribe `docs/calidad/impacto_defectos.csv`. En el completo son 37 corridas y ~90 min; corre en local al cerrar una fase, no en CI:
+Medir cuánto mueve cada defecto, solo, cada cifra publicada (ADR-031). El arnés inyecta cada defecto sobre el limpio de `data/raw`, a la tasa del catálogo y en el techo de su rango, reconstruye solo lo que cambió y escribe `docs/calidad/impacto_defectos.csv`. En el completo son 37 corridas y ~120 min; corre en local al cerrar una fase, no en CI:
 
 ```bash
 uv run python -m rpi.calidad
 uv run python -m rpi.calidad --defectos D05,D13 --niveles tasa   # corrida corta
 ```
 
-El CSV va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió. `notebooks/05_calidad_datos.ipynb` lo lee: detección por defecto, cuánto mueve cada defecto cada cifra, valor expuesto contra delta y la severidad contra el supuesto de materialidad. El dashboard tiene una pestaña "Calidad de datos" con el tablero del extracto abierto y la misma medición.
+Los defectos ciegos se miden igual, antes de escribir sus reglas, y la medición queda en un CSV aparte:
+
+```bash
+uv run python -m rpi.calidad --defectos ciegos --salida docs/calidad/ciegos_antes.csv
+```
+
+El CSV de impacto va versionado: `mart_impacto_defectos` lo publica y sus tests revisan en cada build que la severidad y las cifras de `seeds/reglas_calidad.csv` digan lo que el arnés midió. `notebooks/05_calidad_datos.ipynb` lo lee: detección por defecto, cuánto mueve cada defecto cada cifra, valor expuesto contra delta y la severidad contra el supuesto de materialidad. El dashboard tiene una pestaña "Calidad de datos" con el tablero del extracto abierto y la misma medición.
 
 Abrir el dashboard:
 
@@ -244,7 +252,7 @@ returnable-packaging-intelligence/
 ├── data/
 │   └── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
 ├── docs/
-│   ├── calidad/                # impacto_defectos.csv: medición versionada del arnés
+│   ├── calidad/                # impacto_defectos.csv y ciegos_antes.csv: mediciones versionadas del arnés
 │   └── img/                    # Gráficas que escriben los notebooks
 ├── macros/                     # fórmula de necesidad: una sola regla para el mart y el backtest
 ├── models/
@@ -491,7 +499,7 @@ Escalamiento, red de préstamos entre plantas y curva de la z en `notebooks/04_n
 
 La pregunta de Fase 4: qué defecto de un extracto MB51 y de su maestro rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada cifra publicada (ADR-027). Al cerrar Fase 3, de 13 defectos típicos el pipeline detectaba seis por su causa, cuatro solo por síntoma y dos pasaban en silencio.
 
-El catálogo tiene hoy 18 defectos y cada uno tiene una regla en dbt que lo nombra. El arnés `rpi.calidad` inyecta cada defecto solo sobre el dataset limpio, a la tasa del catálogo y en el techo de su rango, y mide siete cifras publicadas, cuatro identidades (llave, stock, saldo en cliente y conservación de flota) y las reglas que se disparan: 37 corridas en 120 min. Con cada defecto solo, la regla de su defecto reporta el 100% de lo inyectado en los dos niveles.
+El catálogo tiene hoy 18 defectos y cada uno tiene una regla en dbt que lo nombra. El arnés `rpi.calidad` inyecta cada defecto solo sobre el dataset limpio, a la tasa del catálogo y en el techo de su rango, y mide siete cifras publicadas, cuatro identidades (llave, stock, saldo en cliente y conservación de flota) y las reglas que se disparan: 37 corridas en 120 min. Con cada defecto solo, la regla de su defecto reporta el 100% de lo inyectado en los dos niveles. Ese 100% se mide contra un catálogo que escribí junto con las reglas; qué tanto ven las reglas un defecto que no conocían lo mide Fase 4c.
 
 | Defecto | Regla | Severidad | Identidad rota | Más mueve a tasa | En el techo |
 |---|---|---|---|---|---|
@@ -537,7 +545,9 @@ Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslado
 
 Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción de empaque y reglas de calidad de datos; necesidad de flota con stock de seguridad por variabilidad y z escogida por costo, validada fuera de muestra; flota proyectada con merma pendiente; brecha en USD por nivel de escalamiento, red de préstamos y sensibilidad por escenarios (ADR-021 a ADR-026).
 
-Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario salen del maestro, sin mover ninguna cifra de Fase 1 a 3 (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029); cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed (ADR-030). El arnés de impacto mide cuánto mueve cada defecto cada cifra, y los tests revisan en cada build que la severidad y las cifras afectadas del seed digan lo que el arnés midió. Ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031, ADR-032). El simulador de la red queda para Fase 5.
+Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario salen del maestro, sin mover ninguna cifra de Fase 1 a 3 (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029); cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed (ADR-030). El arnés de impacto mide cuánto mueve cada defecto cada cifra, y los tests revisan en cada build que la severidad y las cifras afectadas del seed digan lo que el arnés midió. Ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031, ADR-032).
+
+Fase 4c en curso: defectos ciegos (ADR-033). Cuatro defectos de un extracto real que ninguna regla nombra se inyectan y se miden con el arnés antes de escribir sus reglas; la medición queda versionada en `docs/calidad/ciegos_antes.csv`. Después entran las cuatro reglas y se publica la detección de antes y la de después, lado a lado. El simulador de la red queda para Fase 5.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
