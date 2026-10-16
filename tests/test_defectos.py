@@ -164,6 +164,13 @@ def test_defectos_reproducibles(cfg_sucio, bitacora, tmp_path):
     assert pl.read_parquet(tmp_path / BITACORA).equals(bitacora)
 
 
+def test_bitacora_en_orden_canonico(bitacora):
+    # El test de arriba corre con el config de CI, donde el orden sale estable
+    # aunque no esté garantizado; este atrapa el desorden en cualquier tamaño.
+    for _, g in bitacora.group_by("Werks", maintain_order=True):
+        assert g.equals(g.sort(g.columns, nulls_last=True))
+
+
 def test_limpio_sin_bitacora(raw_ci, cfg_ci, tmp_path):
     assert not (raw_ci / BITACORA).exists()
     # Una bitácora vieja en el directorio no sobrevive a una corrida limpia.

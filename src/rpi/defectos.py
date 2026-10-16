@@ -731,5 +731,9 @@ def inyecta(
     for k, (clave, defecto) in enumerate(CATALOGO.items(), start=1):
         if clave in cfg.activos:
             defecto(p, cfg, np.random.default_rng([seed, idx, 3, k]))
-    bitacora = pl.concat(p.bitacora) if p.bitacora else pl.DataFrame(schema=ESQUEMA_BITACORA)
-    return p.tablas, bitacora
+    if not p.bitacora:
+        return p.tablas, pl.DataFrame(schema=ESQUEMA_BITACORA)
+    # Orden canónico: los group_by de D09 y D16 no garantizan orden y con la
+    # bitácora en desorden la misma semilla no da el mismo archivo.
+    bitacora = pl.concat(p.bitacora)
+    return p.tablas, bitacora.sort(bitacora.columns, nulls_last=True)
