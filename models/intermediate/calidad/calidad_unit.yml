@@ -234,9 +234,10 @@ unit_tests:
 
   - name: calidad_kunnr_con_formato
     description: >
-      00C1 solo recoge y sin los ceros es C1, que tiene salidas. C2 y 00C2
-      tienen salidas los dos: no hay cómo saber cuál es la buena y no se marca
-      ninguno.
+      00C1 solo recoge y sin los ceros es C1, que tiene salidas. Su recogida
+      rompe el saldo de una cuenta que nunca recibió nada, pero la causa es el
+      formato y recogida_sin_saldo no la cuenta otra vez. C2 y 00C2 tienen
+      salidas los dos: no hay cómo saber cuál es la buena y no se marca ninguno.
     model: int_calidad_mb51
     given:
       - input: ref('stg_mb51')
@@ -258,7 +259,6 @@ unit_tests:
     expect:
       rows:
         - {regla: kunnr_con_formato, doc_material: D2}
-        - {regla: recogida_sin_saldo, doc_material: D2}
 
   - name: calidad_foto_inicial
     description: >
@@ -332,6 +332,9 @@ unit_tests:
       M2 con grupo fuera del seed, M3 en MXN, M4 a $0.25 por unidad de precio
       100, RCK-5 con grupo de KLT, M6 repetido, M7 se mueve sin fila en el
       maestro. M1 limpio; M8 con unidad de precio 100 y precio dentro de la banda.
+      000M1 se mueve y sin ceros es M1: lo nombra matnr_con_formato y aquí no
+      sale. 0M8 solo está en la foto: ninguna regla de formato lo ve y sale como
+      material sin maestro.
     model: int_calidad_maestro
     given:
       - input: ref('stg_maestro_materiales')
@@ -351,6 +354,7 @@ unit_tests:
           - {planta: P1, almacen: VACI, material: RCK-5, cantidad: 2, fecha: 2025-12-31}
           - {planta: P1, almacen: VACI, material: M3, cantidad: 2, fecha: 2025-12-31}
           - {planta: P1, almacen: VACI, material: M7, cantidad: 2, fecha: 2025-12-31}
+          - {planta: P1, almacen: VACI, material: '0M8', cantidad: 1, fecha: 2025-12-31}
       - input: ref('grupos_material')
         rows:
           - {matkl: EMB-KLT, tipo_material: KLT, mtart: LEIH}
@@ -363,6 +367,7 @@ unit_tests:
         rows:
           - {planta: P1, material: M1, cantidad: -2, costo_documento_usd: 25.0}
           - {planta: P1, material: M7, cantidad: -2, costo_documento_usd: 25.0}
+          - {planta: P1, material: '000M1', cantidad: -2, costo_documento_usd: 25.0}
       - input: ref('stg_instruccion_empaque')
         rows: []
     expect:
@@ -373,6 +378,7 @@ unit_tests:
         - {regla: grupo_contradice_codigo, material: RCK-5, unidades: 2, usd_expuesto: 310.0}
         - {regla: llave_maestro_duplicada, material: M6, unidades: 2, usd_expuesto: null}
         - {regla: material_sin_maestro, material: M7, unidades: 2, usd_expuesto: 50.0}
+        - {regla: material_sin_maestro, material: '0M8', unidades: 1, usd_expuesto: null}
 
   - name: calidad_violaciones_con_severidad
     description: >

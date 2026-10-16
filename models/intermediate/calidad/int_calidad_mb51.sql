@@ -294,12 +294,25 @@ kunnr_formato as (
     left join clientes_salida x on x.planta = l.planta and x.cliente = l.cliente
     where l.evento in ('salida_cliente', 'recogida_cliente', 'faltante_cliente')
       and x.cliente is null
+),
+
+-- Una línea con el código en otro formato rompe el saldo de su cuenta, pero la
+-- causa es el formato: recogida_sin_saldo no la cuenta otra vez (ADR-034).
+con_formato as (
+    select planta, anio_contable, doc_material, posicion from matnr_formato
+    union
+    select planta, anio_contable, doc_material, posicion from kunnr_formato
 )
 
 select * from llave
 union all select * from reglas_linea
 union all select * from en_piezas
-union all select * from sin_saldo
+union all
+select s.*
+from sin_saldo s
+anti join con_formato f
+    on f.planta = s.planta and f.anio_contable = s.anio_contable
+   and f.doc_material = s.doc_material and f.posicion = s.posicion
 union all select * from tardio
 union all select * from precio
 union all select * from despues_del_corte
