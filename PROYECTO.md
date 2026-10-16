@@ -49,7 +49,7 @@ Necesidad de flota retornable por planta, empaque y semana contra el plan de pro
 
 ### Alcance IN — Fase 4 (alcance cerrado, ADR-027)
 
-Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaque y maestro de materiales. Contesta qué defecto de un extracto real rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada headline en USD. Semanas 17–19.
+Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaque y maestro de materiales. Contesta qué defecto de un extracto real rompe cada cifra de Fase 1 a 3, si el pipeline lo detecta por su causa y cuánto mueve cada headline en USD. Semanas 17–19. Cerrada en semana 19 (ADR-028 a ADR-032).
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -731,6 +731,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Pasos de CI corridos con uv 0.12.15 en Ubuntu 24.04: dbt build 224/224, pytest 57 y 7 saltados, coverage.xml generado. actionlint sin errores sobre ci.yml.
   - Actualizar una action ahora es un cambio explícito: nuevo SHA, comentario de versión y CI verde en su PR.
   - Cuando GitHub anuncie el retiro de ubuntu-24.04, el cambio de runner va con su propio ADR.
+  - Revisión al cierre de Fase 4 (2026-10-15): checkout v7.0.1, setup-uv v7.6.0 y codecov-action v7.1.1 son la última versión de su mayor y su SHA coincide con la etiqueta (la de codecov es anotada; el SHA fijo es el commit). Hay setup-uv v10.3.0 y uv 0.12.24 y 0.13.1; ninguna corrige algo que el CI necesite. ubuntu-latest pasa a 26.04 el 19 de octubre; ubuntu-24.04 fijo no se mueve. Sin cambios en CI.
 
 ### ADR-025 · z económica, flota proyectada y brecha en USD por nivel de escalamiento
 
@@ -1007,7 +1008,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-030 · Reglas de calidad en dbt, severidad desde el seed e ingesta con Pandera lazy
 
 - **Fecha:** 2026-10-11
-- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16. Punto 1 precisado por ADR-031 (columnas de reglas_calidad).
+- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16. Punto 1 precisado por ADR-031 (columnas de reglas_calidad) y ADR-032 (lineas sin materializar).
 - **Contexto:** Al correr las reglas contra el completo con los 18 defectos encendidos encontré:
   - Con reglas del maestro excluyentes (la primera que aplica), los materiales con D13 en la planta de D18 salían como moneda y no como unidad de precio. Y la banda de precio calculada en USD no sirve para un precio en MXN.
   - D16 en la planta de D18 no tiene contra qué compararse: el documento está en USD y el maestro en MXN.
@@ -1148,6 +1149,28 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
     - dbt build 361/361: 44 modelos, 9 seeds, 285 tests de datos y 23 unit tests.
   - 4b.3 (2026-10-15): notebook 05 y pestaña "Calidad de datos". El notebook no llama a exige(): publica la calidad, no las cifras que la calidad bloquea, y la medición del arnés no depende de la base abierta. La pestaña tampoco lleva bloqueo. tests/test_dashboard.py corre el dashboard completo sobre la base de RPI_DB y entra al paso sucio de CI.
 
+### ADR-032 · El CTE lineas de int_calidad_mb51 no se materializa
+
+- **Fecha:** 2026-10-15
+- **Estado:** Accepted. Precisa ADR-030, punto 1. Deja como está ADR-031, punto 3 (arnés en dos etapas).
+- **Contexto:**
+  - En 4b.2 el arnés murió por memoria con D02 en el techo cuando las reglas corrían junto a las cifras. En la sesión 50 un dbt run del completo con los 18 defectos murió igual y el siguiente pasó. En Windows, int_calidad_mb51 tardó 340 s dentro del run con defectos.
+  - dbt-duckdb corre todos los modelos en una sola instancia de DuckDB: el tope de 4 GB del perfil es común a los hilos. int_calidad_mb51 coincide con int_stock_diario e int_cuenta_mensual, los modelos más pesados del ciclo.
+  - El CTE lineas trae las 21M filas de stg_mb51 con todas sus columnas y lo leen seis CTEs; DuckDB lo materializa completo.
+  - Medido sobre el completo con defectos, el modelo solo con 4 GB: materializado 24.3 s y pico de 4,055 MB, el tope; sin materializar 12.9 s y 2,811 MB, con las mismas 103,077 violaciones. Proyectando solo las 14 columnas que usan las reglas: 20.2 s y 3,934 MB. Con 1 GB de tope, 33.9 s contra 14.9 s: el materializado escribe a disco.
+- **Alternativas evaluadas:**
+  - Subir memory_limit a 6 GB: en Windows con 8 GB deja al sistema sin margen.
+  - Bajar los hilos de dbt a 2: alarga el build limpio por un caso que solo pasa con defectos.
+  - Forzar el orden con una dependencia de mentira (depends_on hacia int_stock_diario): esconde la razón en el DAG y serializa el build.
+  - Un modelo por regla: ADR-030 lo descartó, 23 modelos leyendo MB51.
+  - Proyectar columnas: casi no baja el pico.
+- **Decisión:**
+  1. lineas as not materialized en int_calidad_mb51: cada CTE vuelve a leer stg_mb51, que es una vista sobre la tabla raw.
+  2. El arnés sigue en dos etapas: cuesta unos segundos por corrida y separa un modelo pesado más.
+- **Consecuencias:**
+  - Tres dbt run seguidos del completo con defectos sin errores, 1:35 cada uno (antes de 2:05 a 2:43, y uno de dos murió). int_calidad_mb51 dentro del run baja de 109 s a 49 s.
+  - Mismas violaciones regla por regla y tests sin cambio. El build limpio del completo baja de 4:20 a 2:15: la memoria que el CTE ya no ocupa la usan los modelos que corren en paralelo. La medición del arnés no se repite: las reglas dan lo mismo y el CSV no guarda memoria ni tiempos de este modelo por separado.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1240,12 +1263,39 @@ Marcar con `[x]` al cerrar.
 - [x] **Semanas 18–19** · Fase 3b: necesidad de flota contra plan, brecha en USD, notebook y dashboard. Cerrada en Semana 16 (ADR-021 a ADR-026).
 - [x] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR-028). Arranque de 4a: maestro de materiales (ADR-028).
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
-- [ ] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada.
+- [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-15 · Sesión 51 — Semana 19
+
+- **Duración:** ~2.5 h
+- **Hecho:**
+  - PR #17 (fase-4b3) mergeado.
+  - int_calidad_mb51 con lineas sin materializar (ADR-032): el modelo solo pasa de 24.3 s y 4,055 MB a 12.9 s y 2,811 MB, con las mismas violaciones; tres dbt run seguidos del completo con defectos sin errores.
+  - README: resultados de Fase 4 con la tabla por defecto y los hallazgos, cuadrados contra mart_impacto_defectos en test_readme (corren también en CI); estado de Fase 4 cerrada; la línea que ubicaba los parámetros TCO en int_tco_por_material, vieja desde ADR-028, corregida.
+  - Notebook 04: el simulador de Fase 4 pasa a Fase 5 (ADR-027).
+  - Revisión de runner y actions (ADR-024, punto 4): todo en la última versión de su mayor, sin cambios.
+  - Verificados rompiendo: una celda de la tabla de Fase 4 del README, un hallazgo con el delta de otro defecto y el tiempo del arnés.
+  - Dataset completo: dbt build 361/361, pytest 99 y 2 saltados. Reducido: 361/361, pytest 89 y 12 saltados; paso sucio igual que en 4b.3.
+- **Checklist de cierre de Fase 4:**
+  - [x] 18 defectos en el catálogo, apagados por default; con ellos apagados la huella de 621, 622 y 702 no cambia (ADR-028, ADR-029).
+  - [x] Una regla por causa para cada defecto; 100% de detección con todos encendidos (paso sucio de CI) y con cada uno solo, en los dos niveles (assert_deteccion_por_defecto).
+  - [x] Severidad y cifras afectadas del seed revisadas contra la medición del arnés en cada build (assert_severidad_medida, assert_cifras_declaradas).
+  - [x] Bloqueo de publicación en los notebooks 01, 03 y 04 y en el dashboard; probado con los 18 defectos en CI.
+  - [x] Cifras de Fase 1 a 3 sin cambio desde 4a; test_readme cuadra todas, las de Fase 4 incluidas.
+  - [x] Notebook 05 y pestaña "Calidad de datos".
+  - [x] Runner y actions revisados.
+  - [x] Roadmap, Charter, README y PROYECTO.md al día.
+- **Decisiones tomadas:** ADR-032.
+- **Bloqueos:** ninguno.
+- **Notas de la sesión:**
+  - En dbt-duckdb el tope de memoria es de la instancia, no del modelo: dos modelos pesados en paralelo se lo reparten. Un CTE que varios leen y DuckDB guarda completo se come ese tope aunque el modelo solo pase.
+  - La revisión de CI no siempre termina en cambios; termina en saber por qué no hacen falta.
+- **Próximo paso:** PR de fase-4b4 con CI verde y merge. Fase 4 cerrada. Después: propuesta de defectos ciegos para medir la detección con defectos que ninguna regla conoce, con su ADR, antes de Fase 5.
 
 ### 2026-10-15 · Sesión 50 — Semana 19
 
@@ -2241,6 +2291,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Bloqueo de publicación** — Un notebook o el dashboard no presentan una cifra si una regla que bloquea tiene violaciones sobre ella. Las cifras de cada regla viven en cifra_afectada del seed reglas_calidad (ADR-031).
 - **Universo de una regla** — Lo que una regla cuenta en una planta: líneas de MB51, materiales o partes. Tasa de violaciones = violaciones / universo.
 - **Correlación de rangos (Spearman)** — Correlación entre los rangos de dos variables, no entre sus valores: mide si ordenan igual. Aquí, valor expuesto contra movimiento de las cifras.
+- **CTE materializado** — Resultado de un WITH que el motor guarda completo para reusarlo. Ahorra cómputo cuando varias partes lo leen, pero ocupa memoria; DuckDB lo hace por default si el CTE se lee más de una vez.
 
 ---
 
