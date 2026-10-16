@@ -67,6 +67,10 @@ def fallas_de_schema(tabla: str, archivo: Path) -> pl.DataFrame:
     return pl.DataFrame(schema=ERRORES)
 
 
+def carga(con: duckdb.DuckDBPyConnection, tabla: str, archivo: Path) -> None:
+    con.execute(f"CREATE OR REPLACE TABLE {tabla} AS SELECT * FROM read_parquet('{archivo}')")
+
+
 def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
     raw_dir = Path(raw_dir)
     tablas = {
@@ -94,7 +98,7 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
 
     con = duckdb.connect(str(db_path))
     for tabla, archivo in tablas.items():
-        con.execute(f"CREATE OR REPLACE TABLE {tabla} AS SELECT * FROM read_parquet('{archivo}')")
+        carga(con, tabla, archivo)
     con.register("_errores", errores.to_arrow())
     con.execute("CREATE OR REPLACE TABLE raw_errores_schema AS SELECT * FROM _errores")
     con.unregister("_errores")

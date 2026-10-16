@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: mart_impacto_defectos
+    description: >
+      Impacto de cada defecto del catálogo, solo, a la tasa del catálogo y en el
+      techo de su rango (ADR-031): cifras publicadas contra el limpio,
+      identidades rotas, reglas que dispara y detección por la regla del
+      defecto. Sale de docs/calidad/impacto_defectos.csv, que escribe
+      python -m rpi.calidad sobre el completo; CI lo lee sin correr el arnés.
+    tests:
+      - unique:
+          arguments:
+            column_name: "defecto || '|' || nivel || '|' || tipo || '|' || medida"
+    columns:
+      - name: defecto
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('reglas_calidad')
+                field: defecto
+      - name: nivel
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['tasa', 'techo']
+      - name: tipo
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['cifra', 'identidad', 'regla', 'error']
+      - name: supera_materialidad
+        description: >
+          Cifra: se mueve más que calidad_materialidad_pct o desaparece.
+          Identidad: alguna violación. Error: el pipeline truena. Nula en reglas.
+      - name: declarada
+        description: La cifra está en cifra_afectada del seed. Nula fuera de cifras.
+
+unit_tests:
+  - name: impacto_materialidad_y_declaracion
+    description: >
+      1% es el corte; una cifra que desaparece supera cualquier materialidad;
+      todas declara las siete; una identidad con violaciones supera.
+    model: mart_impacto_defectos
+    given:
+      - input: ref('stg_impacto_defectos')
+        rows:
+          - {defecto: null, nivel: limpio, tipo: cifra, medida: perdida, valor: 100.0}
+          - {defecto: null, nivel: limpio, tipo: cifra, medida: ciclo, valor: 25.0}
+          - {defecto: null, nivel: limpio, tipo: identidad, medida: stock, valor: 0}
+          - {defecto: D13, nivel: tasa, tipo: cifra, medida: perdida, valor: 99.0}
+          - {defecto: D13, nivel: techo, tipo: cifra, medida: perdida, valor: 98.9}
+          - {defecto: D13, nivel: techo, tipo: cifra, medida: ciclo, valor: 25.5}
+          - {defecto: D06, nivel: techo, tipo: cifra, medida: ciclo, valor: null}
+          - {defecto: D06, nivel: techo, tipo: identidad, medida: stock, valor: 12}
+          - {defecto: D15, nivel: tasa, tipo: cifra, medida: ciclo, valor: 30.0}
+      - input: ref('reglas_calidad')
+        rows:
+          - {regla: unidad_de_precio, defecto: D13, severidad: bloquea, cifra_afectada: perdida brecha}
+          - {regla: cantidad_en_piezas, defecto: D06, severidad: bloquea, cifra_afectada: tco ciclo}
+          - {regla: material_sin_maestro, defecto: D15, severidad: bloquea, cifra_afectada: todas}
+    expect:
+      rows:
+        - {defecto: D13, nivel: tasa, medida: perdida, delta_pct: -1.0, supera_materialidad: false, declarada: true}
+        - {defecto: D13, nivel: techo, medida: perdida, delta_pct: -1.1, supera_materialidad: true, declarada: true}
+        - {defecto: D13, nivel: techo, medida: ciclo, delta_pct: 2.0, supera_materialidad: true, declarada: false}
+        - {defecto: D06, nivel: techo, medida: ciclo, delta_pct: null, supera_materialidad: true, declarada: true}
+        - {defecto: D06, nivel: techo, medida: stock, delta_pct: null, supera_materialidad: true, declarada: null}
+        - {defecto: D15, nivel: tasa, medida: ciclo, delta_pct: 20.0, supera_materialidad: true, declarada: true}

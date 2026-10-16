@@ -406,6 +406,32 @@ class DefectosConfig(BaseModel):
         return self
 
 
+# Techo del rango de cada defecto (ADR-028, supuestos). El arnés de impacto
+# corre cada defecto a la tasa del catálogo y aquí (ADR-031). D18 en el techo
+# cae en una planta de cada país con moneda propia; el factor de NIO es
+# ilustrativo, como el de MXN.
+TECHO_DEFECTOS: dict[str, dict] = {
+    "D01": {"d01_dias": 3},
+    "D02": {"d02_tasa": 0.005},
+    "D03": {"d03_tasa": 0.002},
+    "D04": {"d04_tasa": 0.002},
+    "D05": {"d05_tasa": 0.001},
+    "D06": {"d06_tasa": 0.01},
+    "D07": {"d07_tasa": 0.002},
+    "D08": {"d08_tasa": 0.005},
+    "D09": {"d09_tasa": 0.02},
+    "D10": {"d10_tasa": 0.02},
+    "D11": {"d11_tasa": 0.005},
+    "D12": {"d12_tasa": 0.01},
+    "D13": {"d13_tasa": 0.03},
+    "D14": {"d14_tasa": 0.02},
+    "D15": {"d15_tasa": 0.02},
+    "D16": {"d16_tasa": 0.05},
+    "D17": {"d17_tasa": 0.01},
+    "D18": {"d18_moneda": {Country.MX: ("MXN", 18.5), Country.NI: ("NIO", 36.6)}},
+}
+
+
 class GeneratorConfig(BaseModel):
     """Configuración completa del generador sintético MB51."""
 
