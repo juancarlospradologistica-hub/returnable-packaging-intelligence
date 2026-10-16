@@ -56,13 +56,19 @@ def test_inyectar_sobre_el_limpio_es_generar_con_defectos(cfg_ci, raw_ci, tmp_pa
 
 
 @pytest.mark.parametrize(
-    ("texto", "esperado"),
-    [("todos", list(DEFECTOS)), ("ciegos", list(CIEGOS)), ("d07,B04", ["D07", "B04"])],
+    ("argv", "esperado"),
+    [
+        (["--defectos", "todos"], list(DEFECTOS)),
+        (["--defectos", "ciegos"], list(CIEGOS)),
+        (["--defectos", "d07,B04"], ["D07", "B04"]),
+        (["--defectos", "todos,ciegos"], [*DEFECTOS, *CIEGOS]),
+        ([], [*DEFECTOS, *CIEGOS]),
+    ],
 )
-def test_cli_del_arnes(monkeypatch, texto, esperado):
+def test_cli_del_arnes(monkeypatch, argv, esperado):
     corridas = []
     monkeypatch.setattr(calidad, "corre", lambda defectos, *_: corridas.append(defectos))
-    calidad.main(["--defectos", texto])
+    calidad.main(argv)
     assert corridas == [esperado]
 
 

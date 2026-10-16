@@ -195,6 +195,10 @@ def test_cli_defectos():
     assert build_config(parse_args([])).defectos.activos == []
     assert build_config(parse_args(["--defectos", "todos"])).defectos.activos == list(DEFECTOS)
     assert build_config(parse_args(["--defectos", "ciegos"])).defectos.activos == list(CIEGOS)
+    assert build_config(parse_args(["--defectos", "todos, ciegos"])).defectos.activos == [
+        *DEFECTOS,
+        *CIEGOS,
+    ]
     assert build_config(parse_args(["--defectos", "D01,b03"])).defectos.activos == ["D01", "B03"]
     assert build_config(parse_args(["--defectos", "d05, D13"])).defectos.activos == ["D05", "D13"]
     with pytest.raises(ValidationError, match="D99"):
