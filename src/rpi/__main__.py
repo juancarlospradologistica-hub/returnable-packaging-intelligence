@@ -9,6 +9,7 @@ Uso:
     uv run python -m rpi --output data/custom     # directorio distinto
     uv run python -m rpi --defectos todos         # catálogo de defectos de ADR-028
     uv run python -m rpi --defectos D05,D13       # solo esos defectos
+    uv run python -m rpi --defectos ciegos        # defectos sin regla propia (ADR-033)
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from rpi.config import DEFECTOS, Country, GeneratorConfig
+from rpi.config import CIEGOS, DEFECTOS, Country, GeneratorConfig
 from rpi.generator import generate
 
 
@@ -59,7 +60,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="LISTA",
         help=(
-            "Defectos a inyectar: 'todos' o IDs separados por coma (D01..D18). "
+            "Defectos a inyectar: 'todos' (D01..D18), 'ciegos' (B01..B04) o IDs "
+            "separados por coma. "
             "Escribe bitacora_defectos.parquet. Default: ninguno."
         ),
     )
@@ -100,11 +102,8 @@ def build_config(args: argparse.Namespace) -> GeneratorConfig:
     if args.seed is not None:
         data["random_seed"] = args.seed
     if args.defectos:
-        activos = (
-            list(DEFECTOS)
-            if args.defectos == "todos"
-            else [d.strip().upper() for d in args.defectos.split(",")]
-        )
+        grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
+        activos = grupos.get(args.defectos) or [d.strip().upper() for d in args.defectos.split(",")]
         data["defectos"]["activos"] = activos
     return GeneratorConfig.model_validate(data)
 
