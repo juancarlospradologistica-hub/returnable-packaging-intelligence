@@ -342,6 +342,12 @@ DEFECTOS = tuple(f"D{i:02d}" for i in range(1, 19))
 CIEGOS = tuple(f"B{i:02d}" for i in range(1, 5))
 
 
+def lista_defectos(texto: str) -> list[str]:
+    """'todos', 'ciegos' o IDs separados por coma. El generador y el arnés leen igual."""
+    grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
+    return grupos.get(texto.strip().lower()) or [d.strip().upper() for d in texto.split(",")]
+
+
 class DefectosConfig(BaseModel):
     """
     Catálogo de defectos inyectables (ADR-028, ADR-029). Todos apagados por

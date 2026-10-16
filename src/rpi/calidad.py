@@ -33,7 +33,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from rpi.config import CIEGOS, DEFECTOS, TECHO_DEFECTOS, GeneratorConfig
+from rpi.config import CIEGOS, TECHO_DEFECTOS, GeneratorConfig, lista_defectos
 from rpi.db import carga, ingest
 from rpi.defectos import inyecta
 from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL
@@ -389,9 +389,7 @@ def main(argv: list[str] | None = None) -> None:
             defectos=None,
         )
     )
-    grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
-    defectos = grupos.get(a.defectos) or a.defectos.upper().split(",")
-    corre(defectos, a.niveles.split(","), Path(a.limpio), Path(a.salida), cfg)
+    corre(lista_defectos(a.defectos), a.niveles.split(","), Path(a.limpio), Path(a.salida), cfg)
 
 
 if __name__ == "__main__":

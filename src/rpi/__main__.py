@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from rpi.config import CIEGOS, DEFECTOS, Country, GeneratorConfig
+from rpi.config import Country, GeneratorConfig, lista_defectos
 from rpi.generator import generate
 
 
@@ -102,9 +102,7 @@ def build_config(args: argparse.Namespace) -> GeneratorConfig:
     if args.seed is not None:
         data["random_seed"] = args.seed
     if args.defectos:
-        grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
-        activos = grupos.get(args.defectos) or [d.strip().upper() for d in args.defectos.split(",")]
-        data["defectos"]["activos"] = activos
+        data["defectos"]["activos"] = lista_defectos(args.defectos)
     return GeneratorConfig.model_validate(data)
 
 
