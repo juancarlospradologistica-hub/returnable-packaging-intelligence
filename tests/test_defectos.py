@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from rpi.__main__ import build_config, parse_args
-from rpi.config import DEFECTOS, GeneratorConfig
+from rpi.config import CIEGOS, DEFECTOS, GeneratorConfig
 from rpi.db import ingest
 from rpi.defectos import BITACORA, inyecta
 from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN, STOCK_INICIAL, generate
@@ -194,6 +194,8 @@ def test_ingesta_carga_y_borra_la_bitacora(raw_ci, raw_sucio, bitacora, tmp_path
 def test_cli_defectos():
     assert build_config(parse_args([])).defectos.activos == []
     assert build_config(parse_args(["--defectos", "todos"])).defectos.activos == list(DEFECTOS)
+    assert build_config(parse_args(["--defectos", "ciegos"])).defectos.activos == list(CIEGOS)
+    assert build_config(parse_args(["--defectos", "D01,b03"])).defectos.activos == ["D01", "B03"]
     assert build_config(parse_args(["--defectos", "d05, D13"])).defectos.activos == ["D05", "D13"]
     with pytest.raises(ValidationError, match="D99"):
         build_config(parse_args(["--defectos", "D99"]))

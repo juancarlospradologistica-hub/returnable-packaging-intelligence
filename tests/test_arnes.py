@@ -13,17 +13,19 @@ import duckdb
 import polars as pl
 import pytest
 
-from rpi.calidad import CIFRAS, ETAPAS, SALIDA, inyecta_limpio, seleccion
-from rpi.config import DEFECTOS, GeneratorConfig
+from rpi import calidad
+from rpi.calidad import CIFRAS, ETAPAS, SALIDA, con_regla, inyecta_limpio, seleccion
+from rpi.config import CIEGOS, DEFECTOS, GeneratorConfig
 from rpi.defectos import BITACORA
 from rpi.generator import generate
 
 RAIZ = Path(__file__).resolve().parents[1]
 
 
-def test_inyectar_sobre_el_limpio_es_generar_con_defectos(cfg_ci, raw_ci, tmp_path):
+@pytest.mark.parametrize("activos", [DEFECTOS, CIEGOS], ids=["todos", "ciegos"])
+def test_inyectar_sobre_el_limpio_es_generar_con_defectos(cfg_ci, raw_ci, tmp_path, activos):
     datos = cfg_ci.model_dump()
-    datos["defectos"]["activos"] = list(DEFECTOS)
+    datos["defectos"]["activos"] = list(activos)
     cfg = GeneratorConfig.model_validate(datos)
     sucio = tmp_path / "sucio"
     generate(cfg=cfg, output_dir=str(sucio))
@@ -51,6 +53,24 @@ def test_inyectar_sobre_el_limpio_es_generar_con_defectos(cfg_ci, raw_ci, tmp_pa
     assert bitacora.sort(bitacora.columns, nulls_last=True).equals(
         esperado.sort(esperado.columns, nulls_last=True)
     )
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [("todos", list(DEFECTOS)), ("ciegos", list(CIEGOS)), ("d07,B04", ["D07", "B04"])],
+)
+def test_cli_del_arnes(monkeypatch, texto, esperado):
+    corridas = []
+    monkeypatch.setattr(calidad, "corre", lambda defectos, *_: corridas.append(defectos))
+    calidad.main(["--defectos", texto])
+    assert corridas == [esperado]
+
+
+def test_ciegos_sin_regla_en_el_seed():
+    # Cuando una regla de 4c.2 nombre a un ciego, este test cambia con ella.
+    nombrados = con_regla()
+    assert set(DEFECTOS) <= nombrados
+    assert not nombrados & set(CIEGOS)
 
 
 def test_seleccion_por_tabla():
