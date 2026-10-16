@@ -85,7 +85,7 @@ def _():
         plt.close(fig)
         return mo.image(src=f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}")
 
-    return a_imagen, con, mo, pl, plt, publica
+    return a_imagen, bloqueos, con, mo, pl, plt, publica
 
 
 @app.cell
@@ -713,7 +713,140 @@ def _(escenario, grafica_necesidad, mo, pl, red, sens):
 
 
 @app.cell
-def _(mo, publica, vista_fase1, vista_necesidad, vista_tco):
+def _(con, mo, pl):
+    # Tablero del extracto abierto (ADR-031, punto 9): las 23 reglas, con o sin
+    # violaciones, y la tasa por planta sobre el universo de cada regla.
+    calidad_reglas = (
+        con.execute("""
+            SELECT r.regla, r.defecto, r.severidad, r.unidad, r.cifra_afectada,
+                   COALESCE(SUM(m.violaciones), 0)::BIGINT     AS violaciones,
+                   COUNT(DISTINCT m.planta)::BIGINT            AS plantas,
+                   SUM(m.usd_expuesto)                         AS usd_expuesto
+            FROM reglas_calidad r
+            LEFT JOIN mart_calidad_datos m USING (regla)
+            GROUP BY ALL
+            ORDER BY r.severidad, violaciones DESC, r.regla
+        """)
+        .pl()
+        .with_columns(pl.col("usd_expuesto").round(0))
+    )
+    calidad_plantas = con.execute("""
+            SELECT regla, severidad, planta,
+                   SUM(violaciones)::BIGINT                    AS violaciones,
+                   ANY_VALUE(universo_planta)                  AS universo,
+                   ROUND(SUM(violaciones) * 100.0 / ANY_VALUE(universo_planta), 3) AS tasa_pct
+            FROM mart_calidad_datos
+            WHERE planta IS NOT NULL
+            GROUP BY ALL
+            ORDER BY tasa_pct DESC
+        """).pl()
+    # Medición del arnés: no depende de la base abierta (docs/calidad).
+    try:
+        impacto = con.execute("SELECT * FROM mart_impacto_defectos").pl()
+    except Exception:
+        mo.stop(
+            True,
+            mo.callout(
+                mo.md(
+                    "**mart_impacto_defectos no encontrado.**\n\n"
+                    "Corre `uv run dbt build --profiles-dir .` sobre esta base."
+                ),
+                kind="warn",
+            ),
+        )
+    nivel_impacto = mo.ui.dropdown(
+        options={"Tasa del catálogo": "tasa", "Techo del rango": "techo"},
+        value="Tasa del catálogo",
+        label="Nivel",
+    )
+    return calidad_plantas, calidad_reglas, impacto, nivel_impacto
+
+
+@app.cell
+def _(impacto, nivel_impacto, pl):
+    _nombres = {
+        "perdida": "Pérdida",
+        "tco": "Ahorro TCO",
+        "brecha": "Brecha",
+        "ocioso": "Ocioso",
+        "ciclo": "Ciclo",
+        "necesidad": "Necesidad",
+        "flota": "Flota",
+    }
+    _sel = impacto.filter(pl.col("nivel") == nivel_impacto.value)
+    _cifras = (
+        _sel.filter(pl.col("tipo") == "cifra")
+        .with_columns(pl.col("medida").replace_strict(_nombres))
+        .pivot(on="medida", index="defecto", values="delta_pct")
+    )
+    _orden = {"llave": 0, "stock": 1, "saldo": 2, "conservacion": 3}
+    _rotas = (
+        _sel.filter((pl.col("tipo") == "identidad") & (pl.col("valor") > 0))
+        .sort(pl.col("medida").replace_strict(_orden))
+        .with_columns(pl.col("medida").replace({"conservacion": "conservación"}))
+        .group_by("defecto", maintain_order=True)
+        .agg(pl.col("medida").str.join(", ").alias("identidad_rota"))
+    )
+    tabla_impacto = (
+        _sel.unique("defecto")
+        .select("defecto", "regla", "severidad", "casos", "detectados")
+        .join(_rotas, on="defecto", how="left")
+        .join(_cifras.with_columns(pl.exclude("defecto").round(1)), on="defecto")
+        .with_columns(pl.col("identidad_rota").fill_null("—"))
+        .sort("defecto")
+    )
+    return (tabla_impacto,)
+
+
+@app.cell
+def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_impacto):
+    _total = int(calidad_reglas["violaciones"].sum())
+    _con = calidad_reglas.filter(pl.col("violaciones") > 0).height
+    _lineas = "\n".join(f"- **{c}**: {', '.join(r)}" for c, r in bloqueos.items())
+    vista_calidad = mo.vstack(
+        [
+            mo.md("""
+        ## Tablero del extracto abierto
+
+        Violaciones de las 23 reglas por causa sobre la base que abre el
+        dashboard (`RPI_DB`). Una regla que bloquea con violaciones deja sin
+        publicar las cifras que afecta; las alertas solo avisan.
+        """),
+            mo.hstack(
+                [
+                    mo.stat(label="Violaciones", value=f"{_total:,}"),
+                    mo.stat(
+                        label="Reglas con violaciones",
+                        value=f"{_con} de {calidad_reglas.height}",
+                    ),
+                    mo.stat(label="Cifras bloqueadas", value=f"{len(bloqueos)} de 9"),
+                ]
+            ),
+            mo.callout(mo.md(f"**Cifras que no se publican:**\n\n{_lineas}"), kind="danger")
+            if bloqueos
+            else mo.md("Ninguna cifra bloqueada."),
+            mo.ui.table(calidad_reglas, selection=None, page_size=23),
+            mo.md("## Tasa de violaciones por regla y planta"),
+            mo.ui.table(calidad_plantas, selection=None, page_size=10)
+            if calidad_plantas.height
+            else mo.md("Sin violaciones por planta."),
+            mo.md("""
+        ## Impacto de cada defecto, medido por el arnés
+
+        Cada defecto del catálogo, solo, contra el dataset limpio: casos
+        inyectados, detectados por la regla de su defecto, identidades que
+        rompe y delta en % de cada cifra publicada (`mart_impacto_defectos`).
+        No depende de la base abierta.
+        """),
+            nivel_impacto,
+            mo.ui.table(tabla_impacto, selection=None, page_size=18),
+        ]
+    )
+    return (vista_calidad,)
+
+
+@app.cell
+def _(mo, publica, vista_calidad, vista_fase1, vista_necesidad, vista_tco):
     mo.ui.tabs(
         {
             "Rotación y pérdidas": vista_fase1,
@@ -721,6 +854,8 @@ def _(mo, publica, vista_fase1, vista_necesidad, vista_tco):
             "Necesidad de flota": publica(
                 vista_necesidad, ["necesidad", "brecha", "ocioso", "flota"]
             ),
+            # Sin bloqueo: es la vista que explica los bloqueos.
+            "Calidad de datos": vista_calidad,
         }
     )
     return

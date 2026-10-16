@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-14
+**Última actualización:** 2026-10-15
 
 ---
 
@@ -1146,6 +1146,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
     - mart_impacto_defectos: 442 filas, 101 sobre la materialidad (76 de cifras). La severidad del seed coincide con la medida en los 18 y ninguna cifra que supera la materialidad queda sin declarar. Con la materialidad en 5%, assert_severidad_medida truena en D11, D15 y D17.
     - El CSV entra como texto y stg_impacto_defectos fija los tipos; la materialidad se compara sobre el delta redondeado a cuatro decimales (99 contra 100 es 1% exacto).
     - dbt build 361/361: 44 modelos, 9 seeds, 285 tests de datos y 23 unit tests.
+  - 4b.3 (2026-10-15): notebook 05 y pestaña "Calidad de datos". El notebook no llama a exige(): publica la calidad, no las cifras que la calidad bloquea, y la medición del arnés no depende de la base abierta. La pestaña tampoco lleva bloqueo. tests/test_dashboard.py corre el dashboard completo sobre la base de RPI_DB y entra al paso sucio de CI.
 
 ---
 
@@ -1245,6 +1246,23 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-15 · Sesión 50 — Semana 19
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - PR #16 (fase-4b2) mergeado.
+  - Notebook 05: detección por defecto a los dos niveles con las reglas que cada defecto dispara; mapa de calor del movimiento de las siete cifras con un defecto a la vez; valor expuesto contra el mayor movimiento en USD; severidad del seed contra la medida y su sensibilidad a la materialidad; tablero de la base abierta y resumen ejecutivo. Tres gráficas nuevas en docs/img. Todas las cifras del texto salen de mart_impacto_defectos, reglas_calidad y la var de materialidad de dbt_project.yml.
+  - Pestaña "Calidad de datos" en el dashboard: violaciones de las 23 reglas sobre la base abierta, cifras bloqueadas con sus reglas, tasa por regla y planta, e impacto por defecto con selector de nivel. Sin mart_impacto_defectos avisa en lugar de tronar.
+  - tests/test_dashboard.py corre el dashboard completo con marimo export sobre RPI_DB; CI lo corre también con los defectos encendidos. Verificado rompiendo una celda de la pestaña de rotación.
+  - Dataset completo: dbt build 361/361, pytest 96 y 2 saltados.
+- **Decisiones tomadas:** ninguna nueva; el notebook y la pestaña siguen ADR-031, punto 9.
+- **Bloqueos:**
+  - Un dbt run del completo con los 18 defectos se quedó sin memoria con el tope de 4 GB del perfil; el siguiente pasó en 2:05. Es el mismo choque de int_calidad_mb51 con int_stock_diario que el arnés resolvió en dos etapas, ahora en la corrida normal.
+- **Notas de la sesión:**
+  - El valor expuesto y el movimiento de las cifras en USD tienen una correlación de rangos de 0.29 en los 15 defectos con valor expuesto. El valor expuesto prioriza la revisión; el impacto lo mide el arnés.
+  - Ocioso es la cifra que más defectos mueven (14 de 18): sale del mismo balance que la brecha.
+- **Próximo paso:** PR de fase-4b3 con CI verde y merge. Después 4b.4: README con resultados de Fase 4, limpieza de referencias viejas (parámetros TCO en int_tco_por_material, simulador como Fase 4 en el notebook 04), revisión de runner y actions de CI y checklist de cierre.
 
 ### 2026-10-14 · Sesión 49 — Semana 19
 
@@ -2222,6 +2240,7 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Techo del rango** — Valor más alto del rango de un supuesto. El arnés corre cada defecto a la tasa del catálogo y en el techo; el peor caso puede caer en cualquiera de los dos.
 - **Bloqueo de publicación** — Un notebook o el dashboard no presentan una cifra si una regla que bloquea tiene violaciones sobre ella. Las cifras de cada regla viven en cifra_afectada del seed reglas_calidad (ADR-031).
 - **Universo de una regla** — Lo que una regla cuenta en una planta: líneas de MB51, materiales o partes. Tasa de violaciones = violaciones / universo.
+- **Correlación de rangos (Spearman)** — Correlación entre los rangos de dos variables, no entre sus valores: mide si ordenan igual. Aquí, valor expuesto contra movimiento de las cifras.
 
 ---
 
