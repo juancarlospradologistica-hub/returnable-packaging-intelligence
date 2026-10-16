@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pytest
 
 DB_PATH = "data/rpi.duckdb"
@@ -394,3 +395,144 @@ def test_conteos_dbt(readme):
     assert (
         texto.replace(" modelos, ", " modelos dbt y ").replace(" seeds, ", " seeds con ") in readme
     )
+
+
+# Fase 4: la medición del arnés no depende del dataset abierto (docs/calidad),
+# así que estas cifras se cuadran también en CI.
+NOMBRE = {
+    "perdida": "Pérdida",
+    "tco": "Ahorro TCO",
+    "brecha": "Brecha",
+    "ocioso": "Ocioso",
+    "ciclo": "Ciclo",
+    "necesidad": "Necesidad",
+    "flota": "Flota",
+}
+IDENTIDAD = {"llave": "llave", "stock": "stock", "saldo": "saldo", "conservacion": "conservación"}
+USD_CIFRAS = ["perdida", "tco", "brecha", "ocioso"]
+
+
+@pytest.fixture(scope="module")
+def impacto() -> pl.DataFrame:
+    try:
+        c = duckdb.connect(DB_PATH, read_only=True)
+        df = c.execute("SELECT * FROM mart_impacto_defectos").pl()
+        c.close()
+    except Exception:
+        pytest.skip("Sin mart_impacto_defectos: corre dbt antes.")
+    return df
+
+
+def _cifras(impacto: pl.DataFrame) -> pl.DataFrame:
+    return impacto.filter(pl.col("tipo") == "cifra")
+
+
+def _mas_mueve(impacto: pl.DataFrame, defecto: str, nivel: str) -> str:
+    s = _cifras(impacto).filter((pl.col("defecto") == defecto) & (pl.col("nivel") == nivel))
+    if s["delta_pct"].null_count():
+        return f"{NOMBRE[s.filter(pl.col('delta_pct').is_null())['medida'][0]]} sin valor"
+    r = s.sort(pl.col("delta_pct").abs(), descending=True).row(0, named=True)
+    return "nada" if abs(r["delta_pct"]) < 0.05 else f"{NOMBRE[r['medida']]} {r['delta_pct']:+.1f}%"
+
+
+def _delta(impacto: pl.DataFrame, defecto: str, nivel: str, cifra: str) -> float:
+    return (
+        _cifras(impacto)
+        .filter(
+            (pl.col("defecto") == defecto)
+            & (pl.col("nivel") == nivel)
+            & (pl.col("medida") == cifra)
+        )["delta_pct"]
+        .item()
+    )
+
+
+def test_fase4_tabla_por_defecto(impacto, readme):
+    rotas = impacto.filter((pl.col("tipo") == "identidad") & (pl.col("valor") > 0))
+    for d in sorted(impacto["defecto"].unique()):
+        r = impacto.filter(pl.col("defecto") == d).row(0, named=True)
+        medidas = set(rotas.filter(pl.col("defecto") == d)["medida"])
+        identidad = ", ".join(v for k, v in IDENTIDAD.items() if k in medidas) or "—"
+        esperado = (
+            f"| {d} | `{r['regla']}` | {r['severidad']} | {identidad} | "
+            f"{_mas_mueve(impacto, d, 'tasa')} | {_mas_mueve(impacto, d, 'techo')} |"
+        )
+        assert esperado == fila(readme, d), d
+
+
+def test_fase4_hallazgos(impacto, readme):
+    corridas = impacto.unique(["defecto", "nivel"])
+    assert (corridas["detectados"] == corridas["casos"]).all()
+    defectos = corridas["defecto"].n_unique()
+    assert f"El catálogo tiene hoy {defectos} defectos" in readme
+    assert "reporta el 100% de lo inyectado en los dos niveles" in readme
+
+    d = lambda *a: f"{_delta(impacto, *a):+.1f}%"  # noqa: E731
+    assert f"pérdida reconocida {d('D18', 'tasa', 'perdida')} y el capital ocioso " in readme
+    assert f"{d('D18', 'tasa', 'ocioso')}." in readme
+    assert f"mueve la brecha {d('D05', 'tasa', 'brecha')} a la tasa del catálogo y " in readme
+    assert f"{d('D05', 'techo', 'brecha')} en el techo" in readme
+    assert f"el ciclo de flota baja {d('D06', 'tasa', 'ciclo')}" in readme
+    assert _delta(impacto, "D06", "techo", "ciclo") is None
+
+    ocioso = _cifras(impacto).filter((pl.col("medida") == "ocioso") & pl.col("supera_materialidad"))
+    assert f"La mueven {ocioso['defecto'].n_unique()} de los {defectos} defectos" in readme
+
+    expuesto = impacto.filter(
+        (pl.col("tipo") == "regla")
+        & (pl.col("nivel") == "tasa")
+        & (pl.col("medida") == pl.col("regla"))
+        & pl.col("usd_expuesto").is_not_null()
+    ).select("defecto", "usd_expuesto")
+    maximo = (
+        _cifras(impacto)
+        .filter((pl.col("nivel") == "tasa") & pl.col("medida").is_in(USD_CIFRAS))
+        .group_by("defecto")
+        .agg(pl.col("delta_pct").abs().max().alias("delta"))
+    )
+    puntos = expuesto.join(maximo, on="defecto")
+    rangos = (
+        puntos.with_columns(
+            pl.col("usd_expuesto").rank().alias("rx"), pl.col("delta").rank().alias("ry")
+        )
+        .select(pl.corr("rx", "ry"))
+        .item()
+    )
+    p = {r["defecto"]: r for r in puntos.iter_rows(named=True)}
+    assert (
+        f"D06 expone {millones(p['D06']['usd_expuesto'])} y mueve {p['D06']['delta']:.1f}% "
+        f"una cifra en USD; D05 expone {millones(p['D05']['usd_expuesto'])} y mueve la brecha "
+        f"{p['D05']['delta']:.1f}%"
+    ) in readme
+    assert f"en los {puntos.height} defectos con valor expuesto, es {rangos:.2f}" in readme
+
+    otras = dict(
+        impacto.filter(
+            (pl.col("tipo") == "regla")
+            & (pl.col("nivel") == "tasa")
+            & (pl.col("medida") == "recogida_sin_saldo")
+            & (pl.col("regla") != "recogida_sin_saldo")
+        )
+        .select("defecto", "valor")
+        .iter_rows()
+    )
+    assert (
+        f"D01, D02 y D04 dejan {otras['D01']:,.0f}, {otras['D02']:,.0f} y {otras['D04']:,.0f} "
+        "recogidas sin saldo"
+    ) in readme
+
+
+def test_fase4_tiempo_del_arnes(readme):
+    # El limpio no está en el mart: el tiempo total sale de la medición completa.
+    try:
+        c = duckdb.connect(DB_PATH, read_only=True)
+        corridas, segundos = c.execute(
+            """
+            SELECT COUNT(*), SUM(segundos)
+            FROM (SELECT DISTINCT defecto, nivel, segundos FROM stg_impacto_defectos)
+            """
+        ).fetchone()
+        c.close()
+    except Exception:
+        pytest.skip("Sin stg_impacto_defectos: corre dbt antes.")
+    assert f"{corridas} corridas en {round(segundos / 60)} min" in readme

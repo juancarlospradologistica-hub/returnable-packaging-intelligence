@@ -2,7 +2,11 @@
 -- viola una regla, salvo llave_duplicada (una por llave repetida) y
 -- precio_documento_distinto (una por material). Las clases de movimiento se
 -- leen por evento del seed, no por código: un extracto real se mapea ahí.
-with lineas as (
+--
+-- lineas no se materializa (ADR-032): seis CTEs la leen y DuckDB la guardaría
+-- completa, 21M filas, dentro del mismo tope de 4 GB que comparten los modelos
+-- que dbt corre en paralelo. Releer stg_mb51 cuesta menos que guardarla.
+with lineas as not materialized (
     select m.*, e.evento
     from {{ ref('stg_mb51') }} m
     left join {{ ref('clases_movimiento') }} e on e.bwart = m.mov_type
