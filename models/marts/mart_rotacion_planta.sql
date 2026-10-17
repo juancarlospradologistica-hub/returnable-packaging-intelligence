@@ -2,8 +2,10 @@
 -- 622 ponderados por cantidad. Una cohorte está completa cuando ya pasó el
 -- horizonte de la curva de supervivencia; antes solo se ven los ciclos cortos
 -- y el promedio sale bajo.
+-- Lo que ya estaba en cliente en la foto no tiene mes de salida (ADR-036).
 with tramos as (
     select * from {{ ref('int_tramos_fifo') }}
+    where not salida_en_foto
 ),
 
 corte as (

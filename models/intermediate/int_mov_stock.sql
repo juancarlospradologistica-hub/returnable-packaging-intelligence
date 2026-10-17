@@ -63,7 +63,8 @@ en_cliente as (
 
 -- La foto inicial entra como un movimiento más en su fecha: el saldo de cada
 -- ubicación es una sola suma desde ahí. MB5B no trae tipo de stock; reparación
--- y scrap viven en bloqueado (ADR-017, punto 1).
+-- y scrap viven en bloqueado (ADR-017, punto 1). El stock V de la foto no
+-- tiene almacén y abre el estado cliente (ADR-036).
 apertura as (
     select
         s.planta,
@@ -79,6 +80,21 @@ apertura as (
         s.cantidad                                      as delta
     from {{ ref('stg_stock_inicial') }} s
     join almacenes a on a.lgort = s.almacen
+    where s.cliente is null
+
+    union all
+
+    select
+        planta,
+        material,
+        tipo_material,
+        'cliente'                                       as estado,
+        'libre'                                         as tipo_stock,
+        'apertura'                                      as evento,
+        fecha,
+        cantidad                                        as delta
+    from {{ ref('stg_stock_inicial') }}
+    where cliente is not null
 )
 
 select * from en_almacen

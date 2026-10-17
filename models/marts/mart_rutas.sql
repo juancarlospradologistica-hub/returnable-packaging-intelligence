@@ -47,7 +47,7 @@ ciclo as (
         cliente,
         round(sum(cantidad * dias) * 1.0 / sum(cantidad), 1)        as ciclo_promedio_dias
     from {{ ref('int_tramos_fifo') }}
-    where tipo_cierre = '622'
+    where tipo_cierre = '622' and not salida_en_foto
     group by planta, cliente
 ),
 

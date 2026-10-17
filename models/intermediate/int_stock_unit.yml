@@ -8,7 +8,7 @@ unit_tests:
     description: >
       Daño, reparación, scrap, baja, salida, recogida, faltante y apertura. El
       cartón (fuera_ciclo) no entra. El 621 y el 622 tocan almacén y cliente;
-      el 702 solo cliente.
+      el 702 solo cliente. El stock V de la foto abre el estado cliente (ADR-036).
     model: int_mov_stock
     given:
       - input: ref('stg_mb51')
@@ -49,9 +49,11 @@ unit_tests:
           - {bwart: '702', evento: faltante_cliente}
       - input: ref('stg_stock_inicial')
         rows:
-          - {planta: P1, almacen: VACI, material: M1, tipo_material: KLT, cantidad: 10, fecha: 2025-12-31}
+          - {planta: P1, almacen: VACI, material: M1, tipo_material: KLT, cliente: null, cantidad: 10, fecha: 2025-12-31}
+          - {planta: P1, almacen: null, material: M1, tipo_material: KLT, cliente: C9, cantidad: 6, fecha: 2025-12-31}
     expect:
       rows:
+        - {estado: cliente, tipo_stock: libre, evento: apertura, fecha: 2025-12-31, delta: 6}
         - {estado: sucios, tipo_stock: libre, evento: bloqueo, fecha: 2026-01-05, delta: -2}
         - {estado: sucios, tipo_stock: bloqueado, evento: bloqueo, fecha: 2026-01-05, delta: 2}
         - {estado: sucios, tipo_stock: bloqueado, evento: traslado_bloqueado, fecha: 2026-01-05, delta: -2}
