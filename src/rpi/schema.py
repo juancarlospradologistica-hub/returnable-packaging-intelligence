@@ -44,8 +44,8 @@ class MB51Schema(pa.DataFrameModel):
         description="Almacen. Nulo en 702 con stock especial V: MSKU no lleva almacen.",
     )
     Matnr: Series[str] = pa.Field(
-        str_length={"min_value": 1, "max_value": 18},
-        description="Codigo de material (empaque).",
+        str_length={"min_value": 1, "max_value": 40},
+        description="Codigo de material (empaque). Hasta 40 caracteres, como en S/4HANA.",
     )
     Maktx: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 40},
@@ -56,9 +56,12 @@ class MB51Schema(pa.DataFrameModel):
         description="Clase de movimiento SAP. El catalogo vive en el seed clases_movimiento.",
     )
     Mjahr: Series[int] = pa.Field(
-        ge=2024,
-        le=2027,
-        description="Ano contable. Horizonte del dataset: 18 meses ~ 2 anos calendario.",
+        ge=1990,
+        le=2100,
+        description=(
+            "Ano del documento material. Rango de plausibilidad, no del dataset: un "
+            "extracto real puede traer cualquier ano (ADR-035)."
+        ),
     )
     Budat: Series[date] = pa.Field(
         description="Fecha de contabilizacion.",
@@ -68,7 +71,7 @@ class MB51Schema(pa.DataFrameModel):
     )
     Cputm: Series[str] = pa.Field(
         str_length={"min_value": 6, "max_value": 8},
-        description="Hora de registro en formato HHMMSS (convencion SAP).",
+        description="Hora de registro HH:MM:SS. SAP la guarda HHMMSS; el adaptador la convierte.",
     )
     Menge: Series[int] = pa.Field(
         description=(
@@ -106,7 +109,11 @@ class MB51Schema(pa.DataFrameModel):
     )
     Costo_usd: Series[float] = pa.Field(
         gt=0.0,
-        description="Costo unitario en USD por tipo de material. Derivado del generador.",
+        nullable=True,
+        description=(
+            "Precio unitario del documento en USD. Nulo si el extracto no trae importe: "
+            "un LEIH estandar no lo lleva (ADR-028, ADR-035)."
+        ),
     )
 
     # ---------- Columnas opcionales (6) ----------
@@ -155,7 +162,7 @@ class PartesSchema(pa.DataFrameModel):
     """Parte terminada por planta y su cliente. Llave: Werks, Parte."""
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Kunnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 12})
     Escenario: Series[str] = pa.Field(
         isin=ESCENARIOS_VALIDOS,
@@ -175,8 +182,8 @@ class InstruccionEmpaqueSchema(pa.DataFrameModel):
     """Una parte, un empaque, piezas fijas por contenedor (POP1). Llave: Werks, Parte."""
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
-    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Piezas: Series[int] = pa.Field(
         description="Piezas por contenedor. Cero o negativo lo reporta piezas_en_cero."
     )
@@ -191,7 +198,7 @@ class StockInicialSchema(pa.DataFrameModel):
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
     Lgort: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Kunnr: Series[str] = pa.Field(
         nullable=True, description="Cuenta de stock especial V; vacío en almacén."
     )
@@ -211,7 +218,7 @@ class MaestroMaterialesSchema(pa.DataFrameModel):
     """
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Maktx: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Mtart: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 4},
@@ -248,7 +255,7 @@ class PlanProduccionSchema(pa.DataFrameModel):
     """Plan semanal en piezas (MD61/PBED). Llave: Werks, Parte, Semana (lunes)."""
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 18})
+    Parte: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Semana: Series[date] = pa.Field(description="Lunes de la semana del plan.")
     Piezas: Series[int] = pa.Field(ge=0)
 
