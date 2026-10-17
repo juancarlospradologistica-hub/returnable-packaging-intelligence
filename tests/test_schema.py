@@ -2,7 +2,7 @@ import duckdb
 import polars as pl
 import pytest
 
-from rpi.db import ingest
+from rpi.db import fallas_de_schema, ingest
 from rpi.generator import INSTRUCCION, PLAN
 from rpi.schema import (
     InstruccionEmpaqueSchema,
@@ -147,3 +147,19 @@ def test_ingesta_limpia_sin_fallas(raw_ci, tmp_path):
     ingest(db_path=db, raw_dir=raw_ci)
     with duckdb.connect(str(db)) as con:
         assert con.execute("SELECT COUNT(*) FROM raw_errores_schema").fetchone()[0] == 0
+
+
+def test_contrato_para_un_extracto_real(df_ci, tmp_path):
+    # Año fuera del sintético, material de S/4HANA y precio sin importe: un
+    # extracto real que no tiene ningún error no debe fallar el schema.
+    df = df_ci.head(3)
+    real = df.with_columns(
+        pl.Series("Mjahr", [2019, 2019, 2019]),
+        pl.Series("Matnr", ["9" * 40, "A" * 40, "KLT-1"]),
+        pl.lit(None, dtype=pl.Float64).alias("Costo_usd"),
+    )
+    archivo = tmp_path / "mb51_real.parquet"
+    real.write_parquet(archivo)
+    assert fallas_de_schema("raw_mb51", archivo).is_empty()
+    real.with_columns(pl.lit(0.0).alias("Costo_usd")).write_parquet(archivo)
+    assert set(fallas_de_schema("raw_mb51", archivo)["columna"]) == {"Costo_usd"}

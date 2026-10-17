@@ -55,6 +55,10 @@ Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaqu
 
 Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20. Cerrada en semana 20 (ADR-033, ADR-034).
 
+### Alcance IN — Fase 4d (ADR-035)
+
+Adaptador de extracto real: un MB51 bajado de SAP, y después la foto de stock, el maestro y el plan, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: foto de stock y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21.
+
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
 - Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4c cerrada y los criterios de ADR-016 (ADR-027, ADR-033).
@@ -113,6 +117,8 @@ Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de F
 - **Snowflake / BigQuery / Databricks** — no necesarios; portables vía dbt profiles.
 - **Pandas** — reemplazado por Polars en todo el pipeline.
 - **Kafka / streaming** — este es batch, no streaming.
+- **pyrfc / RFC directo a SAP** — pide el SAP NetWeaver RFC SDK, con licencia, y un sistema donde conectarse; el Charter es local y sin datos de empleador. El adaptador lee el archivo que baja quien tiene acceso (ADR-035).
+- **Lectura de xlsx en el adaptador** — Polars la hace con fastexcel, una dependencia más para algo que SAP también exporta como texto con separador. Se reconsidera si un usuario solo puede bajar xlsx (ADR-035).
 - **Evidence.dev** — migró a modelo cloud (ADR-008).
 
 ---
@@ -1271,6 +1277,52 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - dbt build 376/376: 46 modelos, 9 seeds, 294 tests de datos y 27 unit tests. pytest en el completo: 126 y 2 saltados.
   - Límites, escritos para un extracto real: documento_repetido necesita Xblnr; kunnr_con_formato toma como buena la versión del cliente que tiene salidas; una fecha de extracción mal capturada en la var es un error de entrada que ninguna regla ve.
 
+### ADR-035 · Adaptador de extracto real: MB51 de SAP al contrato de entrada
+
+- **Fecha:** 2026-10-16
+- **Estado:** Accepted. Abre Fase 4d. Precisa ADR-017 (seeds en lugar de SQL para lo que cambia entre empresas) y ADR-030, punto 2 (contrato de entrada en Pandera). 4d.2 (foto de stock, maestro y plan) va en su propio ADR.
+- **Contexto:**
+  - Hasta Fase 4c el pipeline solo había leído lo que escribe el generador. El Charter promete que un extracto real se carga cambiando seeds, no modelos, y nada lo probaba.
+  - Un MB51 bajado de SAP no se parece al contrato: campos técnicos en mayúsculas (MATNR, WERKS, SHKZG), fechas y números con los formatos del usuario (01.06.2026, 1.234,50), la cantidad sin signo y con el indicador debe/haber aparte, o con el menos atrás si sale del ALV, la unidad interna (ST) y el importe del documento en lugar de un precio unitario.
+  - El contrato de Pandera tenía tres límites del sintético que un extracto real rompe: Mjahr de 2024 a 2027, Matnr de 18 caracteres (S/4HANA permite hasta 40) y precio obligatorio; un LEIH estándar no lleva importe.
+  - Medí con el MB51 completo del generador escrito como lo exporta SAP: CSV de 2.64 GB y 20,981,396 líneas. Convertirlo en un solo plan de Polars murió por memoria a los 6 GB. El CSV crudo a Parquet en streaming llega a 2.6 GB, y el mismo contrato sobre 2M de líneas a 986 MB: la memoria crecía con el archivo.
+- **Alternativas evaluadas:**
+  - RFC directo a SAP con pyrfc: pide el SDK de SAP con licencia y un sistema. Fuera del Charter.
+  - Leer xlsx: una dependencia más (fastexcel). SAP exporta también texto con separador desde el ALV y desde SE16N.
+  - DuckDB read_csv para la conversión: correría, pero tendría la lógica del contrato en SQL y en Polars a la vez. El contrato ya se escribe en Polars y el generador también.
+  - Detectar formatos solos: 01.02.2026 es primero de febrero o 2 de enero según el usuario, y adivinar mal no truena, solo mueve fechas. Van como opciones con el default de SAP.
+  - Normalizar los ceros a la izquierda del Matnr y del Kunnr al convertir: escondería B01 y B02, justo lo que miden sus reglas (ADR-034).
+  - Tirar las líneas sin WERKS: es corregir el extracto sin decir nada.
+  - Un solo plan en streaming para todo el archivo: no cupo en 8 GB. Por lotes de líneas: más código para lo mismo que da partir por planta, que es como se escriben los archivos de todos modos.
+- **Decisión:**
+  1. src/rpi/extracto.py con un subcomando por tabla: python -m rpi.extracto mb51 ARCHIVO. Escribe un Parquet por planta (mb51_<Werks>.parquet) en data/extracto/raw, el mismo contrato que escribe el generador, y borra los de una corrida anterior.
+  2. Entrada: CSV con los campos técnicos de MSEG y MKPF. Obligatorios: WERKS, MATNR, MAKTX, BWART, BUDAT, CPUDT, CPUTM, MENGE, MEINS, MBLNR y ZEILE. Opcionales: LGORT, MJAHR, LIFNR, KUNNR, XBLNR, SHKZG, DMBTR y WAERS. Un archivo con otros encabezados se mapea con --columnas (CSV columna,campo).
+  3. Formatos con el default de un usuario estándar de SAP (separador ;, fecha DD.MM.AAAA, notación 1.234.567,89) y opciones --separador, --decimal y --fecha.
+  4. Signo de la cantidad por SHKZG (H es salida, S es entrada). Sin SHKZG, el signo viene en la cantidad, con el menos atrás como en el ALV. CPUTM llega HHMMSS o HH:MM:SS y el contrato guarda HH:MM:SS.
+  5. Unidad interna a la del contrato con seeds/unidades_extracto.csv (ST es PC). Una unidad fuera del seed pasa como viene y la marca el schema.
+  6. Costo_usd = DMBTR / |MENGE|, solo con WAERS = USD e importe mayor a cero; si no, nulo. El costo de las cifras sale del maestro (ADR-028); el del documento solo se cuadra contra él.
+  7. Contrato: Mjahr de 1990 a 2100, Matnr y Parte hasta 40 caracteres, Costo_usd nulo permitido y mayor a cero cuando viene, Cputm descrito como HH:MM:SS.
+  8. No corrige datos. Cambia nombres, formatos y signo. Una línea sin WERKS detiene la conversión con el número de líneas.
+  9. El CSV pasa como texto, en streaming, a un Parquet temporal; de ahí cada planta se convierte y se escribe sola. La memoria la pone la planta más grande, no el archivo.
+  10. La fecha de extracción la da quien corrió el extracto y entra a dbt con --vars (ADR-034).
+  11. data/extracto/ va en .gitignore.
+- **Supuestos (práctica estándar de SAP, sin datos de empleador):**
+
+  | Supuesto | Valor | Rango | Razón |
+  |---|---|---|---|
+  | Formato de fecha | DD.MM.AAAA | Cualquiera de SU01 con --fecha | Es el formato 1, el default de un usuario nuevo |
+  | Notación decimal | 1.234.567,89 | También 1,234,567.89 y 1 234 567,89 | Es la notación en blanco de SU01, el default |
+  | Separador | ; | ; , tabulador | Con coma decimal la coma no puede separar campos; Excel en esas configuraciones regionales usa ; |
+  | Unidad interna | ST = PC | Una fila por unidad en el seed | ST es la unidad interna de pieza (CUNIT); el usuario la ve como PC |
+
+- **Consecuencias:**
+  - Ida y vuelta sobre el completo: las 14 plantas regresan idénticas a las del generador, 20,981,396 filas, en 50 s con 2.6 GB de pico. Antes de partir por planta, 6 GB y el proceso muerto.
+  - Con los tres límites del contrato relajados, el limpio del completo sigue sin fallas de schema y las cifras no se mueven: ninguna lee Costo_usd y ningún Matnr del sintético pasa de 18.
+  - tests/test_extracto.py con 15 casos: ida y vuelta barajada, otra notación, fecha y separador, signo atrás con hora con puntos, mapeo de encabezados, números con miles, obligatorios que faltan, precio nulo sin importe, que no corrige datos, unidad fuera del seed, unidades del seed dentro del contrato, plantas viejas borradas, línea sin centro y CLI. Uno nuevo en test_schema.py para el contrato. Cada uno verificado con una mutación que lo hace fallar: 16 mutaciones.
+  - El test de memoria no está en CI: el completo no corre ahí. La medición queda en este ADR y en el worklog de la sesión 54.
+  - Límite: la ingesta todavía pide la foto de stock, el maestro, el plan y la instrucción. Con un extracto real solo de MB51 no corre de punta a punta hasta 4d.2.
+  - Límite: un extracto con varias monedas deja nulo el precio fuera de USD. No mueve cifras; el maestro sí convierte o bloquea (D18).
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1291,7 +1343,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 | Lifnr | Proveedor | Retornable con socio (461/462, 501/502) |
 | Kunnr | Cliente / consignatario | Cuenta de stock especial V (621/622) |
 | Xblnr | Referencia / documento externo | Número embarque, delivery, pedido físico |
-| Costo_usd | Costo unitario del documento en USD | Solo para cuadrar contra el maestro; ninguna cifra lo usa (ADR-028) |
+| Costo_usd | Costo unitario del documento en USD; nulo si el documento no lleva importe (ADR-035) | Solo para cuadrar contra el maestro; ninguna cifra lo usa (ADR-028) |
 
 ### Columnas extras opcionales (6)
 
@@ -1366,11 +1418,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
 - [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
+- [ ] **Semana 21** · Fase 4d: adaptador de extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); foto de stock, maestro y plan (4d.2).
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-16 · Sesión 54 — Semana 21
+
+- **Duración:** ~4 h
+- **Hecho:**
+  - PR #20 (fase-4c2) mergeado. Fase 4c cerrada.
+  - Contrato para un extracto real: Mjahr de 1990 a 2100, Matnr y Parte hasta 40, Costo_usd nulo permitido y Cputm como HH:MM:SS.
+  - rpi.extracto: MB51 de SAP al contrato. Campos técnicos, mapeo de encabezados, formatos de SAP con opciones, signo por SHKZG o con el menos atrás, unidades por seed y precio solo con importe en USD.
+  - El completo escrito como lo exporta SAP (2.64 GB, 21M de líneas) regresa idéntico planta por planta: 14 de 14, 50 s, 2.6 GB de pico.
+  - Una línea sin WERKS detiene la conversión. data/extracto/ en .gitignore.
+  - README con la sección para cargar un MB51 de SAP.
+  - Verificados rompiendo: 16 mutaciones del adaptador y del contrato, todas atrapadas.
+  - Dataset completo: ingesta sin fallas de schema con el contrato nuevo, dbt build 380/380, pytest 142 y 2 saltados. Reducido: pytest 132 y 12 saltados.
+- **Decisiones tomadas:** ADR-035.
+- **Bloqueos:**
+  - El completo murió por memoria a los 6 GB. Calcular cada campo una sola vez no lo arregló; sobre 2M de líneas el contrato usaba 986 MB contra 320 a 375 MB de cada operación sola. Lo resolví partiendo por planta después del Parquet temporal, que es como se escriben los archivos de todos modos.
+  - Los primeros tests pasaron a la primera. Los endurecí con el extracto barajado, números con miles, la unidad que no está en el seed y el borrado de plantas viejas.
+  - La versión anterior tiraba sin aviso las líneas sin centro. Salió revisando el cambio de memoria, no de un test.
+- **Notas de la sesión:**
+  - Un adaptador que corrige esconde lo que la calidad de datos tiene que ver. Su trabajo es cambiar la forma, no el contenido, y la prueba es la ida y vuelta exacta.
+  - Lo que se prueba en el reducido no dice nada de la memoria. El completo solo se corre en local, y su medición va en el ADR.
+- **Próximo paso:** PR de fase-4d1. Después, 4d.2: foto de stock y maestro, plan e instrucción opcionales, con la ingesta tolerando los que falten.
 
 ### 2026-10-16 · Sesión 53 — Semana 20
 
@@ -2444,6 +2519,12 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Var (dbt)** — Parámetro del proyecto en dbt_project.yml que los modelos leen con var(). Se cambia sin tocar el SQL; aquí viven las ventanas, la materialidad y la fecha de extracción.
 - **Una sola causa por línea** — Cuando dos reglas ven la misma línea, la reporta la que nombra la causa y la otra no la cuenta. Sin eso el tablero manda a buscar dos problemas donde hay uno (ADR-030, ADR-034).
 - **CTE materializado** — Resultado de un WITH que el motor guarda completo para reusarlo. Ahorra cómputo cuando varias partes lo leen, pero ocupa memoria; DuckDB lo hace por default si el CTE se lee más de una vez.
+- **Campo técnico (SAP)** — Nombre del campo en la tabla de la base (MATNR, WERKS, SHKZG). No cambia con el idioma del usuario, a diferencia del encabezado de un reporte.
+- **SHKZG** — Indicador debe/haber de MSEG. S es entrada y H es salida; la cantidad se guarda sin signo.
+- **Notación decimal (SAP)** — Formato de números del usuario en SU01: 1.234.567,89 por default, 1,234,567.89 o 1 234 567,89.
+- **Unidad interna / externa** — SAP guarda la unidad con su código interno (ST) y la muestra con el externo según el idioma (PC). La tabla de conversión es CUNIT.
+- **Ida y vuelta** — Escribir un dato en otro formato y leerlo de regreso: si no sale idéntico, la conversión cambió el contenido. Aquí, el MB51 del generador escrito como lo exporta SAP y convertido con rpi.extracto.
+- **Adaptador** — Código que lleva un archivo de una fuente al contrato de entrada del pipeline. Cambia la forma, no el contenido (ADR-035).
 
 ---
 

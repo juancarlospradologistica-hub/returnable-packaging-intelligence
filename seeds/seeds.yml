@@ -18,6 +18,24 @@ seeds:
               arguments:
                 values: ['recepcion', 'vacios', 'linea', 'llenos', 'sucios', 'reparacion', 'scrap', 'fuera_ciclo']
 
+  - name: unidades_extracto
+    description: >
+      Unidad de medida de un extracto real → Meins del contrato (ADR-035). ST es
+      la clave interna de pieza en SAP y PC su formato externo en inglés. Cada
+      empresa agrega aquí sus unidades; una que falte llega tal cual y la marca
+      el schema en la ingesta.
+    config:
+      column_types:
+        unidad: varchar
+        meins: varchar
+    columns:
+      - name: unidad
+        tests:
+          - not_null
+          - unique
+      - name: meins
+        tests: [not_null]
+
   - name: clases_movimiento
     description: Bwart → evento del ciclo (ADR-017). Un MB51 real se mapea aquí.
     config:

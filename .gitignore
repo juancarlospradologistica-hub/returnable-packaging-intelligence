@@ -228,6 +228,8 @@ data/sucio/
 # Bases y Parquet de trabajo del arnés; su salida va a docs/calidad (ADR-031)
 data/calidad/
 data/raw/*.csv
+# Extractos de SAP y su conversión: nunca al repo (ADR-004, ADR-035)
+data/extracto/
 data/processed/*.parquet
 data/processed/*.csv
 data/**/*.duckdb

@@ -194,7 +194,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (46 modelos, 9 seeds, 294 tests de datos y 27 unit tests):
+Construir modelos y correr los tests de dbt (46 modelos, 10 seeds, 297 tests de datos y 27 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -243,6 +243,32 @@ Abrir el dashboard:
 uv run marimo run notebooks/02_dashboard.py
 ```
 
+### Cargar un MB51 bajado de SAP
+
+`rpi.extracto` convierte un MB51 de SAP al contrato que escribe el generador: un Parquet por planta en `data/extracto/raw`, que la ingesta lee igual que `data/raw`. Espera un CSV con los campos técnicos de MSEG y MKPF, que no cambian con el idioma del usuario. Por default lee separador `;`, fecha DD.MM.AAAA y notación 1.234,56, los formatos de un usuario estándar de SAP:
+
+```bash
+uv run python -m rpi.extracto mb51 data/extracto/MB51.csv
+uv run python -m rpi.extracto mb51 MB51.csv --separador , --decimal . --fecha %m/%d/%Y
+uv run python -m rpi.extracto mb51 MB51.csv --columnas mapeo.csv
+```
+
+- Obligatorios: WERKS, MATNR, MAKTX, BWART, BUDAT, CPUDT, CPUTM, MENGE, MEINS, MBLNR y ZEILE. Opcionales: LGORT, MJAHR, LIFNR, KUNNR, XBLNR, SHKZG, DMBTR y WAERS. Si falta un obligatorio, la conversión se detiene con la lista.
+- El signo sale de SHKZG (H es salida). Sin SHKZG sale de la cantidad, con el menos atrás como lo exporta el ALV (`5-`). CPUTM puede venir HHMMSS o HH:MM:SS.
+- `--columnas` es un CSV `columna,campo` para un archivo con otros encabezados, por ejemplo `Material,MATNR`.
+- La unidad interna de SAP se traduce con `seeds/unidades_extracto.csv` (ST es PC). Una unidad que no está en el seed pasa como viene y la marca el schema en la ingesta.
+- El precio es DMBTR entre la cantidad, solo en USD. Un LEIH estándar no lleva importe: el precio queda nulo y el costo sale del maestro (ADR-028).
+
+El adaptador cambia nombres, formatos y signo, pero no corrige datos. Un Matnr con ceros a la izquierda o un Budat después del corte pasan como vienen, para que los vean sus reglas (ADR-034). Una línea sin WERKS detiene la conversión: no tiene archivo de planta y tirarla sería corregir el extracto.
+
+La fecha de extracción la da quien corrió el extracto, y se pasa a dbt:
+
+```bash
+uv run dbt build --profiles-dir . --vars "{fecha_extraccion: '2026-09-30'}"
+```
+
+Por ahora cubre MB51. La ingesta pide también la foto de stock, el maestro y el plan, y sus adaptadores vienen en 4d.2 (ADR-035). Lo probé con ida y vuelta: el MB51 completo del generador, escrito como lo exporta SAP (CSV de 2.6 GB, 21M de líneas), regresa idéntico planta por planta en 50 s, con 2.6 GB de pico de memoria. `data/extracto/` está en `.gitignore`.
+
 ## Estructura del repo
 
 ```
@@ -250,7 +276,8 @@ returnable-packaging-intelligence/
 ├── .github/workflows/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
-│   └── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
+│   ├── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
+│   └── extracto/               # MB51 bajado de SAP y su conversión (excluido de Git)
 ├── docs/
 │   ├── calidad/                # impacto_defectos.csv y ciegos_antes.csv: mediciones versionadas del arnés
 │   └── img/                    # Gráficas que escriben los notebooks
@@ -300,7 +327,7 @@ returnable-packaging-intelligence/
 │       ├── mart_calidad_datos.sql   # violaciones por regla, planta y material
 │       ├── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
 │       └── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
-├── seeds/                      # catálogos SAP, plantas, política, escenarios, reglas de calidad y cifras publicadas
+├── seeds/                      # catálogos SAP, unidades de un extracto, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -314,11 +341,12 @@ returnable-packaging-intelligence/
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
 │   ├── defectos.py             # Catálogo de defectos inyectables y bitácora
+│   ├── extracto.py             # Adaptador: MB51 bajado de SAP al contrato de entrada
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -561,7 +589,7 @@ Las reglas de Fase 4 las escribí conociendo los 18 defectos, así que su 100% n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 9 seeds con 294 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 10 seeds con 297 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
@@ -570,6 +598,8 @@ Fase 3b cerrada: plan de 12 semanas derivado de los embarques, con instrucción 
 Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de empaque y el costo unitario salen del maestro, sin mover ninguna cifra de Fase 1 a 3 (ADR-028). El generador inyecta 18 defectos de un extracto real con su bitácora (ADR-029); cada uno tiene una regla en dbt que lo nombra por su causa, con la severidad en un seed (ADR-030). El arnés de impacto mide cuánto mueve cada defecto cada cifra, y los tests revisan en cada build que la severidad y las cifras afectadas del seed digan lo que el arnés midió. Ningún notebook ni el dashboard presentan una cifra con una regla que bloquea sobre ella (ADR-031, ADR-032).
 
 Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extracto real que ninguna regla nombraba se midieron antes de escribir sus reglas, con 0 de 4 detectados por su causa, y después, con 4 de 4. La fecha de extracción pasó a ser un dato de entrada en lugar de inferirse del MB51. El simulador de la red queda para Fase 5.
+
+Fase 4d en curso: adaptador de extracto real. MB51 listo, con ida y vuelta exacta sobre el completo (ADR-035); foto de stock, maestro y plan en 4d.2.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
