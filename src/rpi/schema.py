@@ -19,6 +19,8 @@ Referencias:
 from datetime import date
 
 import pandera.polars as pa
+import polars as pl
+from pandera.api.polars.types import PolarsData
 from pandera.typing.polars import Series
 
 MEINS_VALIDAS = ["PC", "EA", "KG"]
@@ -194,16 +196,30 @@ class InstruccionEmpaqueSchema(pa.DataFrameModel):
 
 
 class StockInicialSchema(pa.DataFrameModel):
-    """Foto de stock al abrir la ventana (MB5B). Llave: Werks, Lgort, Matnr, Kunnr."""
+    """
+    Foto de stock al abrir la ventana. Llave: Werks, Lgort, Matnr, Kunnr.
+
+    Una fila es stock en almacén (MB5B, con Lgort) o stock especial V en
+    cliente (MSKU, con Kunnr y sin almacén), nunca las dos (ADR-036).
+    """
 
     Werks: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
-    Lgort: Series[str] = pa.Field(str_length={"min_value": 4, "max_value": 12})
+    Lgort: Series[str] = pa.Field(
+        nullable=True,
+        str_length={"min_value": 4, "max_value": 12},
+        description="Almacén; vacío en stock V en cliente.",
+    )
     Matnr: Series[str] = pa.Field(str_length={"min_value": 1, "max_value": 40})
     Kunnr: Series[str] = pa.Field(
         nullable=True, description="Cuenta de stock especial V; vacío en almacén."
     )
     Menge: Series[int] = pa.Field()
     Fecha: Series[date] = pa.Field()
+
+    @pa.dataframe_check(error="almacen_o_cliente")
+    @classmethod
+    def almacen_o_cliente(cls, data: PolarsData) -> pl.LazyFrame:
+        return data.lazyframe.select(pl.col("Lgort").is_null() != pl.col("Kunnr").is_null())
 
     class Config:
         strict = True
