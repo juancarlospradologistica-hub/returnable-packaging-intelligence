@@ -64,12 +64,11 @@ def _texto(campo: str) -> pl.Expr:
 def _numero(campo: str, decimal: str) -> pl.Expr:
     """'1.234,50' o '1,234.50' según la notación; '5-' con el signo atrás, como en el ALV."""
     miles = "." if decimal == "," else ","
-    t = _texto(campo).str.replace_all(miles, "", literal=True)
+    t = pl.col(campo).str.replace_all(miles, "", literal=True)
     if decimal == ",":
         t = t.str.replace(",", ".", literal=True)
-    negativo = t.str.ends_with("-")
     valor = t.str.strip_suffix("-").cast(pl.Float64)
-    return pl.when(negativo).then(-valor).otherwise(valor)
+    return pl.when(t.str.ends_with("-")).then(-valor).otherwise(valor)
 
 
 def lee_columnas(archivo: Path | None) -> dict[str, str]:
@@ -97,49 +96,55 @@ def contrato_mb51(
         pl.lit(None, dtype=pl.String).alias(c) for c in OPCIONALES if c not in campos
     )
 
-    cantidad = _numero("MENGE", decimal)
+    # Cada campo se limpia una vez y los derivados salen de la columna limpia.
+    lf = crudo.select(_texto(c).alias(c) for c in [*OBLIGATORIOS, *OPCIONALES]).with_columns(
+        _numero("MENGE", decimal).alias("_cantidad"),
+        _numero("DMBTR", decimal).alias("_importe"),
+        pl.col("BUDAT").str.to_date(fecha).alias("_budat"),
+    )
     # Con SHKZG la cantidad viene sin signo: H (haber) es salida. Sin SHKZG, el
     # signo viene en la cantidad, como en el ALV de MB51.
     menge = (
-        pl.when(_texto("SHKZG") == "H")
-        .then(-cantidad.abs())
-        .when(_texto("SHKZG") == "S")
-        .then(cantidad.abs())
-        .otherwise(cantidad)
+        pl.when(pl.col("SHKZG") == "H")
+        .then(-pl.col("_cantidad").abs())
+        .when(pl.col("SHKZG") == "S")
+        .then(pl.col("_cantidad").abs())
+        .otherwise(pl.col("_cantidad"))
     )
     # HHMMSS, como lo guarda SAP, o HH:MM:SS: el contrato guarda HH:MM:SS.
     hora = (
-        _texto("CPUTM")
+        pl.col("CPUTM")
         .str.replace_all(":", "", literal=True)
         .str.zfill(6)
         .str.replace(r"^(\d{2})(\d{2})(\d{2})$", "$1:$2:$3")
     )
-    budat = _texto("BUDAT").str.to_date(fecha)
     # Precio del documento solo si viene en USD; un LEIH estándar no lleva
     # importe y el contrato lo deja nulo (ADR-028).
     costo = (
-        pl.when((_texto("WAERS") == "USD") & (_numero("DMBTR", decimal) > 0))
-        .then((_numero("DMBTR", decimal) / cantidad.abs()).round(2))
+        pl.when((pl.col("WAERS") == "USD") & (pl.col("_importe") > 0))
+        .then((pl.col("_importe") / pl.col("_cantidad").abs()).round(2))
         .otherwise(None)
     )
-    return crudo.select(
-        _texto("WERKS").alias("Werks"),
-        _texto("LGORT").alias("Lgort"),
-        _texto("MATNR").alias("Matnr"),
-        _texto("MAKTX").alias("Maktx"),
-        _texto("BWART").alias("Bwart"),
-        pl.coalesce(_texto("MJAHR").cast(pl.Int64), budat.dt.year().cast(pl.Int64)).alias("Mjahr"),
-        budat.alias("Budat"),
-        _texto("CPUDT").str.to_date(fecha).alias("Cpudt"),
+    return lf.select(
+        pl.col("WERKS").alias("Werks"),
+        pl.col("LGORT").alias("Lgort"),
+        pl.col("MATNR").alias("Matnr"),
+        pl.col("MAKTX").alias("Maktx"),
+        pl.col("BWART").alias("Bwart"),
+        pl.coalesce(
+            pl.col("MJAHR").cast(pl.Int64), pl.col("_budat").dt.year().cast(pl.Int64)
+        ).alias("Mjahr"),
+        pl.col("_budat").alias("Budat"),
+        pl.col("CPUDT").str.to_date(fecha).alias("Cpudt"),
         hora.alias("Cputm"),
         menge.cast(pl.Int64).alias("Menge"),
         # Una unidad fuera del seed pasa como viene y la marca el schema.
-        _texto("MEINS").replace(unidades).alias("Meins"),
-        _texto("MBLNR").alias("Mblnr"),
-        _texto("ZEILE").str.zfill(4).alias("Zeile"),
-        _texto("LIFNR").alias("Lifnr"),
-        _texto("KUNNR").alias("Kunnr"),
-        _texto("XBLNR").alias("Xblnr"),
+        pl.col("MEINS").replace(unidades).alias("Meins"),
+        pl.col("MBLNR").alias("Mblnr"),
+        pl.col("ZEILE").str.zfill(4).alias("Zeile"),
+        pl.col("LIFNR").alias("Lifnr"),
+        pl.col("KUNNR").alias("Kunnr"),
+        pl.col("XBLNR").alias("Xblnr"),
         costo.cast(pl.Float64).alias("Costo_usd"),
     )
 
@@ -155,29 +160,32 @@ def mb51(
 ) -> list[Path]:
     """
     Escribe un Parquet por planta (mb51_<Werks>.parquet), como el generador.
-    El extracto pasa en streaming a un Parquet temporal y de ahí sale cada
-    planta con un filtro: la memoria no depende del tamaño del archivo.
-    """
-    crudo = pl.scan_csv(archivo, separator=separador, infer_schema=False)
-    crudo = crudo.rename(lee_columnas(columnas), strict=False)
-    lf = contrato_mb51(crudo, lee_unidades(unidades), decimal, fecha)
 
+    El CSV pasa en streaming, como texto, a un Parquet temporal; de ahí cada
+    planta se convierte y se escribe sola. La memoria la pone la planta más
+    grande, no el extracto: convertir los 21M de líneas del completo en un
+    solo plan pasaba de 6 GB (ADR-035).
+    """
+    mapeo = lee_columnas(columnas)
+    tabla_unidades = lee_unidades(unidades)
     salida.mkdir(parents=True, exist_ok=True)
     for viejo in salida.glob("mb51_*.parquet"):
         viejo.unlink()
     escritos = []
     with tempfile.TemporaryDirectory() as tmp:
-        todo = Path(tmp) / "mb51.parquet"
-        lf.sink_parquet(todo)
-        plantas = pl.scan_parquet(todo).select("Werks").unique().collect()["Werks"]
-        for werks in sorted(plantas.drop_nulls()):
-            destino = salida / f"mb51_{werks}.parquet"
-            (
-                pl.scan_parquet(todo)
-                .filter(pl.col("Werks") == werks)
-                .sort("Budat", "Mblnr", "Zeile")
-                .sink_parquet(destino)
-            )
+        texto = Path(tmp) / "mb51_texto.parquet"
+        crudo = pl.scan_csv(archivo, separator=separador, infer_schema=False)
+        crudo.rename(mapeo, strict=False).sink_parquet(texto)
+        crudo = pl.scan_parquet(texto)
+        contrato_mb51(crudo, tabla_unidades, decimal, fecha)  # falla antes si faltan campos
+        werks = _texto("WERKS")
+        plantas = crudo.select(werks.unique()).collect().to_series().drop_nulls().sort()
+        for planta in plantas:
+            destino = salida / f"mb51_{planta}.parquet"
+            una = crudo.filter(werks == planta)
+            contrato_mb51(una, tabla_unidades, decimal, fecha).sort(
+                "Budat", "Mblnr", "Zeile"
+            ).collect().write_parquet(destino)
             escritos.append(destino)
     return escritos
 
