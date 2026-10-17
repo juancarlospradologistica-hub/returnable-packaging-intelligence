@@ -1,0 +1,66 @@
+version: 2
+
+# Qué entra a la tasa de merma cuando la ruta abre con stock en cliente
+# (ADR-036). Foto el 2025-04-06 y antigüedad de 120 días: la conciliación del
+# 30-sep reconoce salidas desde el 2-mar, antes de la foto; la primera completa
+# es la del 31-dic, que reconoce las salidas desde el 2-jun.
+unit_tests:
+  - name: merma_desde_la_primera_conciliacion_completa
+    description: >
+      C1 abrió con stock en cliente: sus faltantes cuentan desde el 31-dic y sus
+      salidas desde el 2-jun hasta la última conciliación menos 120 días. C2
+      abrió vacía y todo entra, como antes.
+    model: int_merma_conciliable
+    overrides:
+      vars:
+        antiguedad_conciliacion_dias: 120
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2025-05-01, cantidad: -10, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2025-07-01, cantidad: -10, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-15, cantidad: -10, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-06-30, cantidad: -1, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-09-30, cantidad: -1, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-12-31, cantidad: -1, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2026-03-31, cantidad: -1, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C2, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2025-05-01, cantidad: -10, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C2, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-06-30, cantidad: -1, costo_unitario_usd: 25.0}
+      - input: ref('stg_stock_inicial')
+        rows:
+          - {planta: P1, almacen: VACI, cliente: null, material: M1, cantidad: 50, fecha: 2025-04-06}
+          - {planta: P1, almacen: null, cliente: C1, material: M1, cantidad: 8, fecha: 2025-04-06}
+    expect:
+      rows:
+        - {cliente: C1, mov_type: '621', fecha_contab: 2025-05-01, en_tasa: false}
+        - {cliente: C1, mov_type: '621', fecha_contab: 2025-07-01, en_tasa: true}
+        - {cliente: C1, mov_type: '621', fecha_contab: 2026-01-15, en_tasa: false}
+        - {cliente: C1, mov_type: '702', fecha_contab: 2025-06-30, en_tasa: false}
+        - {cliente: C1, mov_type: '702', fecha_contab: 2025-09-30, en_tasa: false}
+        - {cliente: C1, mov_type: '702', fecha_contab: 2025-12-31, en_tasa: true}
+        - {cliente: C1, mov_type: '702', fecha_contab: 2026-03-31, en_tasa: true}
+        - {cliente: C2, mov_type: '621', fecha_contab: 2025-05-01, en_tasa: true}
+        - {cliente: C2, mov_type: '702', fecha_contab: 2025-06-30, en_tasa: true}
+
+  - name: merma_sin_conciliacion_completa
+    description: >
+      Una ruta que abrió con stock y no tiene ninguna conciliación completa en
+      la ventana se queda sin tasa propia.
+    model: int_merma_conciliable
+    overrides:
+      vars:
+        antiguedad_conciliacion_dias: 120
+    given:
+      - input: ref('stg_mb51')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2025-04-10, cantidad: -10, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-06-30, cantidad: -1, costo_unitario_usd: 25.0}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '702', fecha_contab: 2025-09-30, cantidad: -1, costo_unitario_usd: 25.0}
+      - input: ref('stg_stock_inicial')
+        rows:
+          - {planta: P1, almacen: null, cliente: C1, material: M1, cantidad: 8, fecha: 2025-04-06}
+    expect:
+      rows:
+        - {mov_type: '621', fecha_contab: 2025-04-10, en_tasa: false}
+        - {mov_type: '702', fecha_contab: 2025-06-30, en_tasa: false}
+        - {mov_type: '702', fecha_contab: 2025-09-30, en_tasa: false}

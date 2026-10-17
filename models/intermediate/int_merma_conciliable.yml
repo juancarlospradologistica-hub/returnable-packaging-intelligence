@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: int_merma_conciliable
+    description: >
+      Salidas 621 y faltantes 702 con la marca en_tasa: si entran a la tasa de
+      merma por ventana conciliada. En una ruta que abrió con stock en cliente
+      cuenta desde la primera conciliación cuyas salidas son todas posteriores
+      a la foto (ADR-036).
+    columns:
+      - name: en_tasa
+        tests: [not_null]
