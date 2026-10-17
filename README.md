@@ -194,7 +194,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (46 modelos, 10 seeds, 297 tests de datos y 27 unit tests):
+Construir modelos y correr los tests de dbt (47 modelos, 10 seeds, 300 tests de datos y 31 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -267,7 +267,26 @@ La fecha de extracción la da quien corrió el extracto, y se pasa a dbt:
 uv run dbt build --profiles-dir . --vars "{fecha_extraccion: '2026-09-30'}"
 ```
 
-Por ahora cubre MB51. La ingesta pide también la foto de stock, el maestro y el plan, y sus adaptadores vienen en 4d.2 (ADR-035). Lo probé con ida y vuelta: el MB51 completo del generador, escrito como lo exporta SAP (CSV de 2.6 GB, 21M de líneas), regresa idéntico planta por planta en 50 s, con 2.6 GB de pico de memoria. `data/extracto/` está en `.gitignore`.
+Por ahora cubre MB51. La ingesta pide también la foto de stock, el maestro y el plan, y sus adaptadores vienen en 4d.3 (ADR-035, ADR-036). Lo probé con ida y vuelta: el MB51 completo del generador, escrito como lo exporta SAP (CSV de 2.6 GB, 21M de líneas), regresa idéntico planta por planta en 50 s, con 2.6 GB de pico de memoria. `data/extracto/` está en `.gitignore`.
+
+### Un extracto abre con contenedores en cliente
+
+El generador arranca con los clientes vacíos: todos los ciclos 621→622 empiezan dentro de la ventana. Un MB51 real no. El primer día ya hay contenedores afuera, y los 622 de los primeros meses recogen lo que salió antes. Por eso la foto inicial lleva dos cosas: el stock por almacén, como MB5B, y el stock especial V por cliente y material, como MSKU, en filas con Kunnr y sin almacén.
+
+Con ese stock V las cuentas abren con su saldo, y en el FIFO lo que ya estaba afuera es lo más viejo: la primera recogida lo cierra antes que cualquier salida de la ventana. Su ciclo no se mide, porque no se sabe cuándo salió. En las rutas que abren con stock en cliente, la tasa de merma cuenta desde la primera conciliación cuyas salidas son todas posteriores a la foto. Las anteriores reconocen faltantes de viajes que la ventana no ve (ADR-036).
+
+Para probarlo, `rpi.recorte` corta el limpio en una fecha y arma la foto con lo que pasó antes:
+
+```bash
+uv run python -m rpi.recorte 2025-04-07
+uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/recorte')"
+uv run dbt build --profiles-dir .   # con RPI_DB=data/recorte.duckdb
+uv run pytest tests/test_recorte.py -v
+```
+
+`test_recorte.py` exige que, sobre la ventana recortada, el saldo por cuenta, el stock diario, el ciclo de las salidas posteriores al corte, la flota semanal, la variabilidad, la z y la necesidad salgan iguales que con los 18 meses, y que la brecha y el capital ocioso queden dentro de la materialidad del 1%. Corre en CI. Lo único que cambia es lo que se estima con historia: la tasa de merma y la curva de supervivencia, con menos conciliaciones y menos ciclos.
+
+La z se calibra con una estimación de 26 semanas antes de dos tramos de 13 (ADR-025), así que un extracto necesita un año de MB51 más los días para cerrar semanas completas: con la fecha de extracción de este dataset, 52.3 semanas si la foto trae el stock V. Sin él son 13 semanas más, porque se descartan mientras se llena el saldo en cliente. Con menos historia `assert_calendario_necesidad_valido` detiene el build.
 
 ## Estructura del repo
 
@@ -277,7 +296,8 @@ returnable-packaging-intelligence/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
 │   ├── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
-│   └── extracto/               # MB51 bajado de SAP y su conversión (excluido de Git)
+│   ├── extracto/               # MB51 bajado de SAP y su conversión (excluido de Git)
+│   └── recorte/                # El limpio desde una fecha, con la foto al corte (excluido de Git)
 ├── docs/
 │   ├── calidad/                # impacto_defectos.csv y ciegos_antes.csv: mediciones versionadas del arnés
 │   └── img/                    # Gráficas que escriben los notebooks
@@ -345,8 +365,9 @@ returnable-packaging-intelligence/
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
-│   └── schema.py               # Schemas Pandera: MB51, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, extracto, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+│   ├── recorte.py              # Ventana recortada: el limpio desde una fecha, con la foto al corte
+│   └── schema.py               # Schemas Pandera: MB51, foto, plan y maestro
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -589,7 +610,7 @@ Las reglas de Fase 4 las escribí conociendo los 18 defectos, así que su 100% n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 10 seeds con 297 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 47 modelos dbt y 10 seeds con 300 tests de datos y 31 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
@@ -599,7 +620,7 @@ Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de 
 
 Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extracto real que ninguna regla nombraba se midieron antes de escribir sus reglas, con 0 de 4 detectados por su causa, y después, con 4 de 4. La fecha de extracción pasó a ser un dato de entrada en lugar de inferirse del MB51. El simulador de la red queda para Fase 5.
 
-Fase 4d en curso: adaptador de extracto real. MB51 listo, con ida y vuelta exacta sobre el completo (ADR-035); foto de stock, maestro y plan en 4d.2.
+Fase 4d en curso: extracto real. MB51 de SAP al contrato, con ida y vuelta exacta sobre el completo (ADR-035). La foto inicial trae el stock en cliente con el que abre un extracto real, y una ventana recortada da lo mismo que la completa (ADR-036). Adaptadores de foto, maestro y plan en 4d.3.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
