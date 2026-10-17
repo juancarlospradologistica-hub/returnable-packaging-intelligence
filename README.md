@@ -194,7 +194,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (46 modelos, 9 seeds, 294 tests de datos y 27 unit tests):
+Construir modelos y correr los tests de dbt (46 modelos, 10 seeds, 297 tests de datos y 27 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -300,7 +300,7 @@ returnable-packaging-intelligence/
 │       ├── mart_calidad_datos.sql   # violaciones por regla, planta y material
 │       ├── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
 │       └── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
-├── seeds/                      # catálogos SAP, plantas, política, escenarios, reglas de calidad y cifras publicadas
+├── seeds/                      # catálogos SAP, unidades de un extracto, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
 │   ├── 01_analisis_perdidas.ipynb
@@ -314,11 +314,12 @@ returnable-packaging-intelligence/
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
 │   ├── defectos.py             # Catálogo de defectos inyectables y bitácora
+│   ├── extracto.py             # Adaptador: MB51 bajado de SAP al contrato de entrada
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   └── schema.py               # Schemas Pandera: MB51, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -561,7 +562,7 @@ Las reglas de Fase 4 las escribí conociendo los 18 defectos, así que su 100% n
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 9 seeds con 294 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 46 modelos dbt y 10 seeds con 297 tests de datos y 27 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
