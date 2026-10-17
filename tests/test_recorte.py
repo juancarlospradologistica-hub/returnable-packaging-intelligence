@@ -124,23 +124,39 @@ def test_cli(raw_ci, desde, tmp_path, capsys):
 
 
 @pytest.fixture(scope="module")
-def bases():
+def con():
     if not (Path(LIMPIA).exists() and Path(RECORTE).exists()):
         pytest.skip("Sin data/rpi.duckdb y data/recorte.duckdb construidas.")
-    limpia = duckdb.connect(LIMPIA, read_only=True)
-    corta = duckdb.connect(RECORTE, read_only=True)
-    yield limpia, corta
-    limpia.close()
-    corta.close()
+    # Cada base se adjunta con el nombre de su archivo: sus vistas lo llevan.
+    c = duckdb.connect()
+    for base in (LIMPIA, RECORTE):
+        c.execute(f"ATTACH '{base}' AS {Path(base).stem} (READ_ONLY)")
+    yield c
+    c.close()
+
+
+LA, RC = Path(LIMPIA).stem, Path(RECORTE).stem
 
 
 @pytest.fixture(scope="module")
-def corte(bases) -> date:
-    return bases[1].sql("SELECT min(fecha) + 1 FROM stg_stock_inicial").fetchone()[0]
+def corte(con) -> date:
+    return con.sql(f"SELECT min(fecha) + 1 FROM {RC}.stg_stock_inicial").fetchone()[0]
 
 
-def _iguales(bases, sql: str) -> None:
-    limpia, corta = (c.sql(sql).pl() for c in bases)
+def _iguales(con, sql: str) -> None:
+    """Las mismas filas en las dos bases. sql lleva {db}; la diferencia la cuenta DuckDB."""
+    limpia, corta = sql.format(db=LA), sql.format(db=RC)
+    assert con.sql(f"SELECT count(*) FROM ({limpia})").fetchone()[0] > 0
+    diferentes = con.sql(
+        f"SELECT (SELECT count(*) FROM (({limpia}) EXCEPT ALL ({corta}))) "
+        f"+ (SELECT count(*) FROM (({corta}) EXCEPT ALL ({limpia})))"
+    ).fetchone()[0]
+    assert diferentes == 0
+
+
+def _iguales_con_decimales(con, sql: str) -> None:
+    # Tablas chicas con decimales: el orden de las sumas mueve el último dígito.
+    limpia, corta = (con.sql(sql.format(db=db)).pl() for db in (LA, RC))
     assert limpia.height > 0
     assert_frame_equal(
         corta.sort(corta.columns, nulls_last=True),
@@ -150,46 +166,48 @@ def _iguales(bases, sql: str) -> None:
     )
 
 
-def test_saldo_por_cuenta(bases):
+def test_saldo_por_cuenta(con):
     _iguales(
-        bases,
+        con,
         "SELECT planta, cliente, material, sum(delta_saldo) AS saldo "
-        "FROM int_mov_cuenta GROUP BY ALL HAVING saldo <> 0",
+        "FROM {db}.int_mov_cuenta GROUP BY ALL HAVING saldo <> 0",
     )
 
 
-def test_stock_diario_desde_el_corte(bases, corte):
+def test_stock_diario_desde_el_corte(con, corte):
     _iguales(
-        bases,
-        "SELECT planta, material, estado, tipo_stock, fecha, saldo FROM int_stock_diario "
+        con,
+        "SELECT planta, material, estado, tipo_stock, fecha, saldo FROM {db}.int_stock_diario "
         f"WHERE fecha >= DATE '{corte}'",
     )
 
 
-def test_ciclo_de_las_salidas_posteriores(bases, corte):
+def test_ciclo_de_las_salidas_posteriores(con, corte):
     _iguales(
-        bases,
-        "SELECT * EXCLUDE (salida_en_foto) FROM int_tramos_fifo "
+        con,
+        "SELECT * EXCLUDE (salida_en_foto) FROM {db}.int_tramos_fifo "
         f"WHERE NOT salida_en_foto AND fecha_salida >= DATE '{corte}'",
     )
 
 
-def test_flota_semanal_desde_el_corte(bases, corte):
-    _iguales(bases, f"SELECT * FROM mart_flota_semanal WHERE semana >= DATE '{corte}'")
+def test_flota_semanal_desde_el_corte(con, corte):
+    _iguales(con, f"SELECT * FROM {{db}}.mart_flota_semanal WHERE semana >= DATE '{corte}'")
 
 
 @pytest.mark.parametrize(
     "tabla", ["int_variabilidad_uso", "int_z_economico", "mart_necesidad_flota"]
 )
-def test_necesidad(bases, tabla):
-    _iguales(bases, f"SELECT * FROM {tabla}")
+def test_necesidad(con, tabla):
+    _iguales_con_decimales(con, f"SELECT * FROM {{db}}.{tabla}")
 
 
-def test_brecha_dentro_de_la_materialidad(bases):
+def test_brecha_dentro_de_la_materialidad(con):
     sql = (
         "SELECT sum(usd_flete + usd_compra + usd_desechable), sum(usd_capital_ocioso) "
-        "FROM mart_brecha_flota"
+        "FROM {db}.mart_brecha_flota"
     )
-    (brecha, ocioso), (brecha_corta, ocioso_corto) = (c.sql(sql).fetchone() for c in bases)
+    (brecha, ocioso), (brecha_corta, ocioso_corto) = (
+        con.sql(sql.format(db=db)).fetchone() for db in (LA, RC)
+    )
     assert abs(brecha_corta / brecha - 1) < MATERIALIDAD
     assert abs(ocioso_corto / ocioso - 1) < MATERIALIDAD
