@@ -1,8 +1,9 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
 import pytest
+import yaml
 
 from rpi.config import GeneratorConfig
 from rpi.generator import (
@@ -47,6 +48,14 @@ def test_reproducibilidad(cfg_ci: GeneratorConfig, tmp_path) -> None:
 def test_nada_despues_del_corte(df_ci: pl.DataFrame, cfg_ci: GeneratorConfig) -> None:
     assert df_ci["Budat"].max() <= cfg_ci.reference_date
     assert df_ci["Cpudt"].max() <= cfg_ci.reference_date
+
+
+def test_fecha_extraccion_es_el_corte_del_generador() -> None:
+    # dbt no lee config.py: si el corte cambia en un lado y no en el otro, los
+    # modelos miden contra una fecha que el dataset no tiene (ADR-034).
+    proyecto = yaml.safe_load((SEEDS.parent / "dbt_project.yml").read_text(encoding="utf-8"))
+    corte = proyecto["vars"]["fecha_extraccion"]
+    assert date.fromisoformat(corte) == GeneratorConfig().reference_date
 
 
 def test_llave_de_documento_unica(df_ci: pl.DataFrame) -> None:

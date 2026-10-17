@@ -343,9 +343,16 @@ CIEGOS = tuple(f"B{i:02d}" for i in range(1, 5))
 
 
 def lista_defectos(texto: str) -> list[str]:
-    """'todos', 'ciegos' o IDs separados por coma. El generador y el arnés leen igual."""
-    grupos = {"todos": list(DEFECTOS), "ciegos": list(CIEGOS)}
-    return grupos.get(texto.strip().lower()) or [d.strip().upper() for d in texto.split(",")]
+    """
+    Grupos ('todos' es D01..D18, 'ciegos' es B01..B04) o IDs, separados por
+    coma y mezclables: 'todos,ciegos' son los 22. El generador y el arnés leen igual.
+    """
+    grupos = {"todos": DEFECTOS, "ciegos": CIEGOS}
+    ids: list[str] = []
+    for parte in texto.split(","):
+        parte = parte.strip()
+        ids += grupos.get(parte.lower(), (parte.upper(),))
+    return ids
 
 
 class DefectosConfig(BaseModel):

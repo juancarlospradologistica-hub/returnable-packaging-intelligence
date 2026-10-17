@@ -60,8 +60,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="LISTA",
         help=(
-            "Defectos a inyectar: 'todos' (D01..D18), 'ciegos' (B01..B04) o IDs "
-            "separados por coma. "
+            "Defectos a inyectar: 'todos' (D01..D18), 'ciegos' (B01..B04) o IDs, "
+            "separados por coma y mezclables ('todos,ciegos'). "
             "Escribe bitacora_defectos.parquet. Default: ninguno."
         ),
     )

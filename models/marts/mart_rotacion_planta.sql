@@ -7,7 +7,7 @@ with tramos as (
 ),
 
 corte as (
-    select max(fecha_contab) as fecha_corte from {{ ref('int_mov_cuenta') }}
+    select {{ fecha_extraccion() }} as fecha_corte
 ),
 
 horizonte as (

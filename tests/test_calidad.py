@@ -3,8 +3,7 @@ Cada defecto inyectado lo reporta la regla de su defecto (ADR-028, punto 12).
 
 Corre sobre la base que apunta RPI_DB después de dbt run con los defectos
 encendidos; en una base limpia, sin bitácora, revisa que no haya violaciones.
-Recorre D01-D18: los ciegos (ADR-033) no tienen regla hasta 4c.2 y el paso
-sucio de CI no los inyecta.
+Recorre los 22 defectos: el paso sucio de CI inyecta todos,ciegos (ADR-034).
 """
 
 import os
@@ -14,7 +13,7 @@ import polars as pl
 import pytest
 
 from rpi.calidad import LLAVE
-from rpi.config import DEFECTOS
+from rpi.config import CIEGOS, DEFECTOS
 
 DB_PATH = os.environ.get("RPI_DB", "data/rpi.duckdb")
 
@@ -54,7 +53,7 @@ def violaciones(con) -> pl.DataFrame:
 
 def test_cada_defecto_lo_reporta_su_regla(bitacora, violaciones):
     faltan = []
-    for defecto in DEFECTOS:
+    for defecto in (*DEFECTOS, *CIEGOS):
         llave = LLAVE[defecto]
         inyectado = bitacora.filter(pl.col("defecto") == defecto).select(llave).unique()
         if inyectado.is_empty():
@@ -70,7 +69,7 @@ def test_cada_defecto_lo_reporta_su_regla(bitacora, violaciones):
 def test_falsas_alarmas(bitacora, violaciones):
     """Violaciones de una regla fuera de los registros de su defecto. Se reportan, no fallan."""
     resumen = []
-    for defecto in DEFECTOS:
+    for defecto in (*DEFECTOS, *CIEGOS):
         llave = LLAVE[defecto]
         reportado = violaciones.filter(pl.col("defecto") == defecto).select(llave).unique()
         inyectado = bitacora.filter(pl.col("defecto") == defecto).select(llave).unique()

@@ -9,7 +9,7 @@ with diario as (
 ),
 
 limites as (
-    select min(fecha) as apertura, max(fecha) as corte from diario
+    select min(fecha) as apertura, {{ fecha_extraccion() }} as corte from diario
 ),
 
 semanas as (

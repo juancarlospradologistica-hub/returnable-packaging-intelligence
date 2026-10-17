@@ -13,7 +13,7 @@ regenerar 21M de filas por corrida. Cada corrida parte de una copia de la base
 limpia y reconstruye solo los modelos que dependen de lo que cambió.
 
 Uso:
-    uv run python -m rpi.calidad                          # 18 defectos, tasa y techo
+    uv run python -m rpi.calidad                          # 22 defectos, tasa y techo
     uv run python -m rpi.calidad --defectos D05,D13 --niveles tasa
     uv run python -m rpi.calidad --defectos ciegos --salida docs/calidad/ciegos_antes.csv
     uv run python -m rpi.calidad --months 18 --plants 2 --country MX --salida data/calidad/ci.csv
@@ -369,7 +369,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p = argparse.ArgumentParser(prog="python -m rpi.calidad", description=__doc__.split("\n")[1])
     p.add_argument(
-        "--defectos", default="todos", help="'todos', 'ciegos' o IDs separados por coma."
+        "--defectos",
+        default="todos,ciegos",
+        help="'todos', 'ciegos' o IDs, separados por coma. Default: los 22.",
     )
     p.add_argument("--niveles", default="tasa,techo", help="tasa, techo o los dos.")
     p.add_argument("--limpio", default="data/raw", help="Dataset limpio ya generado.")

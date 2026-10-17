@@ -26,7 +26,7 @@ meses as (
     from (
         select unnest(generate_series(
             date_trunc('month', min(fecha_contab)),
-            date_trunc('month', max(fecha_contab)),
+            date_trunc('month', {{ fecha_extraccion() }}),
             interval 1 month
         )) as mes
         from movimientos

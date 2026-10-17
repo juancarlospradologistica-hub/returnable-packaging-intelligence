@@ -85,6 +85,18 @@ precio_documento as (
     group by planta, material
 ),
 
+-- Un código que se mueve en MB51 con ceros a la izquierda que el maestro tiene
+-- sin ellos lo nombra matnr_con_formato; aquí no se cuenta otra vez (ADR-034).
+-- Si solo está en la foto o en una instrucción, ninguna regla de formato lo ve
+-- y sigue siendo un material sin maestro.
+con_formato as (
+    select distinct u.planta, u.material
+    from {{ ref('stg_mb51') }} u
+    join maestro c
+        on c.planta = u.planta and ltrim(c.material, '0') = ltrim(u.material, '0')
+       and c.material <> u.material
+),
+
 sin_maestro as (
     select
         u.planta, u.material,
@@ -94,7 +106,8 @@ sin_maestro as (
     left join maestro m on m.planta = u.planta and m.material = u.material
     left join foto f on f.planta = u.planta and f.material = u.material
     left join precio_documento d on d.planta = u.planta and d.material = u.material
-    where m.material is null
+    left join con_formato x on x.planta = u.planta and x.material = u.material
+    where m.material is null and x.material is null
 )
 
 select

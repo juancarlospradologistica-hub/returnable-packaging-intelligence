@@ -53,7 +53,7 @@ Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaqu
 
 ### Alcance IN — Fase 4c (ADR-033)
 
-Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20.
+Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20. Cerrada en semana 20 (ADR-033, ADR-034).
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -1012,7 +1012,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-030 · Reglas de calidad en dbt, severidad desde el seed e ingesta con Pandera lazy
 
 - **Fecha:** 2026-10-11
-- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16. Punto 1 precisado por ADR-031 (columnas de reglas_calidad) y ADR-032 (lineas sin materializar).
+- **Estado:** Accepted. Precisa ADR-028, puntos 7, 9, 11 y 12. Reemplaza los tests de causa que ya existían: llave MB51 (ADR-011), signo (ADR-019), relationships de Lgort en staging (ADR-020, punto 5), plan sin instrucción, instrucción fuera de retornable y llaves del plan (ADR-022, punto 7), y los tests de grupo y moneda del maestro (ADR-028). Precisa ADR-029 en D12 y D16. Punto 1 precisado por ADR-031 (columnas de reglas_calidad) y ADR-032 (lineas sin materializar). Puntos 4 y 13 precisados por ADR-034 (una sola causa por línea también con las reglas de formato; paso sucio con los 22 defectos).
 - **Contexto:** Al correr las reglas contra el completo con los 18 defectos encendidos encontré:
   - Con reglas del maestro excluyentes (la primera que aplica), los materiales con D13 en la planta de D18 salían como moneda y no como unidad de precio. Y la banda de precio calculada en USD no sirve para un precio en MXN.
   - D16 en la planta de D18 no tiene contra qué compararse: el documento está en USD y el maestro en MXN.
@@ -1075,7 +1075,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-031 · Diseño de Fase 4b: tablero de calidad, arnés de impacto y bloqueo de publicación
 
 - **Fecha:** 2026-10-12
-- **Estado:** Accepted. Precisa ADR-028, puntos 4, 10 y 11 (bloqueo, severidad y salida del arnés), y ADR-030, punto 1 (columnas del seed reglas_calidad).
+- **Estado:** Accepted. Precisa ADR-028, puntos 4, 10 y 11 (bloqueo, severidad y salida del arnés), y ADR-030, punto 1 (columnas del seed reglas_calidad). Puntos 3 y 4 precisados por ADR-034: el arnés mide los 22 defectos por default.
 - **Contexto:** Antes de diseñar reproduje main en 7a2bee3 y prototipé el arnés sobre el completo (14 plantas, 18 meses, seed 42):
   - Reproducción: huella igual en las 14 plantas, dbt build 333/333, pytest 86 y 2 saltados. Reducido de CI: 333/333, pytest 77 y 11 saltados, paso sucio con 100% de la bitácora.
   - Inyectar sobre el limpio ya escrito da lo mismo que regenerar: con el MB51 ordenado por año, documento y posición, el orden en que el generador inyecta, los ocho archivos del reducido salen iguales frame por frame que con --defectos todos; la bitácora trae las mismas filas en otro orden. Cada corrida se ahorra ~70 s de generador.
@@ -1178,7 +1178,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-033 · Fase 4c: defectos ciegos medidos antes de escribir sus reglas
 
 - **Fecha:** 2026-10-16
-- **Estado:** Accepted. Agrega Fase 4c entre Fase 4 y Fase 5: precisa ADR-027, punto 6 (Fase 5 arranca con Fase 4c cerrada). Precisa ADR-028, punto 5 (catálogo), y ADR-031, punto 3 (arnés). Las reglas de 4c.2, su severidad y la medición de después se agregan a este ADR cuando se midan.
+- **Estado:** Accepted. Agrega Fase 4c entre Fase 4 y Fase 5: precisa ADR-027, punto 6 (Fase 5 arranca con Fase 4c cerrada). Precisa ADR-028, punto 5 (catálogo), y ADR-031, punto 3 (arnés). Las reglas de 4c.2, su severidad y la medición de después quedaron en ADR-034, que también corrige un dato del contexto: los modelos que infieren el corte son cuatro, no seis.
 - **Contexto:**
   - Las 23 reglas de Fase 4 las escribí conociendo los 18 defectos. El 100% de detección de ADR-030 y ADR-031 mide que cada regla ve el defecto para el que se escribió; no dice nada de un defecto que nadie anticipó, que es lo que trae un extracto real.
   - Con Fase 4 cerrada prototipé cuatro defectos fuera del catálogo sobre el reducido, con un script aparte del generador. Ninguno llegó con su causa. Esa medición usaba otra selección de materiales y fechas y no se compara con la de este ADR.
@@ -1231,6 +1231,45 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - B03 da un Mblnr único mientras ninguna planta pase de un millón de documentos en un año; en el completo la más grande llega a 784,258 (PLNT_US04, 2025). Si el generador sube de volumen, B03 empieza a repetir llaves y se confunde con D01.
   - tests/test_ciegos.py con 17 casos; tres tests nuevos en test_arnes.py (CLI del arnés, ciegos sin regla en el seed, equivalencia del arnés con los ciegos) y uno en test_defectos.py (bitácora en orden canónico). Cada uno verificado con una mutación que lo hace fallar: 19 mutaciones, una por comportamiento.
   - El paso sucio de CI no cambia. test_ciegos_sin_regla_en_el_seed fija que ningún ciego tenga regla todavía; en 4c.2 cambia junto con las reglas.
+
+### ADR-034 · Reglas para los ciegos, fecha de extracción como dato y una sola causa por línea
+
+- **Fecha:** 2026-10-16
+- **Estado:** Accepted. Cierra Fase 4c. Precisa ADR-033, punto 4 (las cuatro reglas), y corrige su contexto: los modelos que infieren el corte son cuatro, no seis. Precisa ADR-030, puntos 4 y 13, y ADR-031, puntos 3 y 4.
+- **Contexto:** Antes de escribir las reglas medí sobre el completo (14 plantas, 18 meses, seed 42):
+  - Cuatro modelos infieren el corte: int_calendario_necesidad y mart_flota_semanal con max(fecha) de int_stock_diario, mart_rotacion_planta e int_cuenta_mensual con max(fecha_contab) de los movimientos con cliente. mart_rutas e int_tco_por_material, que ADR-033 contaba, toman la última conciliación (max de los 702) y B04 no los toca.
+  - En el limpio la fecha inferida es 2026-06-30 en las 14 plantas, la del corte del generador. Con la fecha como var, los 14 marts salen iguales fila por fila contra main.
+  - B04 con la var: brecha +1.4% a tasa y +5.6% en el techo, contra +31.0% en los dos niveles con el corte inferido. El efecto pasa a crecer con el volumen.
+  - Cada 621 del sintético es un documento de una posición. Por contenido (material, cliente, cantidad y fecha), 586,939 salidas son iguales a otra del mismo día. Con la entrega (Xblnr): solo la entrega, 13,034 por choques al azar del generador; más el material, 22; más cliente y cantidad, 2; más la fecha, 0.
+  - En el limpio ningún Matnr ni Kunnr empieza con cero y ninguno choca con otro al quitar los ceros.
+  - Con el prototipo de las reglas, las 293,408 líneas de B02 las reportaban kunnr_con_formato y recogida_sin_saldo, y los materiales de B01 también material_sin_maestro.
+- **Alternativas evaluadas:**
+  - Agregar la regla y dejar el corte inferido: la regla bloquea la publicación, pero el delta que mide el arnés seguiría siendo del calendario y no del dato.
+  - Leer la fecha de config.py: dbt no lee el generador. La var vive en dbt_project.yml y un test la amarra a reference_date.
+  - documento_repetido por contenido: medio millón de falsas alarmas.
+  - Hacer único el Xblnr del generador: con la llave completa no hace falta, y cambiaría el dataset sin mover una cifra.
+  - Dejar la doble causa: el tablero cuenta el mismo problema dos veces y manda a buscar dos causas.
+  - Medir el después de los ciegos en un CSV aparte: assert_impacto_completo y assert_severidad_medida no revisarían su severidad. Rehice el CSV de impacto completo con los 22.
+- **Decisión:**
+  1. Var fecha_extraccion (2026-06-30) y macro fecha_extraccion(), que leen los cuatro modelos. test_fecha_extraccion_es_el_corte_del_generador la amarra a reference_date. Con un extracto real es la fecha de quien lo corrió.
+  2. Cuatro reglas en int_calidad_mb51, todas bloquean, con cifra_afectada según lo que midió el arnés:
+     - budat_despues_del_corte: Budat posterior a la fecha de extracción.
+     - documento_repetido: salida a cliente con la misma entrega, material, cliente, cantidad y fecha que otro documento; se reportan los registrados después del primero. El mismo documento dos veces es llave_duplicada.
+     - matnr_con_formato: Matnr sin maestro que sin ceros a la izquierda está en el maestro de la planta.
+     - kunnr_con_formato: cliente sin salidas en la planta que sin ceros es una cuenta con salidas. Si las dos versiones tienen salidas, no marca ninguna.
+  3. Una sola causa por línea: recogida_sin_saldo se salta las líneas que nombran las reglas de formato, y material_sin_maestro los códigos que se mueven en MB51 y el maestro tiene sin ceros. Un código con ceros que solo está en la foto o en una instrucción sigue saliendo como material sin maestro.
+  4. --defectos acepta grupos combinados: todos,ciegos son los 22. El arnés los mide por default, el paso sucio de CI los inyecta y test_calidad exige el 100% en los 22.
+  5. docs/calidad/impacto_defectos.csv se midió otra vez con los 22. ciegos_antes.csv no se vuelve a correr. stg_ciegos_antes y mart_deteccion_ciegos publican el antes y el después por ciego y nivel; los dos CSV se tipan con la macro medicion_arnes.
+  6. README, notebook 05 y dashboard leen el mart; test_fase4c_ciegos cuadra la tabla y los hallazgos.
+- **Supuestos:** ninguno de dominio nuevo. La fecha de extracción del sintético es reference_date.
+- **Consecuencias:**
+  - Detección por su causa: 0 de 4 antes de la regla y 4 de 4 después, a tasa y en el techo, sin violaciones en el limpio del completo con las 27 reglas.
+  - Las 453 filas de D01 a D18 del CSV de impacto salen iguales a las de ADR-031, salvo los segundos: ni la var ni las reglas nuevas mueven el catálogo de Fase 4. D07 y D15 siguen al 100% con el filtro de una sola causa.
+  - B04 deja 5 recogidas sin saldo a tasa y 28 en el techo: recogidas de cuentas cuya salida quedó después del corte, un síntoma aguas abajo como los de D01, D02 y D04.
+  - Con los 22 encendidos en el reducido, cada uno al 100% y cero falsas alarmas en los ciegos.
+  - Arnés: 45 corridas en 114 min. La severidad medida coincide con el seed en los 22; doce bloquean por romper una identidad.
+  - dbt build 376/376: 46 modelos, 9 seeds, 294 tests de datos y 27 unit tests. pytest en el completo: 126 y 2 saltados.
+  - Límites, escritos para un extracto real: documento_repetido necesita Xblnr; kunnr_con_formato toma como buena la versión del cliente que tiene salidas; una fecha de extracción mal capturada en la var es un error de entrada que ninguna regla ve.
 
 ---
 
@@ -1297,7 +1336,7 @@ Una fila por planta y material. Fuente única del tipo de empaque y del costo un
 - **Plan de producción (ADR-022):** base en los 621 de las 13 semanas completas antes del corte; 12 semanas desde el lunes siguiente al corte. KLT: una parte por material y cliente. Rack: 1–3 partes del cliente dedicado, pesos Dirichlet(4). Piezas por contenedor: KLT 40 (12–120), Rack 12 (4–24). Escenario por parte: 80% estable, 10% arranque +30% y 10% fin de serie −50%, desde la semana 4–8.
 - **Defectos (ADR-028, ADR-029):** 18 defectos inyectables, apagados por default; `--defectos todos` o una lista. Tasas: D01 un día por planta; D02 0.1% de los 621; D03 0.05% de las entradas 311 a VACI; D04 0.05% de los 621; D05 0.02% de las líneas; D06 0.2% de los retornables con instrucción; D07 0.05% de los 622; D08 0.1% de los documentos, 11 a 40 días después del fin de mes; D09 0.5% de los materiales con foto; D10 0.5%, D11 0.1% y D12 0.2% de las partes; D13 1% de los materiales, unidad de precio 10 o 100; D14 0.5% de los retornables; D15 0.5% y D16 1% de los materiales, D16 con desvío de 6 a 20%; D17 0.2% de los materiales; D18 la primera planta de cada país con moneda propia (MXN, factor 18.5). Al menos un caso por planta.
 - **Techo del rango por defecto (ADR-031):** D01 tres días; D02 0.5%, D03 0.2%, D04 0.2%, D05 0.1%, D06 1%, D07 0.2%, D08 0.5%, D09 2%, D10 2%, D11 0.5%, D12 1%, D13 3%, D14 2%, D15 2%, D16 5% y D17 1%; D18 una planta MX en MXN (18.5) y una NI en NIO (36.6, ilustrativo). Viven en TECHO_DEFECTOS de config.py.
-- **Defectos ciegos (ADR-033):** B01 a B04, apagados por default; `--defectos ciegos` o una lista. B01: 2% de los retornables con 621, Matnr con tres ceros a la izquierda desde una fecha del tercio central; B02: un cliente por planta, Kunnr de sus 622 con dos ceros desde una fecha del tercio central; B03: 0.1% de los documentos 621 contabilizados otra vez al día siguiente con Mblnr 4999 más los seis últimos dígitos; B04: 0.05% de los 621, tomados de los últimos 14 días, con Budat 1 a 5 días después del corte. Techos: B01 5%, B02 dos clientes, B03 0.5%, B04 0.2%. Generadores k = 19 a 22.
+- **Defectos ciegos (ADR-033):** B01 a B04, apagados por default; `--defectos ciegos` o una lista. B01: 2% de los retornables con 621, Matnr con tres ceros a la izquierda desde una fecha del tercio central; B02: un cliente por planta, Kunnr de sus 622 con dos ceros desde una fecha del tercio central; B03: 0.1% de los documentos 621 contabilizados otra vez al día siguiente con Mblnr 4999 más los seis últimos dígitos; B04: 0.05% de los 621, tomados de los últimos 14 días, con Budat 1 a 5 días después del corte. Techos: B01 5%, B02 dos clientes, B03 0.5%, B04 0.2%. Generadores k = 19 a 22. `--defectos todos,ciegos` enciende los 22 (ADR-034).
 - **Salida:** un Parquet por planta en data/raw/ (mb51_<Werks>.parquet), la foto data/raw/stock_inicial.parquet, el plan en partes.parquet, instruccion_empaque.parquet y plan_produccion.parquet, el maestro en maestro_materiales.parquet y, con defectos, bitacora_defectos.parquet. Cada corrida borra los archivos previos del directorio. Pico de memoria ~1.2 GB.
 
 ---
@@ -1326,12 +1365,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 17** · Diseño de Fase 4: catálogo de defectos, maestro de materiales y reglas por causa (ADR-028). Arranque de 4a: maestro de materiales (ADR-028).
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
-- [ ] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
+- [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-16 · Sesión 53 — Semana 20
+
+- **Duración:** ~5 h
+- **Hecho:**
+  - PR #19 (fase-4c1) mergeado.
+  - Medición antes de las reglas: qué modelos infieren el corte, la fecha de extracción como var sobre el completo (14 marts iguales a main), B04 con la var, llaves para documento_repetido contra el limpio y formato de los códigos. Prototipo de las cuatro reglas medido con el arnés.
+  - 4c.2: fecha_extraccion como var y macro; cuatro reglas con su unit test; una sola causa por línea en recogida_sin_saldo y material_sin_maestro; --defectos con grupos combinados; arnés con los 22 por default; paso sucio de CI con los 22.
+  - Arnés completo con los 22: 45 corridas en 114 min. D01 a D18 iguales a la medición de ADR-031.
+  - stg_ciegos_antes, mart_deteccion_ciegos y assert_deteccion_ciegos; macro medicion_arnes para los dos CSV.
+  - README con los 22 en la tabla de Fase 4 y la sección de ciegos, cuadrada en test_readme; notebook 05 con la sección de antes y después; la pestaña de calidad sin números fijos de reglas y defectos.
+  - Verificados rompiendo: la var corrida un día; cada regla nueva (>= en la fecha, sin entrega, el primero incluido, clientes con salidas); una sola causa en las dos reglas y con la foto; el parser sin strip; el default del arnés; el seed sin B03; B02 sin su regla en la base sucia; el mart con casos distintos, detección incompleta y un join sin nivel; dos cifras del README.
+  - Dataset completo: dbt build 376/376, pytest 126 y 2 saltados.
+- **Decisiones tomadas:** ADR-034.
+- **Bloqueos:**
+  - El unit test de matnr_con_formato pasó con su filtro quitado: el join ya excluía el caso simple. Agregué el caso de dos códigos en el maestro que chocan sin ceros y ahí truena.
+  - El test del README contaba la detección de antes como completa: .all() de Polars ignora los nulos. Lo encontró la primera corrida.
+- **Notas de la sesión:**
+  - Una fecha que se infiere del dato hereda los errores del dato. La fecha del extracto es un dato de entrada.
+  - Una regla por contenido sobre datos operativos marca lo normal: embarques iguales el mismo día son la regla, no la excepción. La llave tiene que ser la que el proceso hace única, aquí la entrega.
+  - Medir antes de escribir la regla vale lo mismo para el diseño que para el portafolio: dos de las cuatro reglas cambiaron por lo que salió en la medición.
+- **Próximo paso:** PR de fase-4c2 con CI verde y merge. Fase 4c cerrada. Después: adaptador de extracto real (rpi.extracto) y una semana para publicar el proyecto antes de Fase 5.
 
 ### 2026-10-16 · Sesión 52 — Semana 20
 
@@ -2379,7 +2440,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Correlación de rangos (Spearman)** — Correlación entre los rangos de dos variables, no entre sus valores: mide si ordenan igual. Aquí, valor expuesto contra movimiento de las cifras.
 - **Defecto ciego** — Defecto que se inyecta y se mide antes de que exista una regla que lo nombre. Mide la detección del pipeline con defectos que no conocía al escribir sus reglas (ADR-033).
 - **Pre-registro** — Guardar una medición o un criterio antes de ver el resultado que lo pondría a prueba. Aquí la medición de los ciegos va en su propio commit antes de las reglas, y git muestra el orden.
-- **Fecha de extracción** — Día en que se corrió el extracto. Ningún movimiento puede tener Budat posterior; sale de quien extrae, no del dato.
+- **Fecha de extracción** — Día en que se corrió el extracto. Ningún movimiento puede tener Budat posterior; sale de quien extrae, no del dato. Aquí es la var fecha_extraccion de dbt (ADR-034).
+- **Var (dbt)** — Parámetro del proyecto en dbt_project.yml que los modelos leen con var(). Se cambia sin tocar el SQL; aquí viven las ventanas, la materialidad y la fecha de extracción.
+- **Una sola causa por línea** — Cuando dos reglas ven la misma línea, la reporta la que nombra la causa y la otra no la cuenta. Sin eso el tablero manda a buscar dos problemas donde hay uno (ADR-030, ADR-034).
 - **CTE materializado** — Resultado de un WITH que el motor guarda completo para reusarlo. Ahorra cómputo cuando varias partes lo leen, pero ocupa memoria; DuckDB lo hace por default si el CTE se lee más de una vez.
 
 ---

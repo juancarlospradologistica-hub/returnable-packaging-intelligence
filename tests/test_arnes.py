@@ -56,21 +56,26 @@ def test_inyectar_sobre_el_limpio_es_generar_con_defectos(cfg_ci, raw_ci, tmp_pa
 
 
 @pytest.mark.parametrize(
-    ("texto", "esperado"),
-    [("todos", list(DEFECTOS)), ("ciegos", list(CIEGOS)), ("d07,B04", ["D07", "B04"])],
+    ("argv", "esperado"),
+    [
+        (["--defectos", "todos"], list(DEFECTOS)),
+        (["--defectos", "ciegos"], list(CIEGOS)),
+        (["--defectos", "d07,B04"], ["D07", "B04"]),
+        (["--defectos", "todos,ciegos"], [*DEFECTOS, *CIEGOS]),
+        ([], [*DEFECTOS, *CIEGOS]),
+    ],
 )
-def test_cli_del_arnes(monkeypatch, texto, esperado):
+def test_cli_del_arnes(monkeypatch, argv, esperado):
     corridas = []
     monkeypatch.setattr(calidad, "corre", lambda defectos, *_: corridas.append(defectos))
-    calidad.main(["--defectos", texto])
+    calidad.main(argv)
     assert corridas == [esperado]
 
 
-def test_ciegos_sin_regla_en_el_seed():
-    # Cuando una regla de 4c.2 nombre a un ciego, este test cambia con ella.
-    nombrados = con_regla()
-    assert set(DEFECTOS) <= nombrados
-    assert not nombrados & set(CIEGOS)
+def test_cada_defecto_tiene_su_regla():
+    # Los ciegos se midieron sin regla en docs/calidad/ciegos_antes.csv; desde
+    # ADR-034 cada uno tiene la suya y el arnés cuenta su detección.
+    assert set(DEFECTOS) | set(CIEGOS) <= con_regla()
 
 
 def test_seleccion_por_tabla():

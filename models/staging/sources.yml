@@ -144,3 +144,7 @@ sources:
     tables:
       - name: impacto_defectos
         description: Una fila por corrida (limpio, defecto y nivel) y medida.
+      - name: ciegos_antes
+        description: >
+          Medición de los defectos ciegos antes de escribir sus reglas (ADR-033).
+          Mismo formato que impacto_defectos; no se vuelve a generar.

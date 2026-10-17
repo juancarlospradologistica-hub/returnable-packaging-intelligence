@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: mart_deteccion_ciegos
+    description: >
+      Detección de los defectos ciegos antes y después de escribir sus reglas
+      (ADR-033, ADR-034), a la tasa del catálogo y en el techo de su rango.
+      detectados_antes queda nulo: no había regla que los nombrara. La cifra que
+      más mueve cada corrida sale contra el limpio de su propia medición; antes,
+      el corte se infería del dato y después sale de la var fecha_extraccion.
+    columns:
+      - name: defecto
+        tests: [not_null]
+      - name: regla
+        tests: [not_null]
+      - name: nivel
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['tasa', 'techo']
+      - name: casos
+        tests: [not_null]

@@ -536,3 +536,73 @@ def test_fase4_tiempo_del_arnes(readme):
     except Exception:
         pytest.skip("Sin stg_impacto_defectos: corre dbt antes.")
     assert f"{corridas} corridas en {round(segundos / 60)} min" in readme
+
+
+# Fase 4c: los ciegos antes y después de su regla (ADR-033, ADR-034).
+SIMULA = {
+    "B01": "Matnr con ceros a la izquierda desde una fecha",
+    "B02": "Kunnr de las recogidas con ceros desde una fecha",
+    "B03": "Documento 621 contabilizado otra vez con otro número",
+    "B04": "Budat después de la fecha del extracto",
+}
+
+
+def reglas_md(texto: str | None) -> str:
+    """'a 1, b 3100' del mart como '`a` 1, `b` 3,100'."""
+    if texto is None:
+        return "ninguna regla"
+    partes = (p.rsplit(" ", 1) for p in texto.split(", "))
+    return ", ".join(f"`{regla}` {int(n):,}" for regla, n in partes)
+
+
+def fila_ciego(r: dict) -> str:
+    despues = f"`{r['regla']}` {r['pct_detectados_despues']:.0f}%"
+    if r["otras_reglas_despues"]:
+        despues += f"; también {reglas_md(r['otras_reglas_despues'])}"
+    return (
+        f"| {SIMULA[r['defecto']]} | {r['defecto']} | {r['casos']:,} | "
+        f"{reglas_md(r['otras_reglas_antes'])} | {despues} |"
+    )
+
+
+@pytest.fixture(scope="module")
+def ciegos() -> pl.DataFrame:
+    try:
+        c = duckdb.connect(DB_PATH, read_only=True)
+        df = c.execute("SELECT * FROM mart_deteccion_ciegos ORDER BY defecto, nivel").pl()
+        c.close()
+    except Exception:
+        pytest.skip("Sin mart_deteccion_ciegos: corre dbt antes.")
+    return df
+
+
+def test_fase4c_ciegos(ciegos, readme):
+    tasa = ciegos.filter(pl.col("nivel") == "tasa")
+    for r in tasa.iter_rows(named=True):
+        assert fila_ciego(r) == fila(readme, SIMULA[r["defecto"]]), r["defecto"]
+
+    def completos(columna: str) -> int:
+        # Sin regla la detección es nula; .all() ignora nulos y la contaría completa.
+        detectados = pl.col(columna).fill_null(-1)
+        ok = ciegos.group_by("defecto").agg((detectados == pl.col("casos")).all().alias("ok"))
+        return ok.filter(pl.col("ok")).height
+
+    antes, despues = completos("detectados_antes"), completos("detectados_despues")
+    assert f"**Detección por su causa: {antes} de 4 antes, {despues} de 4 después**" in readme
+    assert f"con {antes} de 4 detectados por su causa, y después, con {despues} de 4" in readme
+
+    vistos = tasa.filter(pl.col("otras_reglas_antes").is_not_null()).height
+    assert f"**Antes, {vistos} de los 4 disparaban una regla de otro defecto" in readme
+
+    b04 = {r["nivel"]: r for r in ciegos.filter(pl.col("defecto") == "B04").iter_rows(named=True)}
+    assert (
+        f"B04 movía la brecha {b04['tasa']['delta_pct_antes']:+.1f}% con cualquier volumen"
+        in readme
+    )
+    assert (
+        f"{b04['tasa']['casos']:,} líneas movían lo mismo que {b04['techo']['casos']:,}"
+    ) in readme
+    assert (
+        f"{b04['tasa']['delta_pct_despues']:+.1f}% a tasa y "
+        f"{b04['techo']['delta_pct_despues']:+.1f}% en el techo"
+    ) in readme
