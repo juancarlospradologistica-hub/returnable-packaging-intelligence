@@ -146,6 +146,18 @@ def test_campos_obligatorios_que_faltan(limpio, tmp_path):
         mb51(archivo, tmp_path / "raw")
 
 
+def test_linea_sin_centro_detiene(limpio, tmp_path):
+    # El archivo es por planta: una línea sin WERKS no se tira en silencio.
+    archivo = tmp_path / "MB51.csv"
+    sap = pl.concat([a_sap(df) for df in limpio.values()])
+    sap = sap.with_columns(
+        pl.when(pl.int_range(pl.len()) < 2).then(pl.lit(" ")).otherwise("WERKS").alias("WERKS")
+    )
+    sap.write_csv(archivo, separator=";")
+    with pytest.raises(ValueError, match="^2 líneas del extracto sin WERKS"):
+        mb51(archivo, tmp_path / "raw")
+
+
 def test_sin_importe_el_precio_queda_nulo(limpio, tmp_path):
     # Un LEIH estándar no lleva importe: el contrato acepta el precio nulo.
     archivo = tmp_path / "MB51.csv"

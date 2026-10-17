@@ -179,7 +179,12 @@ def mb51(
         crudo = pl.scan_parquet(texto)
         contrato_mb51(crudo, tabla_unidades, decimal, fecha)  # falla antes si faltan campos
         werks = _texto("WERKS")
-        plantas = crudo.select(werks.unique()).collect().to_series().drop_nulls().sort()
+        plantas = crudo.select(werks.unique()).collect().to_series().sort()
+        if plantas.has_nulls():
+            # Sin centro no hay archivo de planta donde ponerla, y tirarla
+            # sería corregir el extracto.
+            n = crudo.filter(werks.is_null()).select(pl.len()).collect().item()
+            raise ValueError(f"{n:,} líneas del extracto sin WERKS")
         for planta in plantas:
             destino = salida / f"mb51_{planta}.parquet"
             una = crudo.filter(werks == planta)
