@@ -55,14 +55,15 @@ Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaqu
 
 Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20. Cerrada en semana 20 (ADR-033, ADR-034).
 
-### Alcance IN — Fase 4d (ADR-035, ADR-036)
+### Alcance IN — Fase 4d (ADR-035 a ADR-037)
 
-Extracto real: un MB51 bajado de SAP, y después la foto de stock, el maestro y el plan, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: un extracto real abre con contenedores en cliente; la foto trae ese stock V y una ventana recortada del limpio tiene que dar lo mismo que la completa. 4d.3: adaptadores de foto y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21.
+Extracto real: MB51, foto de stock y maestro bajados de SAP, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: un extracto real abre con contenedores en cliente; la foto trae ese stock V y una ventana recortada del limpio tiene que dar lo mismo que la completa. 4d.3: adaptadores de foto y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21. Cerrada en semana 21 (ADR-035 a ADR-037).
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
 - Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4c cerrada y los criterios de ADR-016 (ADR-027, ADR-033).
 - Corrección automática de datos: Fase 4 detecta y cuantifica; corregir es decisión del dueño del dato.
+- Adaptador del plan de producción e instrucción de empaque desde SAP: las tablas cambian por empresa y por versión, y el plan no siempre vive en SAP. Un plan ya en el contrato se carga igual; sin plan la necesidad no se calcula (ADR-037).
 - EDI del cliente (DELFOR/DELJIT), S&OP mensual, HU/EWM y empaque alterno.
 
 ### Criterios de completitud
@@ -1379,6 +1380,44 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - 22 mutaciones, una por comportamiento. Seis sobrevivieron la primera vuelta: los cuatro filtros de la foto en quienes consumen el ciclo, porque en la recortada esas cifras difieren de la verdad por diseño, y dos bordes de la regla de merma. Las atrapan assert_ciclo_sin_stock_de_la_foto, la curva que llega a cero y dos casos de borde en el unit test.
   - Límite: la foto tiene una fecha por planta. Una foto de almacenes y otra de stock V tomadas en días distintos no cuadran y la regla de merma toma la más vieja.
 
+### ADR-037 · Plan opcional y adaptadores de maestro y foto; Fase 4d cerrada
+
+- **Fecha:** 2026-10-18
+- **Estado:** Accepted. Cierra Fase 4d. Precisa ADR-030, punto 2 (la ingesta pedía los seis archivos), ADR-035 (adaptador) y ADR-036 (foto con stock V).
+- **Contexto:**
+  - La ingesta pedía MB51, foto, maestro, partes, instrucción y plan. Un extracto real trae los tres primeros; el plan de producción y la instrucción de empaque no siempre existen o viven fuera de SAP.
+  - Medido en el reducido sin partes, instrucción ni plan, con sus tablas vacías: dbt build 388/388. Los cuatro marts de necesidad, brecha, sensibilidad y red de préstamos salen sin filas, sin cifras inventadas; los otros 11, iguales fila por fila; calidad sin violaciones. Lo único que tronaba era el dashboard: el selector de escenario pedía la opción base sin opciones.
+  - La foto que pide el pipeline es la del día anterior al primer movimiento. Lo que cualquiera baja de MMBE o SE16N sobre MARD y MSKU es el stock del día del extracto.
+- **Alternativas evaluadas:**
+  - Adaptador del plan desde SAP (necesidades primarias, instrucción de empaque): las tablas y su uso cambian por empresa y por versión, y muchas plantas planean fuera de SAP. Queda en Alcance OUT; un plan en el contrato se carga igual.
+  - Que la ingesta truene sin plan: obliga a inventar un plan para ver la rotación, las pérdidas o la calidad.
+  - Aceptar solo la foto del día anterior a la ventana: deja al usuario buscando el stock a una fecha pasada por almacén y por cliente.
+  - Regresar solo los almacenes que trae la foto: un almacén vacío al cierre no aparece en MARD; en el dataset de prueba LINE, LLEN y SCRP, 191 pares almacén-material, perderían su stock de apertura.
+  - Regresar solo los almacenes del ciclo: un almacén fuera del ciclo que el usuario sí bajó quedaría con el stock del cierre como si fuera el de apertura.
+  - Que el adaptador filtre los materiales sin maestro: es corregir el extracto; los ve material_sin_maestro.
+- **Decisión:**
+  1. Ingesta: MB51, foto y maestro obligatorios. Partes, instrucción y plan opcionales: sin archivo, la tabla se crea vacía con las columnas y tipos del contrato de Pandera y la salida lo dice.
+  2. Dashboard: sin plan, la pestaña de necesidad muestra un aviso con lo que no se calcula y lo que sí.
+  3. rpi.extracto maestro: WERKS, MATNR, MAKTX, MTART, MATKL, MEINS y PEINH, con el precio VERPR o STPRS según VPRSV. EINE.NETPR entra por --columnas para un LEIH sin valorar. WAERS o --moneda. Unidades por el seed de ADR-035.
+  4. rpi.extracto foto: MARD o MB5B con LGORT y la suma de LABST, UMLME, INSME, EINME, SPEME y RETME que vengan (o MENGE); MSKU con KUNNR y KULAB, KUINS y KUEIN, solo SOBKZ V. Una foto del día anterior al primer movimiento pasa como viene. Una foto del día del extracto o después se regresa con el MB51 ya convertido: cierre menos lo movido en la ventana, a la víspera del primer movimiento. Una fecha a la mitad de la ventana detiene la conversión. Se regresan los almacenes del ciclo (seed almacenes) más los que traiga la foto; el stock V, de las plantas que trae MSKU.
+  5. tests/test_sin_plan.py y un paso de CI con el reducido sin plan: lo del plan vacío, lo demás igual que con plan y el dashboard con el aviso, revisado en el HTML exportado sin el código.
+  6. Fase 4d cerrada.
+- **Supuestos (práctica estándar de SAP, sin datos de empleador):**
+
+  | Supuesto | Valor | Razón |
+  |---|---|---|
+  | Stock por almacén | Suma de LABST, UMLME, INSME, EINME, SPEME y RETME | Son las cantidades de MARD por tipo de stock; la foto no distingue tipo (ADR-017, punto 1) |
+  | Stock en cliente | Suma de KULAB, KUINS y KUEIN, solo SOBKZ V | MSKU guarda el stock especial en cliente; W es consignación, no retornable |
+  | Precio | STPRS con VPRSV S; VERPR con V | El control de precio del material decide cuál es el valor vigente |
+
+- **Consecuencias:**
+  - De punta a punta sobre el completo: la ventana recortada del 7-abr-2025 armada como la bajaría alguien de SAP, MB51 en CSV (2.2 GB), MARD y MSKU del día del extracto y el maestro, sin plan. Los tres adaptadores corren en 50 s; sus 16 archivos salen idénticos a los de la ventana. dbt build 388/388, los 11 marts que no dependen del plan iguales fila por fila y los cuatro del plan vacíos.
+  - Ida y vuelta en pytest: maestro con precio medio y estándar, foto al día del extracto con stock bloqueado y una fila de consignación, foto del día anterior, sin MSKU y un almacén fuera del ciclo.
+  - 19 mutaciones atrapadas: 17 de adaptadores e ingesta y dos del aviso del dashboard. La primera versión del test del aviso buscaba el texto en el HTML con el código incluido y un comentario de la celda decía lo mismo: la rotura pasaba.
+  - CI arma una base más, sin plan, alrededor de un minuto.
+  - Límite: el regreso supone que el MB51 cubre hasta el momento en que se bajó MARD; un movimiento contabilizado después queda en la apertura.
+  - Límite: MARD trae todos los materiales del almacén. La foto se baja con la misma selección de materiales que el MB51.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1486,12 +1525,33 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
 - [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
-- [ ] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de foto, maestro y plan (4d.3).
+- [x] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de maestro y foto, plan opcional y extracto de punta a punta (4d.3, ADR-037). Fase 4d cerrada.
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-18 · Sesión 56 — Semana 21
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - PR #22 (fase-4d2) mergeado.
+  - Medido antes de diseñar: el reducido sin partes, instrucción ni plan pasa dbt completo y deja vacíos los cuatro marts del plan; solo truena el dashboard.
+  - Ingesta con partes, instrucción y plan opcionales; dashboard con aviso sin plan; test_sin_plan y su paso de CI.
+  - rpi.extracto maestro y foto. La foto del día del extracto se regresa con el MB51 a la víspera del primer movimiento.
+  - De punta a punta sobre el completo, con la ventana recortada armada como CSV de SAP: adaptadores en 50 s, 16 archivos idénticos, dbt 388/388 y 11 marts iguales.
+  - Verificados rompiendo: 19 mutaciones.
+  - Completo: dbt build 388/388 en la ventana completa, la recortada y la sin plan; pytest 188 y 2 saltados con 3 GB de pico. Reducido: pytest 178 y 12 saltados.
+- **Decisiones tomadas:** ADR-037. Fase 4d cerrada.
+- **Bloqueos:**
+  - El primer aviso del dashboard usaba mo.stop, que también detiene la celda de las pestañas. La gráfica y la vista devuelven None sin plan y las pestañas eligen el aviso.
+  - El test del aviso pasaba con el aviso roto: el HTML exportado trae el código y un comentario decía lo mismo. Exporta sin el código.
+  - Mi script para armar los CSV de SAP del completo cargaba el MB51 entero y murió por memoria. El cierre se arma ahora con un group_by en streaming.
+- **Notas de la sesión:**
+  - Lo que se baja de SAP es el stock de hoy, no el del inicio de la ventana. Regresarlo con el MB51 es aritmética, no corrección: si el MB51 está incompleto, la apertura sale negativa y assert_stock_inicial_valido lo marca.
+  - Sin plan el pipeline no inventa necesidad: los marts salen vacíos y el resto no se mueve.
+- **Próximo paso:** PR de fase-4d3. Después, una semana para publicar el proyecto antes de Fase 5.
 
 ### 2026-10-17 · Sesión 55 — Semana 21
 
@@ -2621,6 +2681,9 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Ventana recortada** — El dataset limpio desde una fecha, con la foto armada con lo que pasó antes. Simula un extracto que abre con contenedores en cliente; el pipeline tiene que dar lo mismo que con la ventana completa.
 - **Censura por la izquierda** — No ver el inicio de algo que se mide: del stock que ya estaba en cliente al abrir la ventana no se sabe cuándo salió, y su ciclo no se mide.
 - **Conciliación completa** — Conciliación de stock V cuyas salidas reconocidas son todas posteriores a la foto. Desde ella la tasa de merma tiene numerador y denominador de los mismos viajes.
+- **MARD / MSKU** — Tablas de SAP con el stock actual: MARD por planta, almacén y material; MSKU, el stock especial en cliente por planta, cliente y material. Lo que se ve en MMBE.
+- **Control de precio (VPRSV)** — Indicador del material que dice si su valor es el precio estándar (S, STPRS) o el medio variable (V, VERPR).
+- **Regresar la foto** — Pasar el stock del día del extracto al del día anterior a la ventana restando lo que se movió en medio. El resultado depende de que el MB51 esté completo.
 - **Invariante** — Condición que se cumple en cualquier dataset, no solo en uno conocido. Aquí atrapa lo que una comparación contra la verdad no ve.
 
 ---
