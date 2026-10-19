@@ -5,7 +5,7 @@
 with cerrados as (
     select tipo_material, dias, sum(cantidad) as cantidad
     from {{ ref('int_tramos_fifo') }}
-    where tipo_cierre = '622'
+    where tipo_cierre = '622' and not salida_en_foto
     group by tipo_material, dias
 ),
 

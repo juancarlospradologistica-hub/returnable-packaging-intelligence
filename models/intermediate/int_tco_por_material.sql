@@ -4,35 +4,22 @@
 -- Vida útil, mantenimiento y desechable equivalente son política y viven en
 -- parametros_flota (ADR-010, ADR-028). El cartón ya no entra: es desechable y
 -- sale con 601 (ADR-011, punto 10).
-with movimientos as (
-    select * from {{ ref('stg_mb51') }}
-    where mov_type in ('621', '702')
-),
-
-ultima_conciliacion as (
-    select max(fecha_contab) as fecha
-    from movimientos
-    where mov_type = '702'
-),
-
 -- Tasa por ventana conciliada (ADR-012): faltantes entre salidas con la
--- antigüedad de conciliación antes de la última conciliación. Viajes: todas las salidas del horizonte.
-flujo as (
+-- antigüedad de conciliación antes de la última conciliación, con la marca de
+-- int_merma_conciliable (ADR-036). Viajes: todas las salidas del horizonte.
+with flujo as (
     select
-        m.planta,
-        m.tipo_material,
-        sum(abs(m.cantidad)) filter (where m.mov_type = '621')          as viajes,
-        sum(abs(m.cantidad)) filter (
-            where m.mov_type = '621' and m.fecha_contab <= u.fecha - {{ var('antiguedad_conciliacion_dias') }}
-        )                                                               as salidas_conciliadas,
-        coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as faltantes,
-        coalesce(sum(abs(m.cantidad) * m.costo_unitario_usd)
-            filter (where m.mov_type = '702'), 0)                       as perdida_reconocida_usd,
-        sum(abs(m.cantidad) * m.costo_unitario_usd) filter (where m.mov_type = '621')
-            / sum(abs(m.cantidad)) filter (where m.mov_type = '621')    as costo_unitario_usd
-    from movimientos m
-    cross join ultima_conciliacion u
-    group by m.planta, m.tipo_material
+        planta,
+        tipo_material,
+        sum(cantidad_abs) filter (where mov_type = '621')               as viajes,
+        sum(cantidad_abs) filter (where mov_type = '621' and en_tasa)   as salidas_conciliadas,
+        coalesce(sum(cantidad_abs) filter (where mov_type = '702' and en_tasa), 0) as faltantes,
+        coalesce(sum(cantidad_abs * costo_unitario_usd)
+            filter (where mov_type = '702'), 0)                         as perdida_reconocida_usd,
+        sum(cantidad_abs * costo_unitario_usd) filter (where mov_type = '621')
+            / sum(cantidad_abs) filter (where mov_type = '621')         as costo_unitario_usd
+    from {{ ref('int_merma_conciliable') }}
+    group by planta, tipo_material
 ),
 
 tasa as (

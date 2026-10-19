@@ -6,39 +6,25 @@
 with parametros as (
     select
         1.0     as umbral_merma_pct,   -- rango 0.8–1.5 %
-        45.0    as umbral_ciclo_dias,
-        {{ var('antiguedad_conciliacion_dias') }} as dias_para_conciliar
+        45.0    as umbral_ciclo_dias
 ),
 
-movimientos as (
-    select * from {{ ref('stg_mb51') }}
-    where mov_type in ('621', '702')
-),
-
-ultima_conciliacion as (
-    select max(fecha_contab) as fecha
-    from movimientos
-    where mov_type = '702'
-),
-
+-- La tasa cuenta las salidas y faltantes que marca int_merma_conciliable; la
+-- pérdida acumulada, todos los 702 (ADR-036).
 merma as (
     select
-        m.planta,
-        m.cliente,
-        cast(sum(abs(m.cantidad)) filter (where m.mov_type = '621') as bigint)
+        planta,
+        cliente,
+        cast(sum(cantidad_abs) filter (where mov_type = '621') as bigint)
                                                                     as contenedores_salida,
-        cast(sum(abs(m.cantidad)) filter (
-            where m.mov_type = '621'
-              and m.fecha_contab <= u.fecha - p.dias_para_conciliar
-        ) as bigint)                                                as salidas_conciliadas,
-        cast(coalesce(sum(abs(m.cantidad)) filter (where m.mov_type = '702'), 0) as bigint)
+        cast(sum(cantidad_abs) filter (where mov_type = '621' and en_tasa) as bigint)
+                                                                    as salidas_conciliadas,
+        cast(coalesce(sum(cantidad_abs) filter (where mov_type = '702' and en_tasa), 0) as bigint)
                                                                     as faltantes,
-        coalesce(round(sum(abs(m.cantidad) * m.costo_unitario_usd)
-            filter (where m.mov_type = '702'), 2), 0)               as perdida_acum_usd
-    from movimientos m
-    cross join ultima_conciliacion u
-    cross join parametros p
-    group by m.planta, m.cliente
+        coalesce(round(sum(cantidad_abs * costo_unitario_usd)
+            filter (where mov_type = '702'), 2), 0)                 as perdida_acum_usd
+    from {{ ref('int_merma_conciliable') }}
+    group by planta, cliente
 ),
 
 ciclo as (
@@ -47,7 +33,7 @@ ciclo as (
         cliente,
         round(sum(cantidad * dias) * 1.0 / sum(cantidad), 1)        as ciclo_promedio_dias
     from {{ ref('int_tramos_fifo') }}
-    where tipo_cierre = '622'
+    where tipo_cierre = '622' and not salida_en_foto
     group by planta, cliente
 ),
 

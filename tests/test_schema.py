@@ -163,3 +163,17 @@ def test_contrato_para_un_extracto_real(df_ci, tmp_path):
     assert fallas_de_schema("raw_mb51", archivo).is_empty()
     real.with_columns(pl.lit(0.0).alias("Costo_usd")).write_parquet(archivo)
     assert set(fallas_de_schema("raw_mb51", archivo)["columna"]) == {"Costo_usd"}
+
+
+def test_foto_con_stock_en_cliente(stock_ci, tmp_path):
+    # Stock V en cliente (MSKU) no tiene almacén; una fila sin almacén ni
+    # cliente, o con los dos, no existe en MB5B ni en MSKU (ADR-036).
+    filas = stock_ci.head(3).with_columns(
+        pl.Series("Lgort", [None, None, "VACI"], dtype=pl.String),
+        pl.Series("Kunnr", ["CUST-0001", None, "CUST-0001"], dtype=pl.String),
+    )
+    archivo = tmp_path / "stock_inicial.parquet"
+    filas.write_parquet(archivo)
+    fallas = fallas_de_schema("raw_stock_inicial", archivo)
+    assert fallas["check"].to_list() == ["almacen_o_cliente"] * 2
+    assert sorted(fallas["fila"].to_list()) == [1, 2]

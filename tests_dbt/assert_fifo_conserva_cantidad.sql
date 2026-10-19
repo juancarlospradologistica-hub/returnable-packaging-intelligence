@@ -1,11 +1,12 @@
 -- Por cuenta, los tramos reparten exactamente lo que hay en los movimientos:
--- salidas 621 = total de tramos; 622 y 702 = tramos cerrados por cada uno.
+-- salidas 621 más el stock V de la foto = total de tramos; 622 y 702 = tramos
+-- cerrados por cada uno.
 with movimientos as (
     select
         planta,
         cliente,
         material,
-        coalesce(sum(cantidad_abs) filter (where mov_type = '621'), 0) as salidas,
+        coalesce(sum(cantidad_abs) filter (where mov_type = '621' or en_foto), 0) as salidas,
         coalesce(sum(cantidad_abs) filter (where mov_type = '622'), 0) as recogidas,
         coalesce(sum(cantidad_abs) filter (where mov_type = '702'), 0) as faltantes
     from {{ ref('int_mov_cuenta') }}

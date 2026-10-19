@@ -16,7 +16,7 @@ tramos as (
     inner join cohortes c
         on c.planta = t.planta
        and c.mes = cast(date_trunc('month', t.fecha_salida) as date)
-    where t.tipo_cierre = '622'
+    where t.tipo_cierre = '622' and not t.salida_en_foto
 ),
 
 dias as (

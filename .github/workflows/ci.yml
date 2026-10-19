@@ -43,6 +43,18 @@ jobs:
       - name: dbt build
         run: uv run dbt build --profiles-dir .
 
+      # Ventana recortada (ADR-036): el mismo limpio desde el 7-abr-2025, el lunes
+      # en que la corrida de 18 meses abre su periodo estable, con la foto al
+      # corte. Un extracto real abre con contenedores en cliente; test_recorte
+      # exige que el pipeline dé lo mismo que con la ventana completa.
+      - name: ventana recortada
+        run: |
+          uv run python -m rpi.recorte 2025-04-07
+          uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/recorte')"
+          uv run dbt build --profiles-dir .
+        env:
+          RPI_DB: data/recorte.duckdb
+
       - name: tests con cobertura
         run: |
           uv run pytest tests/ \

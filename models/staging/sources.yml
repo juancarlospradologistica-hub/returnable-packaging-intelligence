@@ -42,13 +42,11 @@ sources:
         description: >
           Foto de stock por planta, almacén y material al cierre del día anterior
           a la ventana, equivalente a MB5B (ADR-017, punto 7; ADR-018, punto 8).
-          MB51 no trae el stock con el que abre la ventana. Kunnr queda para el
-          stock especial V de un extracto real; en el sintético va vacío.
+          MB51 no trae el stock con el que abre la ventana. Una fila con Kunnr y
+          sin Lgort es stock especial V en cliente, como MSKU; el sintético no
+          trae, un extracto real sí (ADR-036).
         columns:
           - name: werks
-            tests:
-              - not_null
-          - name: lgort
             tests:
               - not_null
           - name: matnr

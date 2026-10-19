@@ -4,11 +4,15 @@ models:
   - name: int_mov_cuenta
     description: >
       Movimientos 621/622/702 de la cuenta de stock especial V
-      (planta × cliente × material), con delta sobre el saldo en cliente.
+      (planta × cliente × material), con delta sobre el saldo en cliente, más
+      el stock V de la foto inicial como apertura de la cuenta (ADR-036).
     columns:
       - name: cliente
         tests: [not_null]
       - name: delta_saldo
+        tests: [not_null]
+      - name: en_foto
+        description: Stock V de la foto inicial; sin clase de movimiento ni documento.
         tests: [not_null]
 
   - name: int_tramos_fifo
@@ -24,6 +28,12 @@ models:
       - name: material
         tests: [not_null]
       - name: fecha_salida
+        description: Fecha del 621, o de la foto si el tramo es stock V que ya estaba en cliente.
+        tests: [not_null]
+      - name: salida_en_foto
+        description: >
+          El tramo es stock V de la foto inicial: no se sabe cuándo salió y su
+          ciclo no entra a ninguna medición (ADR-036).
         tests: [not_null]
       - name: cantidad
         tests: [not_null]
@@ -34,4 +44,4 @@ models:
               arguments:
                 values: ['622', '702']
       - name: dias
-        description: Días entre salida y cierre. Null en tramos abiertos.
+        description: Días entre salida y cierre. Null en tramos abiertos y en los de la foto.

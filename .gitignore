@@ -225,6 +225,8 @@ __marimo__/
 # Datos generados (regenerables con el generador sintetico)
 data/raw/*.parquet
 data/sucio/
+# Ventana recortada del limpio (ADR-036)
+data/recorte/
 # Bases y Parquet de trabajo del arnés; su salida va a docs/calidad (ADR-031)
 data/calidad/
 data/raw/*.csv

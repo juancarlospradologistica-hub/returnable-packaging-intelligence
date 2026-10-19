@@ -3,6 +3,11 @@
 -- un intervalo sobre el acumulado de cierres. Un tramo es la intersección.
 -- Lo que queda de un 621 después del último cierre es saldo abierto.
 -- Uso: ciclo con tramos cerrados por 622. La merma no se atribuye por FIFO.
+--
+-- El stock V de la foto inicial entra primero, como la salida más vieja: lo
+-- que regresa en la ventana cierra antes lo que ya estaba afuera. Sus tramos
+-- salen con salida_en_foto y sin días: no se sabe cuándo salió, y su ciclo no
+-- entra a ninguna medición (ADR-036).
 with movimientos as (
     select * from {{ ref('int_mov_cuenta') }}
 ),
@@ -17,10 +22,11 @@ salidas as (
         anio_contable                                   as anio_salida,
         doc_material                                    as doc_salida,
         posicion                                        as pos_salida,
+        en_foto                                         as salida_en_foto,
         sum(cantidad_abs) over cuenta - cantidad_abs    as acum_ini,
         sum(cantidad_abs) over cuenta                   as acum_fin
     from movimientos
-    where mov_type = '621'
+    where mov_type = '621' or en_foto
     window cuenta as (
         partition by planta, cliente, material
         order by fecha_contab, anio_contable, doc_material, posicion
@@ -58,6 +64,7 @@ tramos_cerrados as (
         s.anio_salida,
         s.doc_salida,
         s.pos_salida,
+        s.salida_en_foto,
         c.tipo_cierre,
         c.fecha_cierre,
         c.anio_cierre,
@@ -88,6 +95,7 @@ tramos_abiertos as (
         s.anio_salida,
         s.doc_salida,
         s.pos_salida,
+        s.salida_en_foto,
         cast(null as varchar)                           as tipo_cierre,
         cast(null as date)                              as fecha_cierre,
         cast(null as bigint)                            as anio_cierre,
@@ -109,5 +117,8 @@ tramos as (
 
 select
     *,
-    datediff('day', fecha_salida, fecha_cierre)         as dias
+    case
+        when salida_en_foto then null
+        else datediff('day', fecha_salida, fecha_cierre)
+    end                                                 as dias
 from tramos

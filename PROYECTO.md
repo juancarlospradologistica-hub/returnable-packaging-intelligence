@@ -55,9 +55,9 @@ Calidad de datos sobre MB51, foto de stock inicial, plan, instrucción de empaqu
 
 Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de Fase 4 nombra. Se inyectan, se miden con el arnés en el completo y la medición se versiona antes de escribir sus reglas; después entran cuatro reglas nuevas y se publica la detección de antes y la de después, lado a lado. Contesta cuánto detecta el pipeline con defectos que no conocía al escribir sus reglas. Semana 20. Cerrada en semana 20 (ADR-033, ADR-034).
 
-### Alcance IN — Fase 4d (ADR-035)
+### Alcance IN — Fase 4d (ADR-035, ADR-036)
 
-Adaptador de extracto real: un MB51 bajado de SAP, y después la foto de stock, el maestro y el plan, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: foto de stock y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21.
+Extracto real: un MB51 bajado de SAP, y después la foto de stock, el maestro y el plan, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: un extracto real abre con contenedores en cliente; la foto trae ese stock V y una ventana recortada del limpio tiene que dar lo mismo que la completa. 4d.3: adaptadores de foto y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21.
 
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
@@ -1280,7 +1280,7 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 ### ADR-035 · Adaptador de extracto real: MB51 de SAP al contrato de entrada
 
 - **Fecha:** 2026-10-16
-- **Estado:** Accepted. Abre Fase 4d. Precisa ADR-017 (seeds en lugar de SQL para lo que cambia entre empresas) y ADR-030, punto 2 (contrato de entrada en Pandera). 4d.2 (foto de stock, maestro y plan) va en su propio ADR.
+- **Estado:** Accepted. Abre Fase 4d. Precisa ADR-017 (seeds en lugar de SQL para lo que cambia entre empresas) y ADR-030, punto 2 (contrato de entrada en Pandera). ADR-036 cambia el orden: 4d.2 es el stock en cliente al abrir la ventana y los adaptadores de foto, maestro y plan pasan a 4d.3.
 - **Contexto:**
   - Hasta Fase 4c el pipeline solo había leído lo que escribe el generador. El Charter promete que un extracto real se carga cambiando seeds, no modelos, y nada lo probaba.
   - Un MB51 bajado de SAP no se parece al contrato: campos técnicos en mayúsculas (MATNR, WERKS, SHKZG), fechas y números con los formatos del usuario (01.06.2026, 1.234,50), la cantidad sin signo y con el indicador debe/haber aparte, o con el menos atrás si sale del ALV, la unidad interna (ST) y el importe del documento en lugar de un precio unitario.
@@ -1323,6 +1323,62 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Límite: la ingesta todavía pide la foto de stock, el maestro, el plan y la instrucción. Con un extracto real solo de MB51 no corre de punta a punta hasta 4d.2.
   - Límite: un extracto con varias monedas deja nulo el precio fuera de USD. No mueve cifras; el maestro sí convierte o bloquea (D18).
 
+### ADR-036 · Un extracto real abre con contenedores en cliente
+
+- **Fecha:** 2026-10-17
+- **Estado:** Accepted. Precisa ADR-012 (saldo por cuenta, FIFO y merma por ventana conciliada), ADR-017, punto 7, y ADR-018, punto 8 (foto inicial), y ADR-030, punto 2 (contrato de entrada). Cambia el orden de Fase 4d de ADR-035: 4d.2 es esto y los adaptadores de foto, maestro y plan pasan a 4d.3.
+- **Contexto:**
+  - El generador arranca con los clientes vacíos: todos los ciclos 621→622 empiezan dentro de la ventana. Un MB51 real no. El primer día ya hay contenedores afuera, y los 622 de los primeros meses recogen lo que salió antes.
+  - La foto aceptaba Kunnr para el stock especial V, pero nadie la leía completa. El contrato pedía Lgort y el stock V no tiene almacén, así que la ingesta lo mandaba a error_de_schema. int_mov_stock la unía por almacén y la descartaba. int_mov_cuenta y el FIFO no la leían. Solo recogida_sin_saldo la sumaba. int_calendario_necesidad ya preveía la foto con stock V (hay_stock_v), pero nunca podía ser verdadero.
+  - Para medirlo corté el limpio el 7-abr-2025 y armé la foto con lo que pasó antes, almacenes y stock V por cuenta. Ese lunes la corrida de 18 meses abre su periodo estable, así que las ventanas de la necesidad coinciden. Sobre el completo (14 plantas, seed 42), con los modelos de main:
+
+    | Cifra | 18 meses | Ventana recortada, main |
+    |---|---:|---:|
+    | Saldo V al cierre | 679,321 | −22,737 |
+    | Cuentas con saldo negativo | 0 | 13,134 |
+    | Ciclo promedio de los 621 desde el corte | 25.81 días | −0.07 días |
+    | Tasa de merma de la flota | 0.405% | 0.517% |
+    | Brecha USD | $322,675 | $36,363 |
+    | Capital ocioso USD | $5,893,706 | $22,749,732 |
+
+  - El FIFO emparejaba las recogidas de contenedores previos con las primeras salidas de la ventana: el ciclo salía en cero. La foto traía 25,712 filas de stock V y el contrato las rechazaba todas; hoy eso bloquea la publicación, pero relajar solo el contrato habría publicado cifras falsas sin aviso.
+  - Con la foto ya leída en saldo, FIFO y flota, la tasa de merma de la recortada seguía alta: en el reducido 0.569% contra 0.447% y la brecha +7.3%. Una conciliación reconoce el faltante de salidas con más de 120 días; las primeras de la ventana reconocen faltantes de viajes previos, que no están en el denominador.
+- **Alternativas evaluadas:**
+  - Que el generador arranque con stock en cliente: cambia el dataset y todas las cifras publicadas. Cortar el limpio prueba lo mismo y deja la corrida de 18 meses como la verdad contra la que se compara.
+  - Inferir el stock V inicial de las recogidas sin salida en la ventana: es corregir el extracto, y no separa un 622 de un contenedor previo de un 622 mal capturado.
+  - Sacar del FIFO las recogidas sin salida: el ciclo queda bien, pero el saldo y la flota en cliente siguen en cero.
+  - Merma con el stock V de la foto en el denominador: 0.528% en el reducido. Los viajes previos que regresaron completos no dejan rastro y el sesgo sigue.
+  - Merma sin la primera conciliación de la ventana: 0.492%. La segunda también reconoce salidas anteriores a la foto.
+  - Merma desde la primera conciliación completa en todas las rutas: movería las cifras publicadas sin razón; en el sintético ninguna ruta abre con stock y su primera conciliación ya es completa.
+  - Un mart con la comparación: pide las dos bases en un mismo build. La comparación vive en pytest y corre en CI.
+- **Decisión:**
+  1. Contrato: una fila de la foto es stock en almacén (MB5B, con Lgort) o stock V en cliente (MSKU, con Kunnr y sin Lgort), nunca las dos. Lgort admite nulo, Pandera revisa almacen_o_cliente y assert_stock_inicial_valido cuenta por almacén o cliente.
+  2. int_mov_cuenta abre cada cuenta con el stock V de la foto (en_foto). assert_saldo_cliente_no_negativo lo suma.
+  3. FIFO: el stock V de la foto es la salida más vieja de la cuenta. Sus tramos salen con salida_en_foto y sin días; ninguna medición de ciclo los cuenta: curva de supervivencia, rotación, cohortes ni ciclo por ruta. assert_ciclo_sin_stock_de_la_foto lo revisa con definiciones propias, y la curva tiene que llegar a cero en su última edad.
+  4. int_mov_stock: el stock V de la foto abre el estado cliente. Con él, el calendario no descarta las 13 semanas de arranque.
+  5. int_merma_conciliable marca qué 621 y 702 entran a la tasa. En una ruta que abrió con stock V cuenta desde la primera conciliación completa: aquella cuya conciliación anterior, menos antiguedad_conciliacion_dias, cae en o después de la foto. Los 702 desde esa conciliación y los 621 posteriores a la anterior menos la antigüedad. Sin conciliación completa la ruta se queda sin tasa propia y la flota proyectada usa la de su tipo. mart_rutas e int_tco_por_material la leen; la pérdida en USD sigue con todos los 702.
+  6. rpi.recorte corta el limpio en una fecha y arma la foto. tests/test_recorte.py exige que la recortada dé lo mismo que la completa en saldo por cuenta, stock diario, ciclo de las salidas posteriores al corte, flota semanal, variabilidad, z y necesidad, y la brecha y el ocioso dentro de la materialidad. CI corta el reducido el 7-abr-2025.
+  7. Historia mínima de un extracto: la calibración de la z pide un año de MB51 más los días para cerrar semanas completas, 52.3 semanas con la fecha de extracción del sintético si la foto trae el stock V; 13 semanas más si no. assert_calendario_necesidad_valido ya lo detiene.
+- **Supuestos:** ninguno de dominio nuevo. La regla de merma usa el modelo de conciliación de ADR-012: una conciliación reconoce el faltante de las salidas con más de antiguedad_conciliacion_dias.
+- **Consecuencias:**
+  - El sintético no trae stock V en la foto: los 15 marts salen iguales a main fila por fila, en el reducido y en el completo. Ninguna cifra publicada se mueve.
+  - Sobre el completo, con el corte del 7-abr-2025:
+
+    | Cifra | 18 meses | Ventana recortada |
+    |---|---:|---:|
+    | Saldo V al cierre | 679,321 | 679,321 |
+    | Cuentas con saldo negativo | 0 | 0 |
+    | Ciclo promedio de los 621 desde el corte | 25.81 días | 25.81 días |
+    | Tasa de merma de la flota | 0.405% | 0.401% |
+    | Brecha USD | $322,675 | $322,209 (−0.14%) |
+    | Capital ocioso USD | $5,893,706 | $5,900,547 (+0.12%) |
+
+  - Iguales fila por fila: saldo de 25,671 cuentas, 9,782,060 filas de stock diario, 4,753,831 tramos del ciclo, flota semanal, variabilidad, z y necesidad. Lo que cambia es lo que se estima con historia: la tasa de merma mide tres conciliaciones en vez de cinco y la curva de supervivencia, menos ciclos. Medida sobre las mismas tres conciliaciones, la corrida de 18 meses da los mismos 29,423 faltantes sobre 7,328,584 salidas que la recortada.
+  - El ciclo de lo que ya estaba en cliente no se mide: no se sabe cuándo salió. Las cohortes de la recortada empiezan en el corte.
+  - dbt build 388/388 en las dos ventanas del completo y del reducido: 47 modelos, 10 seeds, 300 tests de datos y 31 unit tests. CI corre la ventana recortada después del limpio, alrededor de un minuto más. Las comparaciones grandes de test_recorte corren en DuckDB: con Polars, el completo pasaba de 6 GB.
+  - 22 mutaciones, una por comportamiento. Seis sobrevivieron la primera vuelta: los cuatro filtros de la foto en quienes consumen el ciclo, porque en la recortada esas cifras difieren de la verdad por diseño, y dos bordes de la regla de merma. Las atrapan assert_ciclo_sin_stock_de_la_foto, la curva que llega a cero y dos casos de borde en el unit test.
+  - Límite: la foto tiene una fecha por planta. Una foto de almacenes y otra de stock V tomadas en días distintos no cuadran y la regla de merma toma la más vieja.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1353,6 +1409,18 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
 | Sgtxt | Texto de posición (placas, folios, comentarios) |
 | Umwrk / Umlgo | Centro y almacén destino en traslados (301/311) |
 | Usnam | Usuario que registró (trazabilidad de errores) |
+
+### Foto de stock inicial (ADR-017, ADR-036)
+
+Una fila por planta, almacén o cliente y material, al cierre del día anterior a la ventana.
+
+| Campo | Descripción | Uso analítico |
+|-------|-------------|---------------|
+| Werks / Matnr | Planta y material | Llave |
+| Lgort | Almacén (MB5B); vacío en stock V | Abre el saldo de cada estado del ciclo |
+| Kunnr | Cliente del stock especial V (MSKU); vacío en almacén | Abre la cuenta, el FIFO y la flota en cliente |
+| Menge | Cantidad, siempre positiva | |
+| Fecha | Día de la foto, el anterior al primer día de MB51 | Fecha de apertura del calendario |
 
 ### Maestro de materiales (ADR-028)
 
@@ -1418,12 +1486,36 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 18** · Fase 4a: defectos inyectables en el generador y reglas de calidad en dbt, cada una probada con su defecto encendido (ADR-029, ADR-030).
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
 - [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
-- [ ] **Semana 21** · Fase 4d: adaptador de extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); foto de stock, maestro y plan (4d.2).
+- [ ] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de foto, maestro y plan (4d.3).
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-17 · Sesión 55 — Semana 21
+
+- **Duración:** ~5 h
+- **Hecho:**
+  - PR #21 (fase-4d1) mergeado.
+  - Revisando la foto antes de escribir sus adaptadores: el stock V en cliente no lo leían ni el contrato, ni el saldo por cuenta, ni el FIFO, ni la flota. Medido en el reducido con el limpio cortado seis meses después del arranque: ciclo de 0.3 días contra 25.7, saldo V negativo y brecha de $35,572 contra $262,216.
+  - Contrato de la foto con almacén o cliente. Saldo, FIFO y flota en cliente arrancan con el stock V. Ningún ciclo cuenta lo que ya estaba afuera.
+  - Merma desde la primera conciliación completa en las rutas que abren con stock en cliente. Antes de escribirla medí tres reglas en SQL: con el stock V en el denominador, sin la primera conciliación y desde la primera completa. Solo la última quita el sesgo.
+  - rpi.recorte, tests/test_recorte.py y el paso de CI con la ventana recortada del reducido.
+  - Completo: la recortada da lo mismo que los 18 meses en saldo, stock diario, ciclo, flota semanal, variabilidad, z y necesidad; brecha −0.14% y ocioso +0.12%. El limpio da los 15 marts iguales a main.
+  - Verificados rompiendo: 22 mutaciones.
+  - Completo: dbt build 388/388 en la ventana completa y en la recortada, pytest 158 y 2 saltados con 3 GB de pico. Reducido: pytest 148 y 12 saltados.
+- **Decisiones tomadas:** ADR-036.
+- **Bloqueos:**
+  - La primera hipótesis para la brecha fue la curva de supervivencia. La corrida de 18 meses con la curva de la recortada no se movió: era la tasa de merma.
+  - El primer corte, de seis meses, dejó la calibración con 25 semanas y truena assert_calendario_necesidad_valido. Lo correcto: un extracto necesita un año de historia. El corte de CI es el 7-abr-2025, cuando la corrida completa abre su periodo estable.
+  - Seis mutaciones sobrevivieron la primera vuelta. Las cifras que tocan difieren de la verdad por diseño en la recortada, así que la comparación no las ve; hicieron falta invariantes que valen en cualquier dataset.
+  - Un commit llevaba mart_rutas completo, con la merma que dependía de un modelo del commit siguiente. Lo separé antes de seguir.
+  - test_recorte comparaba con Polars y en el completo el stock diario de las dos bases, 9.8M de filas cada una, llegó a 6 GB: pytest murió por memoria. Las comparaciones grandes pasaron a DuckDB con EXCEPT ALL.
+- **Notas de la sesión:**
+  - Un dataset sintético que arranca vacío esconde lo que todo extracto real trae el primer día. La prueba buena no es otro dataset: es cortar el que ya tengo y exigir que dé lo mismo.
+  - La foto se leía en un solo lugar y nadie lo notaba porque el contrato la rechazaba. Una regla de contrato que bloquea protege, pero también esconde el siguiente problema.
+- **Próximo paso:** PR de fase-4d2. Después, 4d.3: adaptadores de foto y maestro, plan e instrucción opcionales.
 
 ### 2026-10-16 · Sesión 54 — Semana 21
 
@@ -2525,6 +2617,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Unidad interna / externa** — SAP guarda la unidad con su código interno (ST) y la muestra con el externo según el idioma (PC). La tabla de conversión es CUNIT.
 - **Ida y vuelta** — Escribir un dato en otro formato y leerlo de regreso: si no sale idéntico, la conversión cambió el contenido. Aquí, el MB51 del generador escrito como lo exporta SAP y convertido con rpi.extracto.
 - **Adaptador** — Código que lleva un archivo de una fuente al contrato de entrada del pipeline. Cambia la forma, no el contenido (ADR-035).
+- **Stock especial V en cliente** — Contenedores retornables en poder del cliente que siguen siendo de la planta. SAP lo lleva por cliente y material en MSKU, sin almacén. Un extracto real abre con él (ADR-036).
+- **Ventana recortada** — El dataset limpio desde una fecha, con la foto armada con lo que pasó antes. Simula un extracto que abre con contenedores en cliente; el pipeline tiene que dar lo mismo que con la ventana completa.
+- **Censura por la izquierda** — No ver el inicio de algo que se mide: del stock que ya estaba en cliente al abrir la ventana no se sabe cuándo salió, y su ciclo no se mide.
+- **Conciliación completa** — Conciliación de stock V cuyas salidas reconocidas son todas posteriores a la foto. Desde ella la tasa de merma tiene numerador y denominador de los mismos viajes.
+- **Invariante** — Condición que se cumple en cualquier dataset, no solo en uno conocido. Aquí atrapa lo que una comparación contra la verdad no ve.
 
 ---
 

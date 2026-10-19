@@ -92,3 +92,21 @@ unit_tests:
       rows:
         - {doc_salida: '0000000004', tipo_cierre: '622', cantidad: 2, dias: 10}
         - {doc_salida: '0000000009', tipo_cierre: null, cantidad: 2, dias: null}
+
+  - name: fifo_stock_de_la_foto_primero
+    description: >
+      El stock V de la foto es lo más viejo de la cuenta: la primera recogida
+      lo cierra antes que la salida de la ventana. Sus tramos no tienen días
+      (ADR-036).
+    model: int_tramos_fifo
+    given:
+      - input: ref('int_mov_cuenta')
+        rows:
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '621', fecha_contab: 2026-01-05, anio_contable: 2026, doc_material: '0000000001', posicion: 1, cantidad_abs: 3, en_foto: false}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: null, fecha_contab: 2026-01-04, anio_contable: null, doc_material: null, posicion: null, cantidad_abs: 4, en_foto: true}
+          - {planta: P1, cliente: C1, material: M1, tipo_material: KLT, mov_type: '622', fecha_contab: 2026-01-20, anio_contable: 2026, doc_material: '0000000002', posicion: 1, cantidad_abs: 5, en_foto: false}
+    expect:
+      rows:
+        - {doc_salida: null, salida_en_foto: true, tipo_cierre: '622', cantidad: 4, dias: null}
+        - {doc_salida: '0000000001', salida_en_foto: false, tipo_cierre: '622', cantidad: 1, dias: 15}
+        - {doc_salida: '0000000001', salida_en_foto: false, tipo_cierre: null, cantidad: 2, dias: null}
