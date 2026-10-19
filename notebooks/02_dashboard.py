@@ -577,138 +577,160 @@ def _(con, mo, pl):
                 kind="warn",
             ),
         )
+    # Sin plan de producción los marts de necesidad salen vacíos (ADR-037).
+    sin_plan = sens.is_empty()
     escenario = mo.ui.dropdown(
-        options=sorted(sens["escenario"].unique().to_list()),
+        options=sorted(sens["escenario"].unique().to_list()) or ["base"],
         value="base",
         label="Escenario",
     )
-    return escenario, flota_semanal, red, sens
+    return escenario, flota_semanal, red, sens, sin_plan
 
 
 @app.cell
-def _(a_imagen, flota_semanal, pl, plt):
-    _fig, _axes = plt.subplots(1, 2, figsize=(10, 3.2))
-    for _ax, _k, _nombre, _color in zip(
-        _axes, ["KLT", "RACK"], ["KLT", "Rack"], ["#2c7fb8", "#c0392b"], strict=True
-    ):
-        _s = flota_semanal.filter(pl.col("tipo_material") == _k)
-        _sem = list(range(1, _s.height + 1))
-        _ax.plot(
-            _sem, _s["flota"] / 1e3, color="#7f8c8d", marker="o", ms=3, label="flota proyectada"
-        )
-        _ax.plot(_sem, _s["necesidad"] / 1e3, color=_color, marker="o", ms=3, label="necesidad")
-        _ax.set_title(f"{_nombre}: flota y necesidad, base")
-        _ax.set_xlabel("semana del plan")
-        _ax.set_ylabel("miles de contenedores")
-        _ax.spines[["top", "right"]].set_visible(False)
-    _axes[0].legend(frameon=False, fontsize=8)
-    _fig.tight_layout()
-    grafica_necesidad = a_imagen(_fig)
+def _(a_imagen, flota_semanal, pl, plt, sin_plan):
+    def _grafica():
+        _fig, _axes = plt.subplots(1, 2, figsize=(10, 3.2))
+        for _ax, _k, _nombre, _color in zip(
+            _axes, ["KLT", "RACK"], ["KLT", "Rack"], ["#2c7fb8", "#c0392b"], strict=True
+        ):
+            _s = flota_semanal.filter(pl.col("tipo_material") == _k)
+            _sem = list(range(1, _s.height + 1))
+            _ax.plot(
+                _sem, _s["flota"] / 1e3, color="#7f8c8d", marker="o", ms=3, label="flota proyectada"
+            )
+            _ax.plot(_sem, _s["necesidad"] / 1e3, color=_color, marker="o", ms=3, label="necesidad")
+            _ax.set_title(f"{_nombre}: flota y necesidad, base")
+            _ax.set_xlabel("semana del plan")
+            _ax.set_ylabel("miles de contenedores")
+            _ax.spines[["top", "right"]].set_visible(False)
+        _axes[0].legend(frameon=False, fontsize=8)
+        _fig.tight_layout()
+        return a_imagen(_fig)
+
+    grafica_necesidad = None if sin_plan else _grafica()
     return (grafica_necesidad,)
 
 
 @app.cell
-def _(escenario, grafica_necesidad, mo, pl, red, sens):
-    _sel = sens.filter(pl.col("escenario") == escenario.value)
-    _base = sens.filter(pl.col("escenario") == "base")
-    _t = {r["tipo_material"]: r for r in _sel.iter_rows(named=True)}
-    _brecha = _sel["usd_brecha"].sum()
-    _ocioso = _sel["usd_capital_ocioso"].sum()
-    _d_brecha = _brecha - _base["usd_brecha"].sum()
-    _d_ocioso = _ocioso - _base["usd_capital_ocioso"].sum()
-
-    _tabla_escenario = _sel.select(
-        "tipo_material",
-        "z_servicio",
-        pl.col("objetivo_quiebre").mul(100).round(2).alias("objetivo_quiebre_pct"),
-        "ajuste_ciclo_dias",
-        "necesidad_semana_1",
-        "materiales_deficit",
-        "deficit",
-        "compra",
-        "viajes_desechable",
-        "usd_flete",
-        "usd_compra",
-        "usd_desechable",
-        "usd_brecha",
-        "usd_capital_ocioso",
+def _(mo, sin_plan):
+    aviso_sin_plan = mo.callout(
+        mo.md(
+            "**Sin plan de producción.** El extracto no trae partes, instrucción "
+            "de empaque ni plan, así que la necesidad de flota, la brecha y la "
+            "red de préstamos no se calculan. Rotación, pérdidas, TCO, flota "
+            "semanal y calidad de datos no dependen del plan."
+        ),
+        kind="info",
     )
-    _todos = (
-        sens.group_by("escenario")
-        .agg(
-            pl.col("usd_brecha").sum().round(0).alias("usd_brecha"),
-            pl.col("usd_capital_ocioso").sum().round(0).alias("usd_capital_ocioso"),
-            pl.col("compra").sum().alias("compra"),
+    return (aviso_sin_plan,)
+
+
+@app.cell
+def _(escenario, grafica_necesidad, mo, pl, red, sens, sin_plan):
+    def _vista():
+        _sel = sens.filter(pl.col("escenario") == escenario.value)
+        _base = sens.filter(pl.col("escenario") == "base")
+        _t = {r["tipo_material"]: r for r in _sel.iter_rows(named=True)}
+        _brecha = _sel["usd_brecha"].sum()
+        _ocioso = _sel["usd_capital_ocioso"].sum()
+        _d_brecha = _brecha - _base["usd_brecha"].sum()
+        _d_ocioso = _ocioso - _base["usd_capital_ocioso"].sum()
+
+        _tabla_escenario = _sel.select(
+            "tipo_material",
+            "z_servicio",
+            pl.col("objetivo_quiebre").mul(100).round(2).alias("objetivo_quiebre_pct"),
+            "ajuste_ciclo_dias",
+            "necesidad_semana_1",
+            "materiales_deficit",
+            "deficit",
+            "compra",
+            "viajes_desechable",
+            "usd_flete",
+            "usd_compra",
+            "usd_desechable",
+            "usd_brecha",
+            "usd_capital_ocioso",
         )
-        .sort("usd_brecha")
-    )
-    _por_etapa = (
-        red.group_by("tipo_material", "etapa")
-        .agg(
-            pl.len().alias("flujos"),
-            pl.col("contenedores").sum().round(0),
-            pl.col("usd_flete").sum().round(2),
+        _todos = (
+            sens.group_by("escenario")
+            .agg(
+                pl.col("usd_brecha").sum().round(0).alias("usd_brecha"),
+                pl.col("usd_capital_ocioso").sum().round(0).alias("usd_capital_ocioso"),
+                pl.col("compra").sum().alias("compra"),
+            )
+            .sort("usd_brecha")
         )
-        .sort("tipo_material", "etapa")
-    )
+        _por_etapa = (
+            red.group_by("tipo_material", "etapa")
+            .agg(
+                pl.len().alias("flujos"),
+                pl.col("contenedores").sum().round(0),
+                pl.col("usd_flete").sum().round(2),
+            )
+            .sort("tipo_material", "etapa")
+        )
 
-    vista_necesidad = mo.vstack(
-        [
-            mo.md("""
-        ## Necesidad contra flota
+        return mo.vstack(
+            [
+                mo.md("""
+            ## Necesidad contra flota
 
-        Necesidad = d_plan × ciclo + z × σ del stock en uso, por planta,
-        material y semana del plan de 12 semanas. La flota proyectada es la
-        del corte menos la merma pendiente de conciliar y lo que se pierde
-        por viaje del plan. En total sobra flota; material por material, no.
-        """),
-            grafica_necesidad,
-            mo.md("""
-        ## Brecha por escenario
+            Necesidad = d_plan × ciclo + z × σ del stock en uso, por planta,
+            material y semana del plan de 12 semanas. La flota proyectada es la
+            del corte menos la merma pendiente de conciliar y lo que se pierde
+            por viaje del plan. En total sobra flota; material por material, no.
+            """),
+                grafica_necesidad,
+                mo.md("""
+            ## Brecha por escenario
 
-        Préstamo entre plantas con el mismo material (primero dentro del
-        país), compra al corte de lo que falta y desechable mientras la
-        compra llega. Lo que sobra después de prestar es capital ocioso.
-        Cada escenario corre por la misma lógica que el base; la tabla
-        completa está en `mart_sensibilidad_brecha`.
-        """),
-            escenario,
-            mo.hstack(
-                [
-                    mo.stat(
-                        label="Costo de la brecha",
-                        value=f"${_brecha:,.0f}",
-                        caption=f"{_d_brecha:+,.0f} contra base",
-                    ),
-                    mo.stat(
-                        label="Capital ocioso",
-                        value=f"${_ocioso / 1e6:,.2f}M",
-                        caption=f"{_d_ocioso / 1e6:+,.2f}M contra base",
-                    ),
-                    mo.stat(
-                        label="z KLT / Rack",
-                        value=f"{_t['KLT']['z_servicio']:.2f} / {_t['RACK']['z_servicio']:.2f}",
-                    ),
-                    mo.stat(
-                        label="Compra KLT / Rack",
-                        value=f"{_t['KLT']['compra']:,} / {_t['RACK']['compra']:,}",
-                    ),
-                ]
-            ),
-            mo.ui.table(_tabla_escenario, selection=None),
-            mo.md("## Todos los escenarios, KLT + Rack"),
-            mo.ui.table(_todos, selection=None),
-            mo.md("""
-        ## Red de préstamos, escenario base
+            Préstamo entre plantas con el mismo material (primero dentro del
+            país), compra al corte de lo que falta y desechable mientras la
+            compra llega. Lo que sobra después de prestar es capital ocioso.
+            Cada escenario corre por la misma lógica que el base; la tabla
+            completa está en `mart_sensibilidad_brecha`.
+            """),
+                escenario,
+                mo.hstack(
+                    [
+                        mo.stat(
+                            label="Costo de la brecha",
+                            value=f"${_brecha:,.0f}",
+                            caption=f"{_d_brecha:+,.0f} contra base",
+                        ),
+                        mo.stat(
+                            label="Capital ocioso",
+                            value=f"${_ocioso / 1e6:,.2f}M",
+                            caption=f"{_d_ocioso / 1e6:+,.2f}M contra base",
+                        ),
+                        mo.stat(
+                            label="z KLT / Rack",
+                            value=f"{_t['KLT']['z_servicio']:.2f} / {_t['RACK']['z_servicio']:.2f}",
+                        ),
+                        mo.stat(
+                            label="Compra KLT / Rack",
+                            value=f"{_t['KLT']['compra']:,} / {_t['RACK']['compra']:,}",
+                        ),
+                    ]
+                ),
+                mo.ui.table(_tabla_escenario, selection=None),
+                mo.md("## Todos los escenarios, KLT + Rack"),
+                mo.ui.table(_todos, selection=None),
+                mo.md("""
+            ## Red de préstamos, escenario base
 
-        Flujos entre plantas: cada receptor recibe de cada donante en
-        proporción a lo que el donante presta. Cruzar frontera cuesta 15%
-        del costo unitario contra 5% dentro del país.
-        """),
-            mo.ui.table(_por_etapa, selection=None),
-            mo.ui.table(red, selection=None, page_size=10),
-        ]
-    )
+            Flujos entre plantas: cada receptor recibe de cada donante en
+            proporción a lo que el donante presta. Cruzar frontera cuesta 15%
+            del costo unitario contra 5% dentro del país.
+            """),
+                mo.ui.table(_por_etapa, selection=None),
+                mo.ui.table(red, selection=None, page_size=10),
+            ]
+        )
+
+    vista_necesidad = None if sin_plan else _vista()
     return (vista_necesidad,)
 
 
@@ -846,14 +868,23 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
 
 
 @app.cell
-def _(mo, publica, vista_calidad, vista_fase1, vista_necesidad, vista_tco):
+def _(
+    aviso_sin_plan,
+    mo,
+    publica,
+    sin_plan,
+    vista_calidad,
+    vista_fase1,
+    vista_necesidad,
+    vista_tco,
+):
     mo.ui.tabs(
         {
             "Rotación y pérdidas": vista_fase1,
             "TCO": publica(vista_tco, ["perdida", "tco"]),
-            "Necesidad de flota": publica(
-                vista_necesidad, ["necesidad", "brecha", "ocioso", "flota"]
-            ),
+            "Necesidad de flota": aviso_sin_plan
+            if sin_plan
+            else publica(vista_necesidad, ["necesidad", "brecha", "ocioso", "flota"]),
             # Sin bloqueo: es la vista que explica los bloqueos.
             "Calidad de datos": vista_calidad,
         }
