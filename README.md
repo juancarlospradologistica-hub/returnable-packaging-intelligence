@@ -1,12 +1,26 @@
 # returnable-packaging-intelligence
 
-![CI](https://github.com/juancarlospradologistica-hub/returnable-packaging-intelligence/actions/workflows/ci.yml/badge.svg)
-![Python](https://img.shields.io/badge/python-3.11-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/juancarlospradologistica-hub/returnable-packaging-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/juancarlospradologistica-hub/returnable-packaging-intelligence/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Análisis de ciclo, saldo en cliente y pérdidas de contenedores retornables en una flota multi-planta, sobre movimientos MB51 sintéticos. Modela una operación de Returnable Packaging Logistics (RPL) automotriz: 14 plantas entre México, Estados Unidos y Nicaragua, 1,200 materiales de empaque, 18 meses de historia y 20,981,396 movimientos.
+Pipeline analítico para la flota de contenedores retornables de una operación de Returnable Packaging Logistics (RPL) automotriz, sobre movimientos SAP MB51: dónde se pierde la flota, cuánto cuesta, cuánta hace falta para el plan y qué tan confiable es cada cifra.
 
-El objetivo es llegar a KPIs que un equipo de gobernanza de RPL pueda usar: cuánto se pierde en USD, qué rutas planta × cliente concentran la pérdida, qué rutas acumulan saldo en cliente antes de que la conciliación lo reconozca y cuánto ahorra el retornable contra un desechable equivalente.
+| En 18 meses, 14 plantas | |
+|---|---|
+| Pérdida reconocida | $2,238,765 USD, 62% en 12 de 71 rutas |
+| Ahorro contra desechable | $39.86 por viaje en Rack y $4.08 en KLT |
+| Brecha de flota contra el plan | $322.7k para cubrirla, con $5.9M de flota parada |
+| Calidad de datos | 22 defectos de un extracto real, cada uno detectado por su causa |
+
+![Dashboard: rotación y pérdidas](docs/img/dashboard_rotacion.png)
+
+- 14 plantas en México, Estados Unidos y Nicaragua, 1,200 materiales de empaque y 20,981,396 movimientos sintéticos, con la lógica de stock especial V de SAP: salida 621, recogida 622 y faltante 702 en conciliación.
+- Polars, DuckDB y dbt: 47 modelos, 300 tests de datos y 31 unit tests. En cada push, CI corre el pipeline de punta a punta sobre un dataset reducido de 2 plantas, más una ventana que abre con stock en cliente y un extracto sin plan.
+- Un extracto bajado de SAP (MB51, MARD, MSKU y maestro de materiales) entra con `rpi.extracto` y corre de punta a punta sin el generador.
+- Ninguna cifra se publica si una regla de calidad que bloquea tiene violaciones sobre ella.
+
+Las decisiones de diseño, con sus alternativas descartadas, están en 37 ADRs en `PROYECTO.md`.
 
 ## Disclaimer
 
@@ -306,8 +320,10 @@ Para probarlo, `rpi.recorte` corta el limpio en una fecha y arma la foto con lo 
 
 ```bash
 uv run python -m rpi.recorte 2025-04-07
+export RPI_DB=data/recorte.duckdb          # PowerShell: $env:RPI_DB = "data/recorte.duckdb"
 uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/recorte')"
-uv run dbt build --profiles-dir .   # con RPI_DB=data/recorte.duckdb
+uv run dbt build --profiles-dir .
+unset RPI_DB                               # PowerShell: Remove-Item Env:RPI_DB
 uv run pytest tests/test_recorte.py -v
 ```
 
@@ -618,6 +634,8 @@ Lo que encontré:
 La severidad del seed coincide con la medición en los 22 defectos y un test la revisa en cada build. Doce bloquean por romper una identidad; D11 y D13 bloquean solo por lo que mueven en el techo de su rango. La severidad no cambia mientras la materialidad quede debajo de 2.84%; con 5%, D11, D15 y D17 pasarían a alerta.
 
 Con los 22 defectos encendidos las nueve cifras quedan bloqueadas: los notebooks 01, 03 y 04 se detienen en la primera celda y el dashboard cambia cada sección por un aviso con las reglas. Detección por defecto, valor expuesto contra impacto y sensibilidad a la materialidad en `notebooks/05_calidad_datos.ipynb`; el dashboard tiene la pestaña "Calidad de datos".
+
+![Dashboard: calidad de datos con los 22 defectos inyectados en el reducido de CI](docs/img/dashboard_calidad.png)
 
 ### Defectos ciegos: antes y después de su regla
 
