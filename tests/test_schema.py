@@ -3,7 +3,7 @@ import polars as pl
 import pytest
 
 from rpi.db import fallas_de_schema, ingest
-from rpi.generator import INSTRUCCION, PLAN
+from rpi.generator import INSTRUCCION, MAESTRO, PARTES, PLAN
 from rpi.schema import (
     InstruccionEmpaqueSchema,
     MaestroMaterialesSchema,
@@ -101,14 +101,42 @@ def test_ingest_sin_stock_inicial_falla(df_ci, tmp_path):
         ingest(db_path=tmp_path / "test.duckdb", raw_dir=tmp_path)
 
 
-def test_ingest_sin_plan_falla(raw_ci, tmp_path):
-    # Copia todo menos el plan: el error tiene que nombrar lo que falta.
+def test_ingest_sin_plan_carga_tablas_vacias(raw_ci, tmp_path, capsys):
+    # Un extracto real puede no traer plan: las tablas quedan vacías con las
+    # columnas del contrato y la necesidad sale sin filas (ADR-037).
     for archivo in raw_ci.glob("*.parquet"):
-        if archivo.name != PLAN:
+        if archivo.name not in (PARTES, INSTRUCCION, PLAN):
             (tmp_path / archivo.name).write_bytes(archivo.read_bytes())
-    with pytest.raises(FileNotFoundError, match=PLAN) as error:
+    db = tmp_path / "test.duckdb"
+    ingest(db_path=db, raw_dir=tmp_path)
+    con = duckdb.connect(str(db), read_only=True)
+    for tabla, archivo in [
+        ("raw_partes", PARTES),
+        ("raw_instruccion_empaque", INSTRUCCION),
+        ("raw_plan_produccion", PLAN),
+    ]:
+        assert con.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0] == 0
+        vacia = con.execute(f"SELECT * FROM {tabla}").pl()
+        assert vacia.schema == pl.read_parquet(raw_ci / archivo).schema, tabla
+    assert con.execute("SELECT count(*) FROM raw_mb51").fetchone()[0] > 0
+    con.close()
+    assert "raw_plan_produccion: 0 filas cargadas, sin archivo" in capsys.readouterr().out
+
+
+def test_ingest_sin_maestro_falla(raw_ci, tmp_path):
+    for archivo in raw_ci.glob("*.parquet"):
+        if archivo.name != MAESTRO:
+            (tmp_path / archivo.name).write_bytes(archivo.read_bytes())
+    with pytest.raises(FileNotFoundError, match=MAESTRO):
         ingest(db_path=tmp_path / "test.duckdb", raw_dir=tmp_path)
-    assert INSTRUCCION not in str(error.value)
+
+
+def test_ingest_sin_mb51_falla(raw_ci, tmp_path):
+    for archivo in raw_ci.glob("*.parquet"):
+        if not archivo.name.startswith("mb51_"):
+            (tmp_path / archivo.name).write_bytes(archivo.read_bytes())
+    with pytest.raises(FileNotFoundError, match="mb51"):
+        ingest(db_path=tmp_path / "test.duckdb", raw_dir=tmp_path)
 
 
 def test_plan_cumple_schemas(partes_ci, instruccion_ci, plan_ci):

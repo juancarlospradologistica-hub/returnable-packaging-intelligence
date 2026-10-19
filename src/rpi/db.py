@@ -4,8 +4,12 @@ materiales.
 
 Cada tabla pasa por su schema Pandera en modo lazy antes de cargarse. Las
 fallas de estructura no detienen la ingesta: van a raw_errores_schema y la
-regla error_de_schema de dbt las reporta (ADR-028, punto 9). Solo truena si
-falta un archivo.
+regla error_de_schema de dbt las reporta (ADR-028, punto 9).
+
+MB51, foto inicial y maestro son obligatorios: sin ellos no hay stock, tipo ni
+costo. Partes, instrucción y plan son opcionales, porque un extracto real
+puede no traer plan de producción: si falta un archivo, su tabla se crea vacía
+con las columnas del contrato y la necesidad de flota sale sin filas (ADR-037).
 """
 
 import os
@@ -71,6 +75,15 @@ def carga(con: duckdb.DuckDBPyConnection, tabla: str, archivo: Path) -> None:
     con.execute(f"CREATE OR REPLACE TABLE {tabla} AS SELECT * FROM read_parquet('{archivo}')")
 
 
+OPCIONALES = ("raw_partes", "raw_instruccion_empaque", "raw_plan_produccion")
+
+
+def vacia(tabla: str) -> pl.DataFrame:
+    """Tabla sin filas con las columnas y tipos del contrato."""
+    columnas = ESQUEMAS[tabla].to_schema().columns
+    return pl.DataFrame(schema={nombre: c.dtype.type for nombre, c in columnas.items()})
+
+
 def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
     raw_dir = Path(raw_dir)
     tablas = {
@@ -81,11 +94,18 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
         "raw_plan_produccion": raw_dir / PLAN,
         "raw_maestro_materiales": raw_dir / MAESTRO,
     }
-    # Sin foto inicial no hay stock por almacén, sin plan no hay necesidad y
-    # sin maestro no hay tipo ni costo; mejor fallar aquí que en dbt.
-    faltan = [p.name for t, p in tablas.items() if t != "raw_mb51" and not p.exists()]
+    # Sin MB51, foto o maestro no hay stock, tipo ni costo: mejor fallar aquí
+    # que en dbt.
+    if not any(raw_dir.glob(tablas["raw_mb51"].name)):
+        raise FileNotFoundError(f"No hay mb51_*.parquet en {raw_dir}")
+    faltan = [
+        p.name
+        for t, p in tablas.items()
+        if t not in OPCIONALES and t != "raw_mb51" and not p.exists()
+    ]
     if faltan:
         raise FileNotFoundError(f"Faltan {faltan} en {raw_dir}: regenerar con python -m rpi")
+    sin_archivo = [t for t in OPCIONALES if not tablas[t].exists()]
 
     # MB51 se valida por planta: el completo no cabe junto en memoria.
     errores = pl.concat(
@@ -98,7 +118,12 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
 
     con = duckdb.connect(str(db_path))
     for tabla, archivo in tablas.items():
-        carga(con, tabla, archivo)
+        if tabla in sin_archivo:
+            con.register("_vacia", vacia(tabla).to_arrow())
+            con.execute(f"CREATE OR REPLACE TABLE {tabla} AS SELECT * FROM _vacia")
+            con.unregister("_vacia")
+        else:
+            carga(con, tabla, archivo)
     con.register("_errores", errores.to_arrow())
     con.execute("CREATE OR REPLACE TABLE raw_errores_schema AS SELECT * FROM _errores")
     con.unregister("_errores")
@@ -117,7 +142,8 @@ def ingest(db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
 
     for tabla in tablas:
         count = con.execute(f"SELECT COUNT(*) FROM {tabla}").fetchone()[0]
-        print(f"{tabla}: {count:,} filas cargadas")
+        nota = ", sin archivo" if tabla in sin_archivo else ""
+        print(f"{tabla}: {count:,} filas cargadas{nota}")
     con.close()
 
 
