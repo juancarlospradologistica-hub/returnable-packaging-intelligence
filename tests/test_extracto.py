@@ -1,17 +1,19 @@
 """
-Adaptador de extracto real (ADR-035). El dataset sintético escrito como lo daría
-SAP tiene que regresar idéntico al contrato: si la ida y vuelta no cuadra, el
-adaptador cambia datos y no solo formato.
+Adaptador de extracto real (ADR-035, ADR-037). El dataset sintético escrito como
+lo daría SAP tiene que regresar idéntico al contrato: si la ida y vuelta no
+cuadra, el adaptador cambia datos y no solo formato.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
 import pytest
 
 from rpi.db import fallas_de_schema
-from rpi.extracto import lee_unidades, main, mb51
+from rpi.extracto import foto, lee_unidades, maestro, main, mb51
+from rpi.generator import MAESTRO, STOCK_INICIAL
+from rpi.recorte import recorta
 from rpi.schema import MEINS_VALIDAS
 
 
@@ -228,3 +230,212 @@ def test_cli(limpio, tmp_path, capsys):
     main(["mb51", str(archivo), "--salida", str(tmp_path / "raw")])
     _igual_al_limpio(limpio, tmp_path / "raw")
     assert "filas" in capsys.readouterr().out
+
+
+# --- Maestro de materiales (ADR-037) ---
+
+
+def _maestro_sap(maestro: pl.DataFrame, decimal: str = ",") -> pl.DataFrame:
+    return maestro.select(
+        pl.col("Werks").alias("WERKS"),
+        pl.col("Matnr").alias("MATNR"),
+        pl.col("Maktx").alias("MAKTX"),
+        pl.col("Mtart").alias("MTART"),
+        pl.col("Matkl").alias("MATKL"),
+        pl.when(pl.col("Meins") == "PC").then(pl.lit("ST")).otherwise("Meins").alias("MEINS"),
+        pl.lit("V").alias("VPRSV"),
+        _con_miles(pl.col("Verpr"), 2, decimal).alias("VERPR"),
+        pl.col("Peinh").cast(pl.String).alias("PEINH"),
+        pl.col("Waers").alias("WAERS"),
+    )
+
+
+def test_maestro_ida_y_vuelta(maestro_ci, tmp_path):
+    archivo = tmp_path / "maestro.csv"
+    _maestro_sap(maestro_ci).sample(fraction=1.0, shuffle=True, seed=7).write_csv(
+        archivo, separator=";"
+    )
+    destino = maestro(archivo, tmp_path / "raw")
+    assert destino.name == MAESTRO
+    assert pl.read_parquet(destino).equals(maestro_ci.sort("Werks", "Matnr"))
+    assert fallas_de_schema("raw_maestro_materiales", destino).is_empty()
+
+
+def test_maestro_precio_estandar(maestro_ci, tmp_path):
+    # Con control de precio S el precio es STPRS, no el medio variable.
+    sap = _maestro_sap(maestro_ci.head(3)).with_columns(
+        pl.lit("S").alias("VPRSV"), pl.lit("1.234,50").alias("STPRS"), pl.lit("9,99").alias("VERPR")
+    )
+    archivo = tmp_path / "maestro.csv"
+    sap.write_csv(archivo, separator=";")
+    assert pl.read_parquet(maestro(archivo, tmp_path))["Verpr"].to_list() == [1234.5] * 3
+
+
+def test_maestro_sin_moneda(maestro_ci, tmp_path):
+    archivo = tmp_path / "maestro.csv"
+    _maestro_sap(maestro_ci.head(3)).drop("WAERS").write_csv(archivo, separator=";")
+    with pytest.raises(ValueError, match="--moneda"):
+        maestro(archivo, tmp_path)
+    assert (
+        pl.read_parquet(maestro(archivo, tmp_path, moneda="MXN"))["Waers"].to_list() == ["MXN"] * 3
+    )
+
+
+@pytest.mark.parametrize(
+    ("quita", "error"), [(["VERPR"], "precio"), (["MATKL", "PEINH"], "MATKL, PEINH")]
+)
+def test_maestro_campos_que_faltan(maestro_ci, tmp_path, quita, error):
+    archivo = tmp_path / "maestro.csv"
+    _maestro_sap(maestro_ci.head(3)).drop(quita).write_csv(archivo, separator=";")
+    with pytest.raises(ValueError, match=error):
+        maestro(archivo, tmp_path)
+
+
+# --- Foto de stock (ADR-036, ADR-037) ---
+
+
+@pytest.fixture(scope="module")
+def ventana(raw_ci, df_ci, tmp_path_factory):
+    """La ventana recortada del dataset de prueba: abre con stock en cliente."""
+    ini = df_ci["Budat"].min()
+    desde = ini + timedelta(days=91 - ini.weekday())
+    salida = tmp_path_factory.mktemp("ventana")
+    recorta(raw_ci, salida, desde)
+    return salida
+
+
+def _cierre(ventana: Path) -> pl.DataFrame:
+    """Stock al día del extracto: la foto de apertura más todo lo que se movió."""
+    ciclo = pl.read_csv("seeds/almacenes.csv").filter(pl.col("estado") != "fuera_ciclo")["lgort"]
+    foto_ = pl.read_parquet(ventana / STOCK_INICIAL)
+    mb = pl.scan_parquet(ventana / "mb51_*.parquet").collect()
+    almacen = mb.filter(pl.col("Lgort").is_in(ciclo.implode())).select(
+        "Werks", "Lgort", "Matnr", pl.lit(None, dtype=pl.String).alias("Kunnr"), "Menge"
+    )
+    cliente = mb.filter(pl.col("Bwart").is_in(["621", "622", "702"])).select(
+        "Werks",
+        pl.lit(None, dtype=pl.String).alias("Lgort"),
+        "Matnr",
+        "Kunnr",
+        pl.when(pl.col("Bwart") == "621")
+        .then(pl.col("Menge").abs())
+        .otherwise(-pl.col("Menge").abs())
+        .alias("Menge"),
+    )
+    llave = ["Werks", "Lgort", "Matnr", "Kunnr"]
+    return (
+        pl.concat([foto_.select(*llave, "Menge"), almacen, cliente])
+        .group_by(llave)
+        .agg(pl.col("Menge").sum())
+        .filter(pl.col("Menge") != 0)
+    )
+
+
+def _mard_msku(stock: pl.DataFrame, tmp: Path) -> tuple[Path, Path]:
+    # Como SE16N: cantidades con tres decimales; reparación y scrap en
+    # bloqueado (SPEME), lo demás en libre utilización (LABST).
+    almacen = stock.filter(pl.col("Lgort").is_not_null())
+    bloqueado = pl.col("Lgort").is_in(["REPA", "SCRP"])
+    mard = almacen.select(
+        pl.col("Werks").alias("WERKS"),
+        pl.col("Lgort").alias("LGORT"),
+        pl.col("Matnr").alias("MATNR"),
+        _con_miles(pl.when(bloqueado).then(0).otherwise("Menge"), 3, ",").alias("LABST"),
+        _con_miles(pl.when(bloqueado).then("Menge").otherwise(0), 3, ",").alias("SPEME"),
+    )
+    cliente = stock.filter(pl.col("Kunnr").is_not_null())
+    msku = cliente.select(
+        pl.col("Werks").alias("WERKS"),
+        pl.col("Kunnr").alias("KUNNR"),
+        pl.col("Matnr").alias("MATNR"),
+        pl.lit("V").alias("SOBKZ"),
+        _con_miles(pl.col("Menge"), 3, ",").alias("KULAB"),
+    )
+    # Consignación (W) en la misma tabla: no es stock de retornables.
+    w = msku.head(1).with_columns(pl.lit("W").alias("SOBKZ"), pl.lit("CUST-9999").alias("KUNNR"))
+    archivos = tmp / "MARD.csv", tmp / "MSKU.csv"
+    mard.write_csv(archivos[0], separator=";")
+    pl.concat([msku, w]).write_csv(archivos[1], separator=";")
+    return archivos
+
+
+def test_foto_al_dia_del_extracto_regresa_a_la_apertura(ventana, tmp_path):
+    mard, msku = _mard_msku(_cierre(ventana), tmp_path)
+    fin = pl.scan_parquet(ventana / "mb51_*.parquet").select(pl.col("Budat").max()).collect().item()
+    destino = foto(fin, mard, tmp_path / "raw", cliente=msku, mb51=ventana)
+    llave = ["Werks", "Lgort", "Matnr", "Kunnr"]
+    esperada = pl.read_parquet(ventana / STOCK_INICIAL).sort(llave, nulls_last=True)
+    assert pl.read_parquet(destino).equals(esperada)
+    assert fallas_de_schema("raw_stock_inicial", destino).is_empty()
+
+
+def test_foto_regresa_el_almacen_fuera_del_ciclo_que_trae(ventana, tmp_path):
+    # El cartón (RM01) no es del ciclo; si la foto lo trae, también se regresa:
+    # cierre menos lo que se movió, aquí 5 por material.
+    mb = pl.scan_parquet(ventana / "mb51_*.parquet").filter(pl.col("Lgort") == "RM01").collect()
+    neto = mb.group_by("Werks", "Matnr").agg(pl.col("Menge").sum())
+    carton = neto.select(
+        "Werks",
+        pl.lit("RM01").alias("Lgort"),
+        "Matnr",
+        pl.lit(None, dtype=pl.String).alias("Kunnr"),
+        (pl.col("Menge") + 5).alias("Menge"),
+    )
+    mard, msku = _mard_msku(pl.concat([_cierre(ventana), carton]), tmp_path)
+    fin = pl.scan_parquet(ventana / "mb51_*.parquet").select(pl.col("Budat").max()).collect().item()
+    vuelta = pl.read_parquet(foto(fin, mard, tmp_path / "raw", cliente=msku, mb51=ventana))
+    rm01 = vuelta.filter(pl.col("Lgort") == "RM01")
+    assert rm01.height == neto.height > 0
+    assert (rm01["Menge"] == 5).all()
+
+
+def test_foto_del_dia_anterior_pasa_como_viene(ventana, tmp_path):
+    apertura = pl.read_parquet(ventana / STOCK_INICIAL)
+    mard, msku = _mard_msku(apertura, tmp_path)
+    dia = apertura["Fecha"][0]
+    destino = foto(dia, mard, tmp_path / "raw", cliente=msku, mb51=ventana)
+    llave = ["Werks", "Lgort", "Matnr", "Kunnr"]
+    assert pl.read_parquet(destino).equals(apertura.sort(llave, nulls_last=True))
+
+
+def test_foto_sin_stock_en_cliente(ventana, tmp_path):
+    # Sin MSKU la foto no trae stock V: el calendario descarta el arranque.
+    mard, _ = _mard_msku(_cierre(ventana), tmp_path)
+    fin = pl.scan_parquet(ventana / "mb51_*.parquet").select(pl.col("Budat").max()).collect().item()
+    vuelta = pl.read_parquet(foto(fin, mard, tmp_path / "raw", mb51=ventana))
+    assert vuelta["Kunnr"].is_null().all()
+    esperada = pl.read_parquet(ventana / STOCK_INICIAL).filter(pl.col("Kunnr").is_null())
+    assert vuelta.sort(vuelta.columns, nulls_last=True).equals(
+        esperada.sort(esperada.columns, nulls_last=True)
+    )
+
+
+def test_foto_a_la_mitad_de_la_ventana(ventana, tmp_path):
+    mard, _ = _mard_msku(_cierre(ventana), tmp_path)
+    mitad = pl.scan_parquet(ventana / "mb51_*.parquet").select(pl.col("Budat").min()).collect()
+    with pytest.raises(ValueError, match="dentro de la ventana"):
+        foto(mitad.item() + timedelta(days=30), mard, tmp_path, mb51=ventana)
+
+
+@pytest.mark.parametrize(
+    ("quita", "error"), [(["LABST", "SPEME"], "cantidad"), (["LGORT"], "LGORT")]
+)
+def test_foto_campos_que_faltan(ventana, tmp_path, quita, error):
+    mard, _ = _mard_msku(_cierre(ventana), tmp_path)
+    pl.read_csv(mard, separator=";", infer_schema=False).drop(quita).write_csv(mard, separator=";")
+    with pytest.raises(ValueError, match=error):
+        foto(date(2026, 6, 30), mard, tmp_path, mb51=ventana)
+
+
+def test_cli_maestro_y_foto(maestro_ci, ventana, tmp_path, capsys):
+    archivo = tmp_path / "maestro.csv"
+    _maestro_sap(maestro_ci).write_csv(archivo, separator=";")
+    main(["maestro", str(archivo), "--salida", str(tmp_path / "raw")])
+    mard, msku = _mard_msku(_cierre(ventana), tmp_path)
+    fin = pl.scan_parquet(ventana / "mb51_*.parquet").select(pl.col("Budat").max()).collect().item()
+    main(
+        ["foto", fin.strftime("%d.%m.%Y"), "--almacen", str(mard), "--cliente", str(msku)]
+        + ["--mb51", str(ventana), "--salida", str(tmp_path / "raw")]
+    )
+    salida = capsys.readouterr().out
+    assert MAESTRO in salida and STOCK_INICIAL in salida
