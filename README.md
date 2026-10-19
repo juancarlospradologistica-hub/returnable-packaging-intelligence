@@ -187,7 +187,7 @@ Con `--defectos todos` (o una lista como `--defectos D05,D13`) el generador inye
 
 Con `--defectos ciegos` inyecta cuatro defectos más, que medí antes de que existiera una regla para ellos (ADR-033, ADR-034): Matnr y Kunnr con ceros a la izquierda desde una fecha, un documento 621 contabilizado otra vez con otro número y salidas con fecha de contabilización posterior a la del extracto. `--defectos todos,ciegos` enciende los 22.
 
-Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales). Cada tabla pasa por su schema Pandera; una falla de estructura no detiene la carga y queda en `raw_errores_schema`:
+Ingestar a DuckDB (MB51, stock inicial, plan y maestro de materiales). Cada tabla pasa por su schema Pandera; una falla de estructura no detiene la carga y queda en `raw_errores_schema`. MB51, foto y maestro son obligatorios; partes, instrucción y plan no: si falta el archivo, su tabla queda vacía y la necesidad de flota sale sin filas (ADR-037):
 
 ```bash
 uv run python -c "from rpi.db import ingest; ingest()"
@@ -243,9 +243,13 @@ Abrir el dashboard:
 uv run marimo run notebooks/02_dashboard.py
 ```
 
-### Cargar un MB51 bajado de SAP
+### Cargar un extracto de SAP
 
-`rpi.extracto` convierte un MB51 de SAP al contrato que escribe el generador: un Parquet por planta en `data/extracto/raw`, que la ingesta lee igual que `data/raw`. Espera un CSV con los campos técnicos de MSEG y MKPF, que no cambian con el idioma del usuario. Por default lee separador `;`, fecha DD.MM.AAAA y notación 1.234,56, los formatos de un usuario estándar de SAP:
+`rpi.extracto` convierte el MB51, el maestro de materiales y la foto de stock bajados de SAP al contrato que escribe el generador, en `data/extracto/raw`, que la ingesta lee igual que `data/raw`. Los tres esperan CSV con los campos técnicos de las tablas de SAP, que no cambian con el idioma del usuario, y los formatos de un usuario estándar de SAP: separador `;`, fecha DD.MM.AAAA y notación 1.234,56. Otros formatos van con `--separador`, `--decimal` y `--fecha`; otros encabezados, con `--columnas`.
+
+#### MB51
+
+Un Parquet por planta, con los campos de MSEG y MKPF:
 
 ```bash
 uv run python -m rpi.extracto mb51 data/extracto/MB51.csv
@@ -267,7 +271,30 @@ La fecha de extracción la da quien corrió el extracto, y se pasa a dbt:
 uv run dbt build --profiles-dir . --vars "{fecha_extraccion: '2026-09-30'}"
 ```
 
-Por ahora cubre MB51. La ingesta pide también la foto de stock, el maestro y el plan, y sus adaptadores vienen en 4d.3 (ADR-035, ADR-036). Lo probé con ida y vuelta: el MB51 completo del generador, escrito como lo exporta SAP (CSV de 2.6 GB, 21M de líneas), regresa idéntico planta por planta en 50 s, con 2.6 GB de pico de memoria. `data/extracto/` está en `.gitignore`.
+Lo probé con ida y vuelta: el MB51 completo del generador, escrito como lo exporta SAP (CSV de 2.6 GB, 21M de líneas), regresa idéntico planta por planta en 50 s, con 2.6 GB de pico de memoria. `data/extracto/` está en `.gitignore`.
+
+#### Maestro de materiales
+
+```bash
+uv run python -m rpi.extracto maestro data/extracto/maestro.csv
+uv run python -m rpi.extracto maestro maestro.csv --moneda USD
+```
+
+Una fila por material asignado a la planta, con los campos de MARA, MARC, MAKT y MBEW: WERKS, MATNR, MAKTX, MTART, MATKL, MEINS y PEINH, más el precio. El precio es VERPR o STPRS según el control de precio VPRSV (V medio variable, S estándar). Un LEIH sin valorar trae el del registro info, EINE.NETPR, que se mapea a VERPR con `--columnas`. WAERS es la moneda de la sociedad y no está en MBEW; sin la columna, `--moneda` la da para todo el archivo.
+
+#### Foto de stock
+
+```bash
+uv run python -m rpi.extracto foto 30.06.2026 --almacen MARD.csv --cliente MSKU.csv
+```
+
+El stock por almacén sale de MARD (WERKS, LGORT, MATNR y la suma de LABST, UMLME, INSME, EINME, SPEME y RETME que vengan) y el stock V en cliente, de MSKU (WERKS, KUNNR, MATNR, KULAB, KUINS y KUEIN; si trae SOBKZ, solo las filas V). El pipeline pide la foto del día anterior al primer movimiento del MB51, y esa nadie la tiene a la mano: lo que cualquiera baja de MMBE o SE16N es el stock del día del extracto. Con esa fecha, el adaptador regresa la foto con el MB51 ya convertido: stock al cierre menos lo que se movió en la ventana. Regresa los almacenes del ciclo y los que traiga la foto, porque un almacén vacío al cierre no aparece en MARD. Con la foto del día anterior a la ventana la escribe como viene; con una fecha a la mitad se detiene.
+
+MARD trae el stock de todos los materiales del almacén: baja la foto con la misma selección de materiales que el MB51, o `material_sin_maestro` marca los que sobran.
+
+#### De punta a punta
+
+Lo probé con la ventana recortada del completo armada como la bajaría alguien de SAP: MB51 en CSV, MARD y MSKU del día del extracto y el maestro, sin plan. Los tres adaptadores corren en 50 s y sus 16 archivos salen idénticos a los de la ventana. dbt build pasa completo, los 11 marts que no dependen del plan salen iguales fila por fila y los cuatro de necesidad, brecha, sensibilidad y red de préstamos, vacíos. El dashboard cambia la pestaña de necesidad por un aviso.
 
 ### Un extracto abre con contenedores en cliente
 
@@ -296,8 +323,9 @@ returnable-packaging-intelligence/
 │   └── ci.yml                  # lint + generador CI + dbt build + pytest en cada push
 ├── data/
 │   ├── raw/                    # Parquet por planta, stock inicial, plan y maestro (excluido de Git)
-│   ├── extracto/               # MB51 bajado de SAP y su conversión (excluido de Git)
-│   └── recorte/                # El limpio desde una fecha, con la foto al corte (excluido de Git)
+│   ├── extracto/               # Extracto bajado de SAP y su conversión (excluido de Git)
+│   ├── recorte/                # El limpio desde una fecha, con la foto al corte (excluido de Git)
+│   └── sinplan/                # El limpio sin partes, instrucción ni plan; lo arma CI (excluido de Git)
 ├── docs/
 │   ├── calidad/                # impacto_defectos.csv y ciegos_antes.csv: mediciones versionadas del arnés
 │   └── img/                    # Gráficas que escriben los notebooks
@@ -361,13 +389,13 @@ returnable-packaging-intelligence/
 │   ├── config.py               # Parámetros del generador (Pydantic)
 │   ├── db.py                   # Ingesta Parquet → DuckDB
 │   ├── defectos.py             # Catálogo de defectos inyectables y bitácora
-│   ├── extracto.py             # Adaptador: MB51 bajado de SAP al contrato de entrada
+│   ├── extracto.py             # Adaptadores: MB51, maestro y foto de SAP al contrato de entrada
 │   ├── generator.py            # Generador sintético MB51, stock inicial, plan y maestro
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   ├── recorte.py              # Ventana recortada: el limpio desde una fecha, con la foto al corte
 │   └── schema.py               # Schemas Pandera: MB51, foto, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, extracto sin plan, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -620,7 +648,7 @@ Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de 
 
 Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extracto real que ninguna regla nombraba se midieron antes de escribir sus reglas, con 0 de 4 detectados por su causa, y después, con 4 de 4. La fecha de extracción pasó a ser un dato de entrada en lugar de inferirse del MB51. El simulador de la red queda para Fase 5.
 
-Fase 4d en curso: extracto real. MB51 de SAP al contrato, con ida y vuelta exacta sobre el completo (ADR-035). La foto inicial trae el stock en cliente con el que abre un extracto real, y una ventana recortada da lo mismo que la completa (ADR-036). Adaptadores de foto, maestro y plan en 4d.3.
+Fase 4d cerrada: extracto real. MB51, maestro y foto de SAP al contrato, cada uno con ida y vuelta exacta (ADR-035, ADR-037). La foto trae el stock en cliente con el que abre un extracto real y una ventana recortada da lo mismo que la completa (ADR-036). El plan de producción es opcional: sin él la necesidad no se calcula y todo lo demás sale igual. Un extracto armado como lo baja SAP corre de punta a punta sin el generador.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
