@@ -55,6 +55,18 @@ jobs:
         env:
           RPI_DB: data/recorte.duckdb
 
+      # Extracto sin plan de producción (ADR-037): el mismo limpio sin partes,
+      # instrucción ni plan. La necesidad sale vacía, lo demás igual y el
+      # dashboard avisa en lugar de tronar; test_sin_plan lo exige.
+      - name: extracto sin plan
+        run: |
+          mkdir -p data/sinplan
+          cp data/raw/mb51_*.parquet data/raw/stock_inicial.parquet data/raw/maestro_materiales.parquet data/sinplan/
+          uv run python -c "from rpi.db import ingest; ingest(raw_dir='data/sinplan')"
+          uv run dbt build --profiles-dir .
+        env:
+          RPI_DB: data/sinplan.duckdb
+
       - name: tests con cobertura
         run: |
           uv run pytest tests/ \
