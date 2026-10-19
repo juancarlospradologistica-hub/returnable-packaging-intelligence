@@ -121,6 +121,7 @@ Extracto real: MB51, foto de stock y maestro bajados de SAP, convertidos al cont
 - **pyrfc / RFC directo a SAP** — pide el SAP NetWeaver RFC SDK, con licencia, y un sistema donde conectarse; el Charter es local y sin datos de empleador. El adaptador lee el archivo que baja quien tiene acceso (ADR-035).
 - **Lectura de xlsx en el adaptador** — Polars la hace con fastexcel, una dependencia más para algo que SAP también exporta como texto con separador. Se reconsidera si un usuario solo puede bajar xlsx (ADR-035).
 - **Evidence.dev** — migró a modelo cloud (ADR-008).
+- **Playwright en el repo para las capturas del dashboard** — bajaría un navegador de ~150 MB en cada máquina Windows para regenerar cuatro imágenes cuyas cifras fija la semilla. Las capturas se toman fuera del repo y entran como PNG en docs/img.
 
 ---
 
@@ -1526,11 +1527,34 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 19** · Fase 4b: mart de calidad con severidad e impacto en USD, notebook 05, pestaña del dashboard. Fase 4 cerrada (ADR-031, ADR-032).
 - [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
 - [x] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de maestro y foto, plan opcional y extracto de punta a punta (4d.3, ADR-037). Fase 4d cerrada.
+- [x] **Semana 22** · Publicación en GitHub: README de entrada con cifras headline cuadradas por test, capturas del dashboard y revisión de links y comandos en Windows.
 - [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-18 · Sesión 57 — Semana 22
+
+- **Duración:** ~2 h
+- **Hecho:**
+  - PR #23 (fase-4d3) mergeado. Fase 4d cerrada.
+  - README de entrada: qué es en una frase, cuatro cifras headline, una captura y lo que hay adentro. test_entrada las cuadra contra los marts, igual que las tablas de cada fase; los conteos de dbt y de ADRs que cita la entrada también tienen su test.
+  - Capturas del dashboard: rotación y pérdidas sobre el completo limpio, y calidad de datos con los 22 defectos sobre el reducido de CI.
+  - El encabezado del dashboard decía 14 plantas y 18 meses fijos. Ahora salen de la base, con la fecha de extracción de la var; con la base con defectos, un Budat posterior al corte ya no estira la ventana. test_dashboard lo exige sobre la base que abre.
+  - Revisión de reviewer externo: links locales del README sin rotos, badge de Python 3.11+, badges clicables y el cambio de RPI_DB con su equivalente en PowerShell.
+  - Verificados rompiendo: las cuatro cifras de la entrada, los conteos, los ADRs y el encabezado fijo.
+  - Completo: dbt build 388/388, test_readme y test_dashboard 16 passed. Reducido: pytest 178 y 12 saltados; el dashboard en la limpia, la recortada, la sin plan y la de defectos.
+- **Decisiones tomadas:**
+  - Playwright fuera del repo; las capturas entran como PNG (Sección 2).
+  - La publicación se queda en GitHub. El post de la ventana recortada no sale por ahora; la historia completa está en ADR-036.
+- **Bloqueos:**
+  - El HTML exportado de marimo carga su frontend de jsdelivr, y la máquina donde tomé las capturas no tenía salida a ese CDN. Bajé el mismo paquete del registro de npm y lo serví local interceptando las peticiones.
+  - La captura de calidad sobre el limpio mostraba cero violaciones: correcta, pero no dice nada. Va la de la base con defectos.
+- **Notas de la sesión:**
+  - Un texto fijo en un dashboard es una cifra sin test. El encabezado tenía dos.
+  - La entrada de un README se lee en 30 segundos; cada cifra ahí tiene que ser la misma que la del mart.
+- **Próximo paso:** PR de publicacion-readme. Después, Fase 5: diseño del simulador de la red RPL antes que código.
 
 ### 2026-10-18 · Sesión 56 — Semana 21
 
