@@ -227,6 +227,8 @@ data/raw/*.parquet
 data/sucio/
 # Ventana recortada del limpio (ADR-036)
 data/recorte/
+# El limpio sin plan de producción (ADR-037)
+data/sinplan/
 # Bases y Parquet de trabajo del arnés; su salida va a docs/calidad (ADR-031)
 data/calidad/
 data/raw/*.csv

@@ -1,6 +1,7 @@
 """
-Adaptador de extracto real (ADR-035): un MB51 bajado de SAP al contrato de
-entrada del pipeline, el mismo que escribe el generador.
+Adaptador de extracto real (ADR-035, ADR-037): MB51, maestro de materiales y
+foto de stock bajados de SAP al contrato de entrada del pipeline, el mismo que
+escribe el generador.
 
 Cambia nombres, formatos y signo; no corrige datos. Un Matnr con ceros a la
 izquierda o una fecha después del corte pasan como vienen y los ven sus reglas
@@ -15,18 +16,24 @@ decimal 1.234.567,89.
 Uso:
     uv run python -m rpi.extracto mb51 data/extracto/MB51.csv
     uv run python -m rpi.extracto mb51 MB51.csv --decimal . --fecha %m/%d/%Y --columnas mapeo.csv
+    uv run python -m rpi.extracto maestro data/extracto/maestro.csv
+    uv run python -m rpi.extracto foto 30.06.2026 --almacen MARD.csv --cliente MSKU.csv
 """
 
 from __future__ import annotations
 
 import argparse
 import tempfile
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
 
+from rpi.generator import MAESTRO, STOCK_INICIAL
+
 SALIDA = Path("data/extracto/raw")
-UNIDADES = Path("seeds/unidades_extracto.csv")
+SEEDS = Path("seeds")
+UNIDADES = SEEDS / "unidades_extracto.csv"
 
 # Campo técnico SAP → columna del contrato. SHKZG, DMBTR y WAERS no tienen
 # columna propia: dan el signo de Menge y el precio del documento.
@@ -195,20 +202,250 @@ def mb51(
     return escritos
 
 
+def _crudo(archivo: Path, separador: str, columnas: Path | None) -> pl.LazyFrame:
+    crudo = pl.scan_csv(archivo, separator=separador, infer_schema=False)
+    return crudo.rename(lee_columnas(columnas), strict=False)
+
+
+def _exige(campos: set[str], obligatorios: list[str], que: str) -> None:
+    faltan = [c for c in obligatorios if c not in campos]
+    if faltan:
+        raise ValueError(f"Faltan campos obligatorios en {que}: {', '.join(faltan)}")
+
+
+# --- Maestro de materiales ---
+
+MAESTRO_OBLIGATORIOS = ["WERKS", "MATNR", "MAKTX", "MTART", "MATKL", "MEINS", "PEINH"]
+
+
+def maestro(
+    archivo: Path,
+    salida: Path = SALIDA,
+    separador: str = ";",
+    decimal: str = ",",
+    columnas: Path | None = None,
+    unidades: Path = UNIDADES,
+    moneda: str | None = None,
+) -> Path:
+    """
+    MARA, MARC, MAKT y MBEW de cada material asignado a la planta, a
+    maestro_materiales.parquet. El precio es VERPR o STPRS según el control de
+    precio VPRSV (V precio medio variable, S estándar); un LEIH sin valorar
+    trae el del registro info (EINE.NETPR), que se mapea a VERPR con
+    --columnas. WAERS es de la sociedad y no está en MBEW: sin la columna,
+    --moneda la da para todo el archivo.
+    """
+    crudo = _crudo(archivo, separador, columnas)
+    campos = set(crudo.collect_schema().names())
+    _exige(campos, MAESTRO_OBLIGATORIOS, "el maestro")
+    if not {"VERPR", "STPRS"} & campos:
+        raise ValueError("El maestro no trae precio: falta VERPR o STPRS")
+    if "WAERS" not in campos and moneda is None:
+        raise ValueError("El maestro no trae WAERS: pasa la moneda con --moneda")
+    opcionales = {"VERPR", "STPRS", "VPRSV", "WAERS"}
+    crudo = crudo.with_columns(pl.lit(None, dtype=pl.String).alias(c) for c in opcionales - campos)
+    lf = crudo.select(_texto(c).alias(c) for c in [*MAESTRO_OBLIGATORIOS, *sorted(opcionales)])
+    precio = (
+        pl.when(pl.col("VPRSV") == "S")
+        .then(_numero("STPRS", decimal))
+        .otherwise(pl.coalesce(_numero("VERPR", decimal), _numero("STPRS", decimal)))
+    )
+    tabla = lf.select(
+        pl.col("WERKS").alias("Werks"),
+        pl.col("MATNR").alias("Matnr"),
+        pl.col("MAKTX").alias("Maktx"),
+        pl.col("MTART").alias("Mtart"),
+        pl.col("MATKL").alias("Matkl"),
+        pl.col("MEINS").replace(lee_unidades(unidades)).alias("Meins"),
+        precio.alias("Verpr"),
+        pl.col("PEINH").cast(pl.Int64).alias("Peinh"),
+        pl.coalesce(pl.col("WAERS"), pl.lit(moneda, dtype=pl.String)).alias("Waers"),
+    ).sort("Werks", "Matnr")
+    salida.mkdir(parents=True, exist_ok=True)
+    destino = salida / MAESTRO
+    tabla.collect().write_parquet(destino)
+    return destino
+
+
+# --- Foto de stock ---
+
+# Columnas de stock de MARD y MSKU: la foto es la suma de las que vengan.
+STOCK_ALMACEN = ["LABST", "UMLME", "INSME", "EINME", "SPEME", "RETME"]
+STOCK_CLIENTE = ["KULAB", "KUINS", "KUEIN"]
+
+
+def _stock(crudo: pl.LazyFrame, llave: list[str], stock: list[str], decimal: str, que: str):
+    campos = set(crudo.collect_schema().names())
+    _exige(campos, ["WERKS", "MATNR", *llave], que)
+    cantidades = [c for c in [*stock, "MENGE"] if c in campos]
+    if not cantidades:
+        raise ValueError(f"{que} no trae cantidad: {', '.join(stock)} o MENGE")
+    if "SOBKZ" in campos:
+        # MSKU guarda también el stock en consignación (W); aquí solo va el V.
+        crudo = crudo.filter(_texto("SOBKZ") == "V")
+    return crudo.select(
+        _texto("WERKS").alias("Werks"),
+        *[_texto(c).alias(c.capitalize()) for c in llave],
+        _texto("MATNR").alias("Matnr"),
+        pl.sum_horizontal(_numero(c, decimal).fill_null(0) for c in cantidades)
+        .cast(pl.Int64)
+        .alias("Menge"),
+    )
+
+
+def _regresa(cierre: pl.DataFrame, mb51: pl.LazyFrame, apertura, seeds: Path) -> pl.DataFrame:
+    """
+    Foto al cierre menos lo que se movió en la ventana: la foto del día antes
+    del primer movimiento. Se regresan los almacenes del ciclo (seed
+    almacenes) y los que traiga la foto; un almacén vacío al cierre no aparece
+    en MARD y su stock de apertura sale solo de los movimientos. Con MSKU, cada
+    cuenta V de las plantas que trae.
+    """
+    almacenes = pl.read_csv(seeds / "almacenes.csv", infer_schema=False)
+    ciclo = almacenes.filter(pl.col("estado") != "fuera_ciclo")["lgort"]
+    clases = pl.read_csv(seeds / "clases_movimiento.csv", infer_schema=False)
+    salida = clases.filter(pl.col("evento") == "salida_cliente")["bwart"]
+    cuenta = clases.filter(
+        pl.col("evento").is_in(["salida_cliente", "recogida_cliente", "faltante_cliente"])
+    )["bwart"]
+
+    en_foto = cierre.filter(pl.col("Lgort").is_not_null()).select("Lgort").unique()["Lgort"]
+    alcance = pl.concat([ciclo, en_foto]).unique()
+    llave = ["Werks", "Lgort", "Matnr", "Kunnr"]
+    almacen = mb51.filter(pl.col("Lgort").is_in(alcance.implode())).select(
+        "Werks", "Lgort", "Matnr", pl.lit(None, dtype=pl.String).alias("Kunnr"), "Menge"
+    )
+    plantas_v = cierre.filter(pl.col("Kunnr").is_not_null())["Werks"].unique()
+    cliente = mb51.filter(
+        pl.col("Bwart").is_in(cuenta.implode()) & pl.col("Werks").is_in(plantas_v.implode())
+    ).select(
+        "Werks",
+        pl.lit(None, dtype=pl.String).alias("Lgort"),
+        "Matnr",
+        "Kunnr",
+        pl.when(pl.col("Bwart").is_in(salida.implode()))
+        .then(pl.col("Menge").abs())
+        .otherwise(-pl.col("Menge").abs())
+        .alias("Menge"),
+    )
+    movido = pl.concat([almacen, cliente]).group_by(llave).agg(pl.col("Menge").sum())
+    return (
+        pl.concat(
+            [
+                cierre.lazy().select(*llave, "Menge"),
+                movido.with_columns(-pl.col("Menge")),
+            ]
+        )
+        .group_by(llave)
+        .agg(pl.col("Menge").sum())
+        .filter(pl.col("Menge") != 0)
+        .with_columns(pl.lit(apertura).alias("Fecha"))
+        .collect()
+    )
+
+
+def foto(
+    al: date,
+    almacen: Path,
+    salida: Path = SALIDA,
+    cliente: Path | None = None,
+    mb51: Path | None = None,
+    separador: str = ";",
+    decimal: str = ",",
+    columnas: Path | None = None,
+    seeds: Path = SEEDS,
+) -> Path:
+    """
+    Stock por almacén (MARD o MB5B) y stock V en cliente (MSKU) a
+    stock_inicial.parquet, la foto del día anterior a la ventana (ADR-036).
+
+    Con la foto de ese día se escribe como viene. Con la del día del extracto,
+    que es la que cualquiera baja de MMBE o SE16N, se regresa con el MB51 ya
+    convertido: foto al cierre menos lo que se movió en la ventana. Una fecha
+    a la mitad de la ventana no sirve para ninguna de las dos.
+    """
+    mb51 = mb51 or salida
+    movimientos = pl.scan_parquet(mb51 / "mb51_*.parquet")
+    inicio, fin = (
+        movimientos.select(
+            pl.col("Budat").min().alias("inicio"), pl.col("Budat").max().alias("fin")
+        )
+        .collect()
+        .row(0)
+    )
+    llave = ["Werks", "Lgort", "Matnr", "Kunnr"]
+    partes = [
+        _stock(_crudo(almacen, separador, columnas), ["LGORT"], STOCK_ALMACEN, decimal, "MARD")
+        .with_columns(pl.lit(None, dtype=pl.String).alias("Kunnr"))
+        .select(*llave, "Menge")
+    ]
+    if cliente is not None:
+        partes.append(
+            _stock(_crudo(cliente, separador, columnas), ["KUNNR"], STOCK_CLIENTE, decimal, "MSKU")
+            .with_columns(pl.lit(None, dtype=pl.String).alias("Lgort"))
+            .select(*llave, "Menge")
+        )
+    cierre = pl.concat(partes).filter(pl.col("Menge") != 0).collect()
+
+    if al < inicio:
+        tabla = cierre.with_columns(pl.lit(al).alias("Fecha"))
+    elif al >= fin:
+        tabla = _regresa(cierre, movimientos, inicio - timedelta(days=1), seeds)
+    else:
+        raise ValueError(
+            f"Foto al {al}: dentro de la ventana del MB51 ({inicio} a {fin}). Tiene que ser "
+            "del día anterior al primer movimiento o del día del extracto."
+        )
+    salida.mkdir(parents=True, exist_ok=True)
+    destino = salida / STOCK_INICIAL
+    tabla.sort(llave, nulls_last=True).write_parquet(destino)
+    return destino
+
+
+def _filas(archivo: Path) -> str:
+    return f"{archivo}: {pl.scan_parquet(archivo).select(pl.len()).collect().item():,} filas"
+
+
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="python -m rpi.extracto", description=__doc__.split("\n")[1])
+    comun = argparse.ArgumentParser(add_help=False)
+    comun.add_argument("--salida", type=Path, default=SALIDA)
+    comun.add_argument("--separador", default=";")
+    comun.add_argument("--decimal", default=",", choices=[",", "."])
+    comun.add_argument("--columnas", type=Path, help="CSV columna,campo para otros encabezados.")
+
+    p = argparse.ArgumentParser(
+        prog="python -m rpi.extracto", description="Extracto de SAP al contrato."
+    )
     sub = p.add_subparsers(dest="tabla", required=True)
-    m = sub.add_parser("mb51", help="MB51 con los campos técnicos de MSEG y MKPF.")
+    m = sub.add_parser("mb51", parents=[comun], help="MB51 con los campos de MSEG y MKPF.")
     m.add_argument("archivo", type=Path)
-    m.add_argument("--salida", type=Path, default=SALIDA)
-    m.add_argument("--separador", default=";")
-    m.add_argument("--decimal", default=",", choices=[",", "."])
     m.add_argument("--fecha", default="%d.%m.%Y", help="Formato de fecha (strftime).")
-    m.add_argument("--columnas", type=Path, help="CSV columna,campo para otros encabezados.")
+    ma = sub.add_parser("maestro", parents=[comun], help="MARA, MARC, MAKT y MBEW.")
+    ma.add_argument("archivo", type=Path)
+    ma.add_argument("--moneda", help="WAERS para todo el archivo si no trae la columna.")
+    fo = sub.add_parser("foto", parents=[comun], help="Stock por almacén y en cliente.")
+    fo.add_argument("al", help="Día de la foto, con el formato de --fecha.")
+    fo.add_argument("--almacen", type=Path, required=True, help="MARD o MB5B.")
+    fo.add_argument("--cliente", type=Path, help="MSKU: stock especial V en cliente.")
+    fo.add_argument("--mb51", type=Path, help="MB51 ya convertido; default, --salida.")
+    fo.add_argument("--fecha", default="%d.%m.%Y", help="Formato de fecha (strftime).")
     a = p.parse_args(argv)
-    escritos = mb51(a.archivo, a.salida, a.separador, a.decimal, a.fecha, a.columnas)
-    for f in escritos:
-        print(f"{f}: {pl.scan_parquet(f).select(pl.len()).collect().item():,} filas")
+
+    if a.tabla == "mb51":
+        for f in mb51(a.archivo, a.salida, a.separador, a.decimal, a.fecha, a.columnas):
+            print(_filas(f))
+    elif a.tabla == "maestro":
+        print(
+            _filas(
+                maestro(a.archivo, a.salida, a.separador, a.decimal, a.columnas, moneda=a.moneda)
+            )
+        )
+    else:
+        al = datetime.strptime(a.al, a.fecha).date()
+        destino = foto(
+            al, a.almacen, a.salida, a.cliente, a.mb51, a.separador, a.decimal, a.columnas
+        )
+        print(_filas(destino))
 
 
 if __name__ == "__main__":
