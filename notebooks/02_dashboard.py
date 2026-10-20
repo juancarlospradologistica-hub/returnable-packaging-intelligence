@@ -5,12 +5,25 @@ app = marimo.App(width="medium")
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(con, mo):
+    # Plantas, meses y fecha de extracción salen de la base: el reducido, la
+    # ventana recortada o un extracto real no tienen las del completo. Un Budat
+    # posterior a la extracción es un defecto y no cuenta (ADR-034).
+    _plantas, _meses, _corte = con.execute(
+        """
+        SELECT COUNT(DISTINCT m.planta), COUNT(DISTINCT date_trunc('month', m.fecha_contab)),
+               ANY_VALUE(c.corte)
+        FROM stg_mb51 m, int_calendario_necesidad c
+        WHERE m.fecha_contab <= c.corte
+        """
+    ).fetchone()
+    mo.md(
+        f"""
     # Returnable Packaging Intelligence — Dashboard
 
-    Flota multi-planta · 18 meses · 14 plantas · datos MB51 sintéticos
-    """)
+    Flota multi-planta · {_meses} meses · {_plantas} plantas · extracto al {_corte:%d.%m.%Y}
+    """
+    )
     return
 
 

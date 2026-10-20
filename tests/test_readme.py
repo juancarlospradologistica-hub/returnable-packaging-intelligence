@@ -63,6 +63,56 @@ def test_filas_del_dataset(con, readme):
     assert f"{filas:,} movimientos" in readme
 
 
+def test_entrada(con, readme):
+    # Las cifras de la entrada salen de los mismos marts que las tablas de cada fase.
+    p = uno(con, "SELECT SUM(perdida_usd) AS total FROM mart_perdidas_usd")
+    r = uno(
+        con,
+        """
+        SELECT COUNT_IF(ruta_rota)::BIGINT AS rotas, COUNT(*) AS total,
+               SUM(perdida_acum_usd) FILTER (WHERE ruta_rota) AS perdida
+        FROM mart_rutas
+        """,
+    )
+    pct = round(r["perdida"] * 100 / p["total"])
+    assert f"{usd(p['total'])} USD, {pct}% en {r['rotas']} de {r['total']} rutas" in fila(
+        readme, "Pérdida reconocida"
+    )
+
+    ahorro = dict(
+        con.execute(
+            "SELECT tipo_material, SUM(ahorro_neto_usd) / SUM(viajes) "
+            "FROM mart_tco_comparativo GROUP BY 1"
+        ).fetchall()
+    )
+    assert f"${ahorro['RACK']:.2f} por viaje en Rack y ${ahorro['KLT']:.2f} en KLT" in fila(
+        readme, "Ahorro contra desechable"
+    )
+
+    b = uno(
+        con,
+        """
+        SELECT SUM(usd_flete + usd_compra + usd_desechable) AS brecha,
+               SUM(usd_capital_ocioso) AS ocioso
+        FROM mart_brecha_flota
+        """,
+    )
+    assert (
+        f"${b['brecha'] / 1e3:,.1f}k para cubrirla, con ${b['ocioso'] / 1e6:,.1f}M de flota parada"
+        in fila(readme, "Brecha de flota contra el plan")
+    )
+
+    defectos = con.execute("SELECT COUNT(DISTINCT defecto) FROM mart_impacto_defectos").fetchone()
+    assert f"{defectos[0]} defectos de un extracto real" in fila(readme, "Calidad de datos")
+
+
+def test_adrs(readme):
+    proyecto = (README.parent / "PROYECTO.md").read_text(encoding="utf-8")
+    # ADR-017 y ADR-018 van con sangría; markdown acepta hasta tres espacios.
+    adrs = set(re.findall(r"^ {0,3}### (ADR-\d{3})", proyecto, flags=re.MULTILINE))
+    assert f"{len(adrs)} ADRs en `PROYECTO.md`" in readme
+
+
 def test_kpis_fase1(con, readme):
     p = uno(
         con,
@@ -395,6 +445,8 @@ def test_conteos_dbt(readme):
     assert (
         texto.replace(" modelos, ", " modelos dbt y ").replace(" seeds, ", " seeds con ") in readme
     )
+    # La entrada no cuenta los seeds.
+    assert texto.replace(f"{cuenta('seed')} seeds, ", "") in readme
 
 
 # Fase 4: la medición del arnés no depende del dataset abierto (docs/calidad),
