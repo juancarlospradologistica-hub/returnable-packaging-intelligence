@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: int_sim_calendario
+    description: >
+      Días del gemelo de la red RPL (ADR-038), de la foto inicial a la fecha de
+      extracción. estable marca la ventana de donde sale la salida media de
+      cada estación; inicio_paro, los lunes en que puede arrancar un paro.
+    columns:
+      - name: fecha
+        tests: [not_null, unique]
+
+  - name: int_sim_lotes
+    description: >
+      Traza de cada estación: lo que salió de sucios (lavado de empaques) y de
+      reparación por planta, material, destino y día según el MB51. a_vacios
+      marca lo que regresó a vacíos.
+    columns:
+      - name: estacion
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['lavado', 'reparacion']
+      - name: cantidad
+        tests: [not_null]
+
+  - name: int_sim_vacios
+    description: Cambio neto de vacíos por planta, material y día, con la apertura de la foto.
+
+  - name: int_sim_planta
+    description: >
+      Cada escenario de escenarios_capacidad por planta, tipo de empaque e
+      inicio de paro (ADR-038). Modelo Python que llama a rpi.simulador.
+      capacidad nula es sin límite. faltante son contenedores que salieron en
+      desechable; flota_falta y flota_sobra, lo más bajo que llegó vacíos sin
+      piso, sumado por material.
+    tests:
+      - unique:
+          arguments:
+            column_name: "escenario || '|' || planta || '|' || tipo_material || '|' || coalesce(cast(inicio_paro as varchar), '-')"
+    columns:
+      - name: escenario
+        tests: [not_null]
+      - name: faltante
+        tests: [not_null]
+
+  - name: int_sim_peor_inicio
+    description: Peor inicio de paro por escenario, planta y tipo de empaque.
+    tests:
+      - unique:
+          arguments:
+            column_name: "escenario || '|' || planta || '|' || tipo_material"
+
+  - name: int_sim_diario
+    description: >
+      Serie diaria del gemelo por escenario, planta y tipo de empaque: vacíos
+      de la traza y del escenario, faltante y lo listo, liberado y en cola de
+      cada estación. Un escenario con paro trae su peor inicio.

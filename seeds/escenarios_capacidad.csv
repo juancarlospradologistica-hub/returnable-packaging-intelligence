@@ -1,0 +1,16 @@
+escenario,estacion,tipo_material,planta,utilizacion,contenedores_dia,paro_dias
+replay,lavado,,,,,0
+nominal,lavado,,,0.80,,0
+nominal,reparacion,,,0.80,,0
+lavado_70,lavado,,,0.70,,0
+lavado_90,lavado,,,0.90,,0
+lavado_95,lavado,,,0.95,,0
+lavado_100,lavado,,,1.00,,0
+reparacion_90,reparacion,,,0.90,,0
+reparacion_100,reparacion,,,1.00,,0
+paro_lavado_3,lavado,,,0.80,,3
+paro_lavado_3,reparacion,,,0.80,,0
+paro_lavado_5,lavado,,,0.80,,5
+paro_lavado_5,reparacion,,,0.80,,0
+paro_lavado_10,lavado,,,0.80,,10
+paro_lavado_10,reparacion,,,0.80,,0

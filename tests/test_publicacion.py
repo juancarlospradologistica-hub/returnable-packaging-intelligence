@@ -3,7 +3,7 @@ Bloqueo de publicación (ADR-031, punto 8).
 
 Las pruebas de lógica corren sobre una base en memoria con las dos tablas que
 lee el módulo. La última corre sobre la base de RPI_DB: limpia, nada bloqueado;
-con los defectos encendidos, las nueve cifras bloqueadas.
+con los defectos encendidos, todas las cifras del seed bloqueadas.
 """
 
 import os
@@ -11,7 +11,7 @@ import os
 import duckdb
 import pytest
 
-from rpi.publicacion import CifraBloqueadaError, bloqueadas, exige
+from rpi.publicacion import CifraBloqueadaError, bloqueadas, cifras, exige
 
 CIFRAS = [
     "perdida",
@@ -83,7 +83,7 @@ def test_cifra_desconocida(con):
 
 
 def test_base_actual():
-    """Limpia: nada bloqueado. Con bitácora de defectos: las nueve bloqueadas."""
+    """Limpia: nada bloqueado. Con bitácora de defectos: todas las del seed bloqueadas."""
     try:
         c = duckdb.connect(os.environ.get("RPI_DB", "data/rpi.duckdb"), read_only=True)
         c.execute("SELECT 1 FROM mart_calidad_datos LIMIT 1")
@@ -94,7 +94,7 @@ def test_base_actual():
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_name = 'raw_bitacora_defectos'"
         ).fetchone()[0]
-        esperado = sorted(CIFRAS) if sucia else []
+        esperado = sorted(cifras(c)) if sucia else []
         assert sorted(bloqueadas(c)) == esperado
     finally:
         c.close()

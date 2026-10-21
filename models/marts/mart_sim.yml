@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: mart_sim_capacidad
+    description: >
+      Gemelo de la red RPL (ADR-038): cada escenario de capacidad de lavado de
+      empaques y reparación por planta y tipo de empaque. Capacidad nula es sin
+      límite. faltante son contenedores que salieron en desechable porque no
+      hubo vacío, valuados con el desechable equivalente por el factor de
+      quiebre (ADR-025); faltante_pct_salidas lo compara con las salidas a
+      cliente. flota_falta es la flota que habría hecho falta para no usar
+      desechable y flota_sobra la que nunca se usó, las dos a costo del
+      maestro; flota_sobra es una cota, no una recomendación de baja. Un
+      escenario con paro trae el peor inicio y la mediana de todos.
+    tests:
+      - unique:
+          arguments:
+            column_name: "escenario || '|' || planta || '|' || tipo_material"
+    columns:
+      - name: escenario
+        tests: [not_null]
+      - name: inicios
+        tests: [not_null]
+      - name: faltante
+        tests: [not_null]
+      - name: flota_sobra
+        tests: [not_null]
+
+  - name: mart_sim_vacios_diario
+    description: >
+      Vacíos por día en cada escenario del gemelo contra la traza del MB51, con
+      la cola de cada estación, por planta y tipo de empaque (ADR-038). Un
+      escenario con paro trae su peor inicio.
+    tests:
+      - unique:
+          arguments:
+            column_name: "escenario || '|' || planta || '|' || tipo_material || '|' || cast(fecha as varchar)"
+    columns:
+      - name: vacios
+        tests: [not_null]

@@ -16,11 +16,11 @@ Pipeline analítico para la flota de contenedores retornables de una operación 
 ![Dashboard: rotación y pérdidas](docs/img/dashboard_rotacion.png)
 
 - 14 plantas en México, Estados Unidos y Nicaragua, 1,200 materiales de empaque y 20,981,396 movimientos sintéticos, con la lógica de stock especial V de SAP: salida 621, recogida 622 y faltante 702 en conciliación.
-- Polars, DuckDB y dbt: 47 modelos, 300 tests de datos y 31 unit tests. En cada push, CI corre el pipeline de punta a punta sobre un dataset reducido de 2 plantas, más una ventana que abre con stock en cliente y un extracto sin plan.
+- Polars, DuckDB y dbt: 55 modelos, 329 tests de datos y 31 unit tests. En cada push, CI corre el pipeline de punta a punta sobre un dataset reducido de 2 plantas, más una ventana que abre con stock en cliente y un extracto sin plan.
 - Un extracto bajado de SAP (MB51, MARD, MSKU y maestro de materiales) entra con `rpi.extracto` y corre de punta a punta sin el generador.
 - Ninguna cifra se publica si una regla de calidad que bloquea tiene violaciones sobre ella.
 
-Las decisiones de diseño, con sus alternativas descartadas, están en 37 ADRs en `PROYECTO.md`.
+Las decisiones de diseño, con sus alternativas descartadas, están en 38 ADRs en `PROYECTO.md`.
 
 ## Disclaimer
 
@@ -124,6 +124,15 @@ flowchart LR
     stga --> mdet[mart_deteccion_ciegos]
     stgi --> mdet
     reglas --> mdet
+    stg --> lotes[int_sim_lotes]
+    diario --> svac[int_sim_vacios]
+    escap[seed escenarios_capacidad] --> splanta[int_sim_planta, Python]
+    lotes --> splanta
+    svac --> splanta
+    splanta --> speor[int_sim_peor_inicio]
+    speor --> mcap[mart_sim_capacidad]
+    speor --> sdiario[int_sim_diario, Python]
+    sdiario --> mvac[mart_sim_vacios_diario]
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -208,7 +217,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (47 modelos, 10 seeds, 300 tests de datos y 31 unit tests):
+Construir modelos y correr los tests de dbt (55 modelos, 11 seeds, 329 tests de datos y 31 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -374,7 +383,8 @@ returnable-packaging-intelligence/
 │   │   ├── int_balance_material.sql        # déficit pico y sobrante prestable
 │   │   ├── int_prestamos.sql               # préstamos entre plantas, por país y entre países
 │   │   ├── int_brecha_escenario.sql        # compra, desechable y USD por escenario
-│   │   └── calidad/                        # reglas por causa por objeto y violaciones con severidad
+│   │   ├── calidad/                        # reglas por causa por objeto y violaciones con severidad
+│   │   └── gemelo/                         # traza de cada estación y escenarios de capacidad (modelos Python)
 │   └── marts/
 │       ├── mart_perdidas_usd.sql
 │       ├── mart_rotacion_planta.sql
@@ -390,7 +400,9 @@ returnable-packaging-intelligence/
 │       ├── mart_red_prestamos.sql
 │       ├── mart_calidad_datos.sql   # violaciones por regla, planta y material
 │       ├── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
-│       └── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
+│       ├── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
+│       ├── mart_sim_capacidad.sql   # gemelo: desechable, flota y cola por escenario
+│       └── mart_sim_vacios_diario.sql # gemelo: vacíos y cola por día contra la traza
 ├── seeds/                      # catálogos SAP, unidades de un extracto, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
@@ -410,8 +422,9 @@ returnable-packaging-intelligence/
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   ├── recorte.py              # Ventana recortada: el limpio desde una fecha, con la foto al corte
-│   └── schema.py               # Schemas Pandera: MB51, foto, plan y maestro
-├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, extracto sin plan, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+│   ├── schema.py               # Schemas Pandera: MB51, foto, plan y maestro
+│   └── simulador.py            # Gemelo de la red RPL: cola con capacidad y vacíos sobre la traza
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, extracto sin plan, gemelo, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -654,9 +667,35 @@ Las reglas de Fase 4 las escribí conociendo los 18 defectos, así que su 100% n
 - **B04 movía la brecha +31.0% con cualquier volumen.** Cuatro modelos tomaban el corte de `max(Budat)`, y una sola línea con fecha posterior corría todo el calendario: 1,987 líneas movían lo mismo que 7,940. Con la fecha de extracción como var, +1.4% a tasa y +5.6% en el techo.
 - **Límites.** `documento_repetido` necesita que el extracto traiga `Xblnr`. `kunnr_con_formato` toma como buena la versión del cliente que tiene salidas; si las dos tienen, no marca ninguna.
 
+## Fase 5: gemelo de la red RPL (en curso)
+
+La pregunta de Fase 5: qué capacidad de lavado de empaques y de reparación necesita cada planta para que la flota alcance, y cuánto cuesta en flota o en desechable quedarse corto o parar la estación unos días (ADR-038).
+
+No sorteo tiempos: el gemelo corre sobre la traza del MB51. Las salidas de sucios y de reparación dicen cuándo quedó listo cada contenedor. Con capacidad por día, lo que no cabe espera su turno y llega tarde a vacíos; un día sin vacíos, la salida va en desechable. Con capacidad sin límite reproduce el MB51 día por día, y `assert_sim_replay_exacto` lo revisa en cada build. El gemelo solo puede retrasar lo que pasó, nunca adelantarlo.
+
+La capacidad de una estación es su salida media de la ventana estable entre la utilización del escenario. Un paro corre desde cada uno de los 60 lunes posibles y la tabla suma el peor de cada planta. Los escenarios están en `seeds/escenarios_capacidad.csv` y los resultados en `mart_sim_capacidad` y `mart_sim_vacios_diario`.
+
+| Escenario | Desechable KLT | Desechable Rack | Costo del desechable | Flota que sobra KLT | Flota que sobra Rack |
+|---|---:|---:|---:|---:|---:|
+| Traza del MB51 | 0 | 0 | $0 | 200,941 | 35,826 |
+| Lavado y reparación al 80% | 0 | 0 | $0 | 198,729 | 35,285 |
+| Lavado al 95% | 0 | 0 | $0 | 192,605 | 33,928 |
+| Lavado al 100% | 137 | 78 | $8,231 | 175,149 | 30,031 |
+| Reparación al 100% | 0 | 0 | $0 | 200,169 | 35,284 |
+| Paro de lavado, 5 días | 2,569 | 668 | $83,248 | 181,696 | 31,894 |
+| Paro de lavado, 10 días | 24,721 | 5,303 | $699,785 | 127,684 | 20,629 |
+
+La flota que sobra es lo más bajo que llegó vacíos de cada material en 18 meses, sumado. Es una cota, no una recomendación de baja.
+
+- **Margen.** La flota del sintético arranca con 0 a 30% de holgura sobre su mínimo (ADR-018), así que el lavado casi no pesa hasta que trabaja al límite. Al 100% de utilización la espera sube a ~1 día y la flota que sobra baja 25,792 KLT y 5,795 Rack: $1.7M de flota que se come la falta de margen. Fase 3 midió por ley de Little que un día hábil de lavado vale 31,962 KLT de necesidad; por otro camino sale el mismo orden.
+- **Paro.** Cinco días hábiles de lavado parado, en el peor lunes de cada planta, cuestan $83k de desechable; diez días, $700k, 2.2 veces la brecha de flota de Fase 3.
+- **Reparación.** Ni al 100% de utilización manda contenedores a desechable: entra el 2% de los KLT recogidos y el 5.5% de los Rack.
+
+Sigue la pestaña de la red en el dashboard (5b) y la lista de acciones priorizada en USD (5c).
+
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 47 modelos dbt y 10 seeds con 300 tests de datos y 31 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 55 modelos dbt y 11 seeds con 329 tests de datos y 31 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
@@ -667,6 +706,8 @@ Fase 4 cerrada: calidad de datos sobre MB51 y maestro de materiales. El tipo de 
 Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extracto real que ninguna regla nombraba se midieron antes de escribir sus reglas, con 0 de 4 detectados por su causa, y después, con 4 de 4. La fecha de extracción pasó a ser un dato de entrada en lugar de inferirse del MB51. El simulador de la red queda para Fase 5.
 
 Fase 4d cerrada: extracto real. MB51, maestro y foto de SAP al contrato, cada uno con ida y vuelta exacta (ADR-035, ADR-037). La foto trae el stock en cliente con el que abre un extracto real y una ventana recortada da lo mismo que la completa (ADR-036). El plan de producción es opcional: sin él la necesidad no se calcula y todo lo demás sale igual. Un extracto armado como lo baja SAP corre de punta a punta sin el generador.
+
+Fase 5 en curso: gemelo de la red RPL (ADR-038). 5a cerrada: lavado de empaques y reparación con capacidad finita sobre la traza del MB51, escenarios de utilización y paro, y la prueba de que con capacidad sin límite el gemelo reproduce el MB51.
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 
