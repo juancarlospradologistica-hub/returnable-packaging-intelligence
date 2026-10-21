@@ -8,3 +8,4 @@ necesidad,Necesidad de flota de la primera semana del plan,true
 flota,Flota al corte,true
 saldo_cliente,Saldo en cliente y exceso de saldo por ruta,false
 serie_mensual,Series por mes de contabilización,false
+capacidad,Capacidad de lavado de empaques y reparación del gemelo de la red RPL,false

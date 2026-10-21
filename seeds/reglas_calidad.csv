@@ -1,15 +1,15 @@
 regla,defecto,objeto,unidad,severidad,cifra_afectada,descripcion
 error_de_schema,,ingesta,fila,bloquea,todas,"Tipo, nulo, longitud o llave fuera del contrato en la ingesta"
 llave_duplicada,D01,mb51,linea,bloquea,todas,Planta + año + documento + posición repetidos
-bwart_fuera_de_catalogo,D02,mb51,linea,bloquea,brecha ocioso ciclo flota saldo_cliente,Clase de movimiento sin evento en clases_movimiento
-lgort_fuera_de_catalogo,D03,mb51,linea,bloquea,brecha ocioso flota,Almacén sin estado en almacenes
+bwart_fuera_de_catalogo,D02,mb51,linea,bloquea,brecha ocioso ciclo flota saldo_cliente capacidad,Clase de movimiento sin evento en clases_movimiento
+lgort_fuera_de_catalogo,D03,mb51,linea,bloquea,brecha ocioso flota capacidad,Almacén sin estado en almacenes
 cliente_vacio,D04,mb51,linea,bloquea,ciclo saldo_cliente,"Salida, recogida o faltante de stock especial V sin cliente"
-signo_invertido,D05,mb51,linea,bloquea,brecha ocioso necesidad flota,Signo contrario al del evento o a la posición del traslado
+signo_invertido,D05,mb51,linea,bloquea,brecha ocioso necesidad flota capacidad,Signo contrario al del evento o a la posición del traslado
 cantidad_en_piezas,D06,mb51,linea,bloquea,tco brecha ocioso ciclo necesidad,Salida a cliente múltiplo de las piezas por contenedor del material
 recogida_sin_saldo,D07,mb51,linea,bloquea,ciclo saldo_cliente,Recogida a una cuenta que nunca recibió el material o que la cruza a negativo
 registro_despues_del_cierre,D08,mb51,linea,alerta,serie_mensual,Registro después del cierre del mes de contabilización
 precio_documento_distinto,D16,mb51,material,alerta,,Precio del documento distinto al del maestro arriba de la tolerancia
-material_sin_foto,D09,stock_inicial,material,bloquea,brecha ocioso flota,Retornable con movimientos sin foto inicial y sin entrada de flota nueva
+material_sin_foto,D09,stock_inicial,material,bloquea,brecha ocioso flota capacidad,Retornable con movimientos sin foto inicial y sin entrada de flota nueva
 parte_sin_instruccion,D10,plan,parte,bloquea,brecha ocioso necesidad,Parte con plan sin instrucción de empaque
 parte_sin_registro,,plan,parte,bloquea,brecha ocioso necesidad,Parte con plan fuera de la tabla de partes
 piezas_en_cero,D11,instruccion_empaque,parte,bloquea,brecha ocioso necesidad,Instrucción con cero piezas por contenedor
