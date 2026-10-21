@@ -13,6 +13,8 @@
 -- depends_on: {{ ref('mart_deteccion_ciegos') }}
 -- depends_on: {{ ref('mart_sim_capacidad') }}
 -- depends_on: {{ ref('mart_sim_vacios_diario') }}
+-- depends_on: {{ ref('mart_flujos_semanales') }}
+-- depends_on: {{ ref('mart_red_semanal') }}
 -- Los marts entregan conteos en BIGINT. Polars no maneja HUGEINT y cada
 -- consumidor tendría que castear por su cuenta.
 select table_name, column_name, data_type

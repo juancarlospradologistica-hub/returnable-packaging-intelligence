@@ -38,3 +38,25 @@ models:
     columns:
       - name: vacios
         tests: [not_null]
+
+  - name: mart_flujos_semanales
+    description: >
+      Contenedores por planta, tipo de empaque, semana y tramo del ciclo
+      (origen → destino), con el cliente, el faltante y la baja como estados
+      (ADR-039). Grosor de cada tramo del anillo en el dashboard.
+    tests:
+      - unique:
+          arguments:
+            column_name: "planta || '|' || tipo_material || '|' || cast(semana as varchar) || '|' || origen || '|' || destino"
+    columns:
+      - name: contenedores
+        tests: [not_null]
+
+  - name: mart_red_semanal
+    description: >
+      Salidas, recogidas y faltante por planta, cliente, tipo de empaque y
+      semana (ADR-039). Grosor de cada ruta en la vista de la red.
+    tests:
+      - unique:
+          arguments:
+            column_name: "planta || '|' || cliente || '|' || tipo_material || '|' || cast(semana as varchar)"
