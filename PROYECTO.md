@@ -5,7 +5,7 @@ Para la vista pública ver `README.md`.
 
 **Repositorio:** `returnable-packaging-intelligence`
 **Autor:** Juan Carlos Prado Arias
-**Última actualización:** 2026-10-16
+**Última actualización:** 2026-10-20
 
 ---
 
@@ -59,9 +59,14 @@ Defectos ciegos: cuatro defectos de un extracto MB51 real que ninguna regla de F
 
 Extracto real: MB51, foto de stock y maestro bajados de SAP, convertidos al contrato de entrada que escribe el generador, sin tocar modelos. El adaptador cambia nombres, formatos y signo; no corrige datos. 4d.1 cubre MB51 y se prueba con ida y vuelta exacta sobre el completo. 4d.2: un extracto real abre con contenedores en cliente; la foto trae ese stock V y una ventana recortada del limpio tiene que dar lo mismo que la completa. 4d.3: adaptadores de foto y maestro de materiales, con plan e instrucción de empaque opcionales. Semana 21. Cerrada en semana 21 (ADR-035 a ADR-037).
 
+### Alcance IN — Fase 5 (ADR-038)
+
+Gemelo de la red de Returnable Packaging Logistics (RPL) sobre la traza del MB51. Contesta qué capacidad de lavado de empaques y de reparación necesita cada planta para que la flota alcance, cuánto cuesta en flota o en desechable quedarse corto o parar la estación unos días, y qué hay que hacer primero en la red, en USD. Cuatro modos: replay, escenario de capacidad, paro y confianza (lo que bloquea la calidad de datos). Con capacidad sin límite reproduce el MB51 día por día. 5a: núcleo, escenarios y marts; 5b: pestaña de la red en el dashboard; 5c: lista de acciones priorizada en USD; 5d: notebook 06 y cierre. Semanas 23 a 27.
+
 ### Alcance OUT (roadmap futuro, NO se ejecuta ahora)
 
-- Fase 5: Simulador visual de la red de Returnable Packaging Logistics (RPL) y cuello de botella de lavado y reparación, con replay de movimientos MB51. Arranca con Fase 4c cerrada y los criterios de ADR-016 (ADR-027, ADR-033).
+- Monte Carlo hacia adelante sobre las 12 semanas del plan, para medir el nivel de servicio de la necesidad de ADR-021 (ADR-038).
+- Animación por contenedor con JavaScript y gemelo minuto a minuto de patio o almacén: MB51 registra por día (ADR-038).
 - Corrección automática de datos: Fase 4 detecta y cuantifica; corregir es decisión del dueño del dato.
 - Adaptador del plan de producción e instrucción de empaque desde SAP: las tablas cambian por empresa y por versión, y el plan no siempre vive en SAP. Un plan ya en el contrato se carga igual; sin plan la necesidad no se calcula (ADR-037).
 - EDI del cliente (DELFOR/DELJIT), S&OP mensual, HU/EWM y empaque alterno.
@@ -98,7 +103,7 @@ Extracto real: MB51, foto de stock y maestro bajados de SAP, convertidos al cont
 
 ### Capa 2 — Diferenciador (semana 3-5)
 
-- **dbt-duckdb** — modelado analítico declarativo
+- **dbt-duckdb** — modelado analítico declarativo; los dos modelos del gemelo que simulan son modelos Python dentro del mismo DAG (ADR-038)
 - **Pandera** — validación de schemas
 - **Ruff** — linter y formatter
 - **Pytest** — testing
@@ -1419,6 +1424,86 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Límite: el regreso supone que el MB51 cubre hasta el momento en que se bajó MARD; un movimiento contabilizado después queda en la apertura.
   - Límite: MARD trae todos los materiales del almacén. La foto se baja con la misma selección de materiales que el MB51.
 
+
+### ADR-038 · Fase 5: gemelo de la red RPL sobre la traza del MB51
+
+- **Fecha:** 2026-10-20
+- **Estado:** Accepted. Fija alcance y diseño de Fase 5. Precisa ADR-016, punto 5, y ADR-027, punto 6 (simulador en modo simulado y en replay). Cierra la sensibilidad a la holgura de flota que ADR-026 dejó para la fase de simulación. Absorbe la lista de acciones que iba a ser una fase aparte.
+- **Contexto:** Antes de diseñar reproduje main en 65da086 y medí sobre el completo (14 plantas, 18 meses, seed 42):
+  - Reproducción: huella de 621, 622 y 702 igual en las 14 plantas, dbt build 388/388.
+  - Los simuladores de almacén que se publican modelan un edificio en un día, con datos de muestra y sin prueba de que reproducen lo que pasó. El empaque retornable es otra cosa: el activo regresa, circula entre plantas y clientes, y sus decisiones son de días y semanas.
+  - El generador no tiene capacidad en el lavado de empaques ni en reparación: cada línea sale de SUCI y de REPA en su fecha sorteada, sin cola. El cuello de botella del Charter no existe en el dato; hay que imponerlo.
+  - Salidas de SUCI de KLT por planta y día hábil: media 2,181, p95 1.7 veces la media, máximo 2.07. De REPA en Rack: media 21, máximo 2.5 veces.
+  - Los 622 del lunes son tres veces los de otro día: lo que el cliente regresa en fin de semana se registra el lunes. El lavado de empaques entrega su pico el miércoles: en la ventana estable, 3,243 KLT promedio contra ~1,620 el lunes y el viernes.
+  - Prototipé el lavado con capacidad finita sobre la traza: las salidas de SUCI del MB51 son lo que el lavado entregó; con capacidad c por día hábil, lo que no cabe espera en orden de fecha lista y VACI se recalcula con la recursión de Lindley (un día sin vacíos sale en desechable y el saldo no queda negativo). Con capacidad sin límite da el replay exacto.
+  - El prototipo sacaba la salida media de toda la ventana, con el arranque del saldo V adentro, y exageraba la cola: con capacidad igual a esa media mandaba 243,364 KLT a desechable. Con la media de la ventana estable, la que usa la necesidad (ADR-023), son 137. La capacidad se mide contra el flujo de régimen.
+  - dbt-duckdb 1.11 corre modelos Python dentro del DAG y acepta un DataFrame de Polars como resultado. Lo probé con un modelo de una línea.
+  - Cada fase deja sus cifras en un mart distinto. Quien abre el dashboard ve rutas rotas, brecha y reglas de calidad, y tiene que decidir solo por dónde empezar. El déficit que cubre un préstamo también se puede leer como compra: sumarlos a mano cuenta dos veces el mismo contenedor.
+- **Alternativas evaluadas:**
+  - Gemelo de un almacén o un patio, minuto a minuto: MB51 registra por día. Pediría otra fuente (sistema de patio) y otro proyecto.
+  - Simulación de eventos por contenedor con tiempos sorteados de los supuestos: no reproduce el MB51 y no se puede validar contra él. Con un extracto real no sabría qué capacidad tuvo la planta.
+  - Monte Carlo hacia adelante sobre las 12 semanas del plan: contesta otra pregunta (si la necesidad de ADR-021 cumple su nivel de servicio). Queda en Alcance OUT.
+  - Simpy u otra librería de simulación: una dependencia para dos estaciones con cola FIFO. La cola y la recursión de Lindley tienen forma cerrada con el mínimo acumulado y caben en NumPy.
+  - Simulador como script aparte que escribe un CSV, igual que el arnés de Fase 4: el arnés tarda 2 h y por eso corre en local. Este tarda minuto y medio en el completo y vive en el DAG, con sus tests en cada build.
+  - Escenarios como vars de dbt: ADR-026 ya los descartó; la base guarda solo el último.
+  - Cola por prioridad (primero el material con menos vacíos): es una política, no un hecho del MB51. FIFO es lo que hace un lavado sin sistema que priorice.
+  - Un seed aparte para la capacidad real por planta: dos fuentes para la misma capacidad. Va en escenarios_capacidad como una fila con planta y contenedores_dia.
+  - Planta en 3D: es lo que ya hacen todos y no dice nada del ciclo del empaque. Elegí el anillo del ciclo, que solo existe en retornables.
+  - Visual con HTML y JavaScript propios desde el arranque (ADR-016 lo dejaba abierto): un lenguaje más en el repo y sin tests en CI. Marimo dibuja SVG desde Python y ya tiene slider y refresco periódico. Se reconsidera con ADR propio al cerrar 5b si la animación no alcanza.
+  - Lista de acciones como fase aparte: la acción de capacidad sale del simulador y las demás de marts que ya existen. Es la salida del gemelo, no otra fase.
+- **Decisión:**
+  1. Fase 5 contesta: ¿qué capacidad de lavado de empaques y de reparación necesita cada planta para que la flota alcance, cuánto cuesta en flota o en desechable quedarse corto o parar la estación unos días, y qué hay que hacer primero en la red, en USD?
+  2. Gemelo de la red RPL con cuatro modos: replay (lo que pasó), escenario (capacidad distinta), paro (la estación detenida N días) y confianza (qué cifras bloquea la calidad de datos de Fase 4). Con una regla que bloquea sobre la cifra capacidad, el gemelo no publica escenarios.
+  3. Simulación sobre la traza: el MB51 da cuándo quedó lista cada salida de una estación; el simulador solo puede retrasarla. Con capacidad sin límite y sin paro reproduce el replay día por día, y ese es su test principal.
+  4. Dos estaciones: lavado de empaques (salidas de SUCI, a vacíos o a reparación) y reparación (salidas de REPA, a vacíos o a scrap), por planta y tipo de empaque. Capacidad por día hábil, cola FIFO por fecha lista con desempate por material y destino. VACI por material con la recursión de Lindley; lo que falta sale en desechable. Solo lo que regresa a vacíos mueve la flota disponible.
+  5. Seed escenarios_capacidad: escenario, estacion, tipo_material, planta, utilizacion, contenedores_dia y paro_dias. Un escenario puede tener una fila por estación; tipo y planta vacíos aplican a todos y la fila más específica gana. La capacidad sale de utilizacion (salida media de los días hábiles de la ventana estable entre la utilización) o de contenedores_dia, que es donde entra la capacidad real de una planta; sin ninguna, la estación no tiene límite. Una estación que el escenario no nombra no tiene límite.
+  6. Núcleo en src/rpi/simulador.py (NumPy y Polars, sin dbt). Modelos: int_sim_calendario (días, ventana estable y lunes de paro), int_sim_lotes (traza de cada estación con su destino por documento), int_sim_vacios (cambio neto de vacíos con la apertura), int_sim_planta (modelo Python, un renglón por escenario, planta, tipo e inicio de paro), int_sim_peor_inicio e int_sim_diario (modelo Python, serie diaria del peor inicio). Estados y eventos salen de los seeds almacenes y clases_movimiento, no de códigos SAP.
+  7. mart_sim_capacidad por escenario, planta y tipo: capacidad, salida media, desechable en contenedores y en USD (desechable equivalente × factor de quiebre de parametros_flota, ADR-025) y contra las salidas a cliente, flota que falta y que sobra a costo del maestro, cola promedio y máxima, y espera por ley de Little. mart_sim_vacios_diario: vacíos de la traza y del escenario, desechable y cola por planta, tipo y día.
+  8. Paro: corre desde cada lunes de la ventana estable que deje cuatro semanas para recuperarse antes del fin de la base (60 en el completo). Se publica el peor inicio, el que más contenedores manda a desechable, y la mediana.
+  9. La flota que sobra por escenario contesta la sensibilidad a la holgura de ADR-026: cuánta flota nunca se usó con cada capacidad. La flota que falta es igual al desechable en contenedores: cada viaje que salió en desechable es un contenedor que faltó. Cambia el valor: compra a costo del maestro contra desechable por viaje.
+  10. mart_acciones (5c): una fila por acción (conciliar una cuenta, prestar, comprar, corregir el maestro, subir capacidad) con planta, material o cliente, cantidad, USD, fecha límite, responsable (gobierno RPL, compras, planta o datos maestros) y mart de origen, ordenada por USD. Tests: el USD de cada acción cuadra con su mart de origen; un contenedor prestado no se compra; ninguna acción sale de una cifra bloqueada. Propone; no corrige (ADR-027, punto 5).
+  11. Pestaña "Red RPL" en el dashboard (5b), con tres niveles: la red de plantas y clientes con flujos por semana; el anillo de una planta (vacíos, línea, llenos, cliente, sucios, lavado, reparación), con el grosor del flujo, el nivel del stock y en rojo cuando vacíos se acerca a cero; y la cola del lavado día por día. SVG generado desde Python, slider y reproducción.
+  12. Cifra nueva capacidad en el seed cifras, declarada y no medida por el arnés. Toda regla que declara flota declara capacidad (assert_capacidad_declarada): bwart_fuera_de_catalogo, lgort_fuera_de_catalogo, signo_invertido y material_sin_foto la ganan.
+  13. Tests de 5a: assert_sim_replay_exacto (vacíos, cola y desechable del replay contra int_stock_diario día por día, y flota que sobra contra lo más bajo de cada material, las dos referencias calculadas sin el simulador); assert_sim_estaciones_validas (lo listo es la traza, nada sale antes de estar listo, cero en sábado y domingo calculados de la fecha y en los días de paro, sin pasar la capacidad); assert_sim_lotes_cuadran (lo que lavado no regresa a vacíos entra a reparación y lo que reparación no regresa entra a scrap, contra int_mov_stock); assert_sim_capacidad_cuadra (capacidad = salida media recalculada entre la utilización); assert_sim_inicios (un renglón por lunes en los escenarios con paro, el peor inicio es lunes de la ventana estable y no es mejor que la mediana); assert_sim_diario_cuadra (la serie diaria es la misma corrida que el resumen); assert_escenarios_capacidad_validos; tests/test_simulador.py con el núcleo y la orquestación sobre tablas chicas.
+  14. Sub-bloques: 5a núcleo, seed, modelos, marts y tests; 5b gemelo en el dashboard; 5c mart_acciones; 5d notebook 06, README, cierre y revisión de runner y actions (ADR-024, punto 4).
+- **Supuestos (práctica de industria, sin datos de empleador):**
+
+  | Supuesto | Valor | Rango | Razón |
+  |---|---|---|---|
+  | Utilización nominal de la estación | 80% | 70–90% | Un equipo de proceso se dimensiona con margen para picos y mantenimiento; arriba de 90% la cola crece sin control |
+  | Paro del lavado de empaques | 5 días hábiles | 3–10 | Correctivo mayor (bomba, banda, quemador) con refacción que no está en almacén |
+  | Lavado y reparación | Solo día hábil | — | Igual que los 311 internos del generador (ADR-018) |
+  | Orden de la cola | FIFO por fecha lista | — | Un lavado no prioriza por material sin un sistema que lo pida |
+
+  - Escenarios: replay; nominal con las dos estaciones al 80%; lavado al 70, 90, 95 y 100% y reparación al 90 y 100%, con la otra estación sin límite; paro de lavado de 3, 5 y 10 días sobre el nominal. El notebook 06 muestra la curva completa.
+- **Consecuencias:**
+  - Cifras de Fase 1 a 4 sin cambio: el gemelo solo lee. Los 15 marts anteriores salen iguales a main fila por fila en el completo, salvo cifra_afectada de mart_impacto_defectos, que copia el seed y gana capacidad en las cuatro reglas que declaran flota.
+  - Medido en el completo (en el paro, el peor lunes de cada planta, sumado):
+
+    | Escenario | Desechable KLT | Desechable Rack | USD desechable | Flota que sobra KLT | Flota que sobra Rack | Espera en lavado |
+    |---|---:|---:|---:|---:|---:|---:|
+    | Replay | 0 | 0 | $0 | 200,941 | 35,826 | 0 |
+    | Nominal, 80% | 0 | 0 | $0 | 198,729 | 35,285 | 0.04 días |
+    | Lavado al 95% | 0 | 0 | $0 | 192,605 | 33,928 | 0.24 días |
+    | Lavado al 100% | 137 | 78 | $8,231 | 175,149 | 30,031 | 0.95 días |
+    | Reparación al 100% | 0 | 0 | $0 | 200,169 | 35,284 | — |
+    | Paro de lavado, 3 días | 593 | 217 | $24,849 | 193,795 | 34,259 | 0.14 días |
+    | Paro de lavado, 5 días | 2,569 | 668 | $83,248 | 181,696 | 31,894 | 0.33 días |
+    | Paro de lavado, 10 días | 24,721 | 5,303 | $699,785 | 127,684 | 20,629 | 1.05 días |
+
+  - La flota del sintético arranca con 0 a 30% de holgura sobre su mínimo (ADR-018): el lavado casi no pesa hasta acercarse a su flujo medio. Al 100% la flota que sobra baja 25,792 KLT y 5,795 Rack ($1.7M a costo del maestro). ADR-026 midió por ley de Little que un día hábil de lavado vale 31,962 KLT de necesidad; con ~1 día de espera, el gemelo da el mismo orden por otro camino.
+  - Diez días de lavado parado cuestan $699,785 de desechable, 2.2 veces la brecha de flota de Fase 3. El desechable más alto contra las salidas a cliente es 0.29%, dentro del límite de abajo.
+  - La reparación no manda contenedores a desechable ni al 100%: entra 2% del flujo KLT y 5.5% del Rack.
+  - dbt build: 55 modelos, 11 seeds, 329 tests de datos y 31 unit tests; 426/426 en el completo y en el reducido, en la ventana completa, la recortada y la sin plan. Con la foto de la recortada, que trae stock en cliente, el replay sigue exacto. int_sim_planta tarda 88 s en el completo y el build pasa de 3:13 a 4:12; en el reducido, ~13 s.
+  - 29 mutaciones, una por comportamiento: 11 del núcleo, 8 de la orquestación de escenarios y 10 de los modelos, el seed y las reglas. En la primera vuelta sobrevivieron dos del núcleo. La flota mínima con piso en cero pasaba porque ningún caso dejaba vacíos negativo; entró un caso con desechable. Un mínimo contra lo listo era redundante con la forma cerrada de la cola: ninguna prueba podía romperlo y salió del código. Cuatro de los modelos pasaron por un error de la corrida de mutaciones, no de los tests: excluía los seeds, y dbt quitaba con ellos los tests que dependen de un seed. Sin la exclusión truenan las cuatro.
+  - El simulador no puede probar más capacidad que la que tuvo la historia: la traza ya trae los tiempos observados. Para acortar el lavado está el escenario de ciclo de ADR-026.
+  - Límite: la recursión de Lindley no quita los 622 de los contenedores que salieron en desechable. Vale mientras el desechable sea chico contra las salidas; el mart lo reporta en faltante_pct_salidas y el notebook no lee escenarios arriba de 1%.
+  - Límite: un retraso en el lavado no se propaga a la entrada de reparación.
+  - Límite: la flota que sobra se mide con la historia completa, igual que la foto inicial del generador (ADR-018). Es una cota, no una recomendación de baja.
+  - Límite: días, no minutos. MB51 registra por día.
+  - Roadmap: Semanas 23 a 27, una por sub-bloque y una de holgura.
+  - Alcance OUT: Monte Carlo hacia adelante sobre el plan; animación por contenedor con JavaScript; gemelo minuto a minuto de patio o almacén.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1528,11 +1613,39 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 20** · Fase 4c: defectos ciegos B01–B04 en el generador y su medición antes de las reglas (4c.1); cuatro reglas nuevas y detección de antes y después lado a lado (4c.2) (ADR-033).
 - [x] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de maestro y foto, plan opcional y extracto de punta a punta (4d.3, ADR-037). Fase 4d cerrada.
 - [x] **Semana 22** · Publicación en GitHub: README de entrada con cifras headline cuadradas por test, capturas del dashboard y revisión de links y comandos en Windows.
-- [ ] **Fase 5** · Simulador de la red RPL con replay de MB51 (ADR-016, ADR-027, ADR-033).
+- [x] **Semana 23** · Fase 5a: gemelo de la red RPL. Lavado de empaques y reparación con capacidad finita sobre la traza del MB51, escenarios de utilización y paro, y replay exacto como test principal (ADR-038).
+- [ ] **Semana 24** · Fase 5b: pestaña "Red RPL" en el dashboard: red de plantas y clientes, anillo del ciclo de la planta y cola del lavado día por día.
+- [ ] **Semana 25** · Fase 5c: lista de acciones priorizada en USD (mart_acciones).
+- [ ] **Semana 26** · Fase 5d: notebook 06, README, revisión de runner y actions y cierre de Fase 5.
+- [ ] **Semana 27** · Holgura para la medición del completo y lo que salga de 5b y 5c.
 
 ---
 
 ## 6. Worklog
+
+### 2026-10-20 · Sesión 58 — Semana 23
+
+- **Duración:** ~6 h (19 y 20 de octubre)
+- **Hecho:**
+  - PR #24 (publicacion-readme) mergeado. Reproducción de main en 65da086 sobre el completo: huella igual en las 14 plantas, dbt build 388/388.
+  - Medido antes de diseñar: flujo diario de sucios y de reparación por planta, patrón de la semana (los 622 del lunes son tres veces los de otro día) y un prototipo del lavado de empaques con capacidad finita sobre la traza.
+  - Diseño de Fase 5 como gemelo de la red RPL, con la lista de acciones adentro (ADR-038).
+  - 5a: src/rpi/simulador.py con la cola FIFO por capacidad y la recursión de Lindley en forma cerrada; seed escenarios_capacidad; int_sim_calendario, int_sim_lotes, int_sim_vacios, int_sim_planta e int_sim_diario (modelos Python), int_sim_peor_inicio; mart_sim_capacidad y mart_sim_vacios_diario. Cifra capacidad en el seed cifras y en las reglas que declaran flota.
+  - Tests: assert_sim_replay_exacto, assert_sim_estaciones_validas, assert_sim_lotes_cuadran, assert_sim_capacidad_cuadra, assert_sim_inicios, assert_sim_diario_cuadra, assert_escenarios_capacidad_validos, assert_capacidad_declarada y tests/test_simulador.py. README con la sección de Fase 5 cuadrada en test_readme.
+  - Verificados rompiendo: 29 mutaciones, una por comportamiento.
+  - Completo: dbt build 426/426 en la ventana completa, la recortada y la sin plan; pytest 208 y 2 saltados. Los 15 marts anteriores salen iguales a main fila por fila, salvo la etiqueta cifra_afectada que copia el seed. Reducido: dbt build 426/426 en las tres ventanas, pytest 196 y 14 saltados, y el paso sucio de CI en verde.
+- **Decisiones tomadas:** ADR-038.
+- **Bloqueos:**
+  - El prototipo tomaba la salida media de toda la ventana y exageraba la cola: con capacidad igual a esa media mandaba 243,364 KLT a desechable. Con la media de la ventana estable son 137.
+  - La primera versión del modelo tardaba 2:24 en el completo. Con la cola y Lindley en forma cerrada y la fila de espera armada una vez por estación, 88 s.
+  - Cuatro mutaciones de los modelos pasaron porque la corrida excluía los seeds y dbt quitaba con ellos sus tests. Sin la exclusión truenan.
+  - En el paso sucio del reducido, test_base_actual esperaba las nueve cifras escritas a mano y la décima, capacidad, lo tumbó. Ahora lee las cifras del seed. El mismo paso avisaba de materiales sin tipo en el gemelo: sin maestro no se pueden simular, los reporta su regla y el gemelo los deja fuera.
+- **Notas de la sesión:**
+  - Un simulador que no reproduce lo que pasó no se puede defender. Aquí el escenario sin límite es la prueba: si no da el MB51, todo lo demás está en duda.
+  - La capacidad se mide contra el flujo de régimen. Con el arranque del saldo en cliente adentro, la media sale baja y cualquier lavado parece cuello de botella.
+  - En la flota del sintético el margen está en la holgura de la foto inicial, no en el lavado. Lo que cuesta es el paro: diez días parados valen 2.2 veces la brecha de Fase 3.
+  - Con `--exclude` en dbt también salen los tests de lo excluido. Una corrida de mutaciones tiene que seleccionar, no excluir.
+- **Próximo paso:** PR de fase-5a con CI verde y merge. Después 5b: pestaña "Red RPL" en el dashboard.
 
 ### 2026-10-18 · Sesión 57 — Semana 22
 
@@ -2650,6 +2763,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Capital ocioso** — Flota que sobra después de cubrir la necesidad y de prestar a otras plantas, valuada a costo unitario.
 - **Holgura de flota** — Porcentaje de contenedores por arriba del mínimo que necesita la operación. La merma y el scrap la consumen con el tiempo.
 - **Arranque / fin de serie (EOP)** — Inicio y fin de producción de un programa del cliente. Mueven la necesidad de empaque antes de que la flota pueda reaccionar.
+- **Gemelo de la red RPL** — Modelo de plantas, clientes y almacenes que corre sobre los movimientos reales del MB51 y deja cambiar la capacidad de una estación para ver qué habría pasado. Aquí, lavado de empaques y reparación (ADR-038).
+- **Lavado de empaques** — Estación donde el empaque sucio que regresa del cliente se lava o se inspecciona antes de volver a vacíos. En el MB51, las salidas de SUCI.
+- **Utilización** — Flujo medio de una estación entre su capacidad. Arriba de 90% la cola crece rápido; al 100% no queda margen para un día pico.
+- **Paro** — Días hábiles en que una estación no procesa nada, por una falla o un mantenimiento correctivo.
+- **Flota que sobra** — Lo más bajo que llegó vacíos de cada material en la ventana, sumado. Es la flota que nunca se usó; una cota, no una recomendación de baja.
 - **Red de préstamos** — Contenedores que una planta con sobrante presta a otra con déficit del mismo material. Dentro del país va primero por flete y trámite; entre países paga aduana e importación temporal.
 
 ### Términos técnicos
@@ -2709,6 +2827,11 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Control de precio (VPRSV)** — Indicador del material que dice si su valor es el precio estándar (S, STPRS) o el medio variable (V, VERPR).
 - **Regresar la foto** — Pasar el stock del día del extracto al del día anterior a la ventana restando lo que se movió en medio. El resultado depende de que el MB51 esté completo.
 - **Invariante** — Condición que se cumple en cualquier dataset, no solo en uno conocido. Aquí atrapa lo que una comparación contra la verdad no ve.
+- **Simulación sobre la traza (trace-driven)** — Simulación que toma los eventos de un registro real en lugar de sortearlos. Aquí el MB51 da cuándo quedó lista cada salida y el gemelo solo la puede retrasar.
+- **Recursión de Lindley** — Saldo de hoy = máximo entre cero y el de ayer más el cambio del día. Lo que habría quedado negativo es el faltante. Tiene forma cerrada con el mínimo acumulado.
+- **Cola FIFO con capacidad** — Lo que llega espera en orden de llegada y sale a lo más la capacidad del día.
+- **Modelo Python (dbt)** — Modelo de dbt escrito en Python en lugar de SQL. Recibe tablas del DAG y devuelve un DataFrame; dbt-duckdb lo guarda como tabla.
+- **Prueba de mutación** — Romper el código a propósito, un comportamiento a la vez, y exigir que algún test falle. Si ninguno falla, falta un test o el código sobra.
 
 ---
 
