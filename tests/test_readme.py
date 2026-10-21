@@ -658,3 +658,61 @@ def test_fase4c_ciegos(ciegos, readme):
         f"{b04['tasa']['delta_pct_despues']:+.1f}% a tasa y "
         f"{b04['techo']['delta_pct_despues']:+.1f}% en el techo"
     ) in readme
+
+
+# Fase 5: gemelo de la red RPL (ADR-038).
+ESCENARIOS_GEMELO = {
+    "replay": "Traza del MB51",
+    "nominal": "Lavado y reparación al 80%",
+    "lavado_95": "Lavado al 95%",
+    "lavado_100": "Lavado al 100%",
+    "reparacion_100": "Reparación al 100%",
+    "paro_lavado_5": "Paro de lavado, 5 días",
+    "paro_lavado_10": "Paro de lavado, 10 días",
+}
+
+
+def _gemelo(con) -> dict[str, dict]:
+    filas = con.execute(
+        """
+        SELECT escenario,
+            SUM(faltante) FILTER (WHERE tipo_material = 'KLT')::BIGINT       AS falta_klt,
+            SUM(faltante) FILTER (WHERE tipo_material = 'RACK')::BIGINT      AS falta_rack,
+            SUM(faltante_usd)                                                AS falta_usd,
+            SUM(flota_sobra) FILTER (WHERE tipo_material = 'KLT')::BIGINT    AS sobra_klt,
+            SUM(flota_sobra) FILTER (WHERE tipo_material = 'RACK')::BIGINT   AS sobra_rack,
+            SUM(flota_sobra_usd)                                             AS sobra_usd
+        FROM mart_sim_capacidad
+        GROUP BY escenario
+        """
+    ).pl()
+    return {r["escenario"]: r for r in filas.iter_rows(named=True)}
+
+
+def filas_gemelo(con) -> str:
+    """Las filas de la tabla de Fase 5, en el orden del README."""
+    g = _gemelo(con)
+    return "\n".join(
+        f"| {etiqueta} | {g[e]['falta_klt']:,} | {g[e]['falta_rack']:,} | "
+        f"{usd(g[e]['falta_usd'])} | {g[e]['sobra_klt']:,} | {g[e]['sobra_rack']:,} |"
+        for e, etiqueta in ESCENARIOS_GEMELO.items()
+    )
+
+
+def test_gemelo_fase5(con, readme):
+    g = _gemelo(con)
+    assert filas_gemelo(con) in readme
+    rep, lim = g["replay"], g["lavado_100"]
+    assert (
+        f"baja {rep['sobra_klt'] - lim['sobra_klt']:,} KLT y "
+        f"{rep['sobra_rack'] - lim['sobra_rack']:,} Rack: "
+        f"{millones(rep['sobra_usd'] - lim['sobra_usd'])} de flota"
+    ) in readme
+    assert f"cuestan {k(g['paro_lavado_5']['falta_usd'])} de desechable" in readme
+    brecha = con.execute(
+        "SELECT SUM(usd_flete + usd_compra + usd_desechable) FROM mart_brecha_flota"
+    ).fetchone()[0]
+    veces = g["paro_lavado_10"]["falta_usd"] / float(brecha)
+    assert f"diez días, {k(g['paro_lavado_10']['falta_usd'])}, {veces:.1f} veces" in readme
+    # La reparación al 100% no manda contenedores a desechable.
+    assert g["reparacion_100"]["falta_klt"] == g["reparacion_100"]["falta_rack"] == 0
