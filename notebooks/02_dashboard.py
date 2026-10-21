@@ -37,9 +37,11 @@ def _():
     import duckdb
     import marimo as mo
     import matplotlib.pyplot as plt
+    import numpy as np
     import polars as pl
 
-    from rpi.publicacion import bloqueadas
+    from rpi import red as dibujos
+    from rpi.publicacion import bloqueadas, cifras
 
     # RPI_DB abre otra base, por ejemplo la del dataset con defectos (ADR-030).
     db_path = Path(os.environ.get("RPI_DB", "data/rpi.duckdb"))
@@ -98,7 +100,9 @@ def _():
         plt.close(fig)
         return mo.image(src=f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}")
 
-    return a_imagen, bloqueos, con, mo, pl, plt, publica
+    # Cuántas cifras publica el proyecto: salen del seed, no de un número fijo.
+    total_cifras = len(cifras(con))
+    return a_imagen, bloqueos, con, dibujos, mo, np, pl, plt, publica, total_cifras
 
 
 @app.cell
@@ -834,7 +838,16 @@ def _(impacto, nivel_impacto, pl):
 
 
 @app.cell
-def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_impacto):
+def _(
+    bloqueos,
+    calidad_plantas,
+    calidad_reglas,
+    mo,
+    nivel_impacto,
+    pl,
+    tabla_impacto,
+    total_cifras,
+):
     _total = int(calidad_reglas["violaciones"].sum())
     _con = calidad_reglas.filter(pl.col("violaciones") > 0).height
     _lineas = "\n".join(f"- **{c}**: {', '.join(r)}" for c, r in bloqueos.items())
@@ -854,7 +867,7 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
                         label="Reglas con violaciones",
                         value=f"{_con} de {calidad_reglas.height}",
                     ),
-                    mo.stat(label="Cifras bloqueadas", value=f"{len(bloqueos)} de 9"),
+                    mo.stat(label="Cifras bloqueadas", value=f"{len(bloqueos)} de {total_cifras}"),
                 ]
             ),
             mo.callout(mo.md(f"**Cifras que no se publican:**\n\n{_lineas}"), kind="danger")
@@ -881,6 +894,342 @@ def _(bloqueos, calidad_plantas, calidad_reglas, mo, nivel_impacto, pl, tabla_im
 
 
 @app.cell
+def _(con, mo, pl):
+    # Gemelo de la red RPL (ADR-038, ADR-039): flujos y stock de la traza por
+    # semana, red planta × cliente y escenarios de capacidad del simulador.
+    try:
+        flujos_sem = con.execute("SELECT * FROM mart_flujos_semanales").pl()
+        red_sem = con.execute("SELECT * FROM mart_red_semanal").pl()
+        flota_sem = con.execute("""
+            SELECT planta, tipo_material, semana, ANY_VALUE(fecha_cierre) AS fecha_cierre,
+                   SUM(vacios)::BIGINT AS vacios, SUM(linea)::BIGINT AS linea,
+                   SUM(llenos)::BIGINT AS llenos, SUM(cliente)::BIGINT AS cliente,
+                   SUM(sucios)::BIGINT AS sucios, SUM(reparacion)::BIGINT AS reparacion,
+                   SUM(scrap)::BIGINT AS scrap
+            FROM mart_flota_semanal
+            GROUP BY ALL
+        """).pl()
+        sim_cap = con.execute("SELECT * FROM mart_sim_capacidad").pl()
+        sim_dia = con.execute("SELECT * FROM mart_sim_vacios_diario").pl()
+        politica = dict(
+            con.execute("SELECT tipo_material, dias_cobertura FROM parametros_flota").fetchall()
+        )
+        pais = dict(con.execute("SELECT planta, pais FROM plantas").fetchall())
+    except Exception:
+        mo.stop(
+            True,
+            mo.callout(
+                mo.md(
+                    "**Marts del gemelo no encontrados.**\n\n"
+                    "Corre `uv run dbt seed --profiles-dir .` y "
+                    "`uv run dbt build --profiles-dir .`."
+                ),
+                kind="warn",
+            ),
+        )
+    semanas = sorted(flota_sem["semana"].unique().to_list())
+    # Con defectos hay filas sin planta o sin tipo; no tienen lugar en la red.
+    _plantas = sorted(flota_sem["planta"].drop_nulls().unique().to_list())
+    _escenarios = sorted(sim_cap["escenario"].unique().to_list())
+    planta_red = mo.ui.dropdown(options=_plantas, value=_plantas[0], label="Planta")
+    tipo_red = mo.ui.dropdown(options={"KLT": "KLT", "Rack": "RACK"}, value="KLT", label="Tipo")
+    _esc_inicial = "paro_lavado_5" if "paro_lavado_5" in _escenarios else _escenarios[0]
+    escenario_red = mo.ui.dropdown(options=_escenarios, value=_esc_inicial, label="Escenario")
+    reproducir = mo.ui.switch(label="Reproducir")
+    # La semana arranca en la del peor paro del escenario por default, que es
+    # donde vacíos se acerca a cero.
+    _peor = sim_cap.filter(
+        (pl.col("escenario") == _esc_inicial)
+        & (pl.col("planta") == _plantas[0])
+        & (pl.col("tipo_material") == "KLT")
+    )["inicio_peor"].to_list()
+    _inicio = _peor[0] if _peor and _peor[0] is not None else semanas[-1]
+    get_semana, set_semana = mo.state(
+        max(i for i, s in enumerate(semanas) if s <= _inicio) if semanas else 0
+    )
+    return (
+        escenario_red,
+        flota_sem,
+        flujos_sem,
+        get_semana,
+        pais,
+        planta_red,
+        politica,
+        red_sem,
+        reproducir,
+        semanas,
+        set_semana,
+        sim_cap,
+        sim_dia,
+        tipo_red,
+    )
+
+
+@app.cell
+def _(get_semana, mo, semanas, set_semana):
+    semana_red = mo.ui.slider(
+        start=0,
+        stop=max(len(semanas) - 1, 0),
+        value=get_semana(),
+        on_change=set_semana,
+        label="Semana",
+        full_width=True,
+    )
+    return (semana_red,)
+
+
+@app.cell
+def _(mo, reproducir):
+    # Con Reproducir encendido, cada segundo avanza una semana.
+    tic = mo.ui.refresh(default_interval="1s") if reproducir.value else None
+    return (tic,)
+
+
+@app.cell
+def _(get_semana, reproducir, semanas, set_semana, tic):
+    if tic is not None and reproducir.value and semanas:
+        set_semana((get_semana() + 1) % len(semanas))
+    return
+
+
+@app.cell
+def _(
+    dibujos,
+    escenario_red,
+    flota_sem,
+    flujos_sem,
+    pais,
+    pl,
+    planta_red,
+    politica,
+    red_sem,
+    semana_red,
+    semanas,
+    sim_dia,
+    tipo_red,
+):
+    _semana = semanas[semana_red.value]
+    _tipo = tipo_red.value
+    _f = flota_sem.filter((pl.col("tipo_material") == _tipo) & (pl.col("semana") == _semana))
+    _cierre = _f["fecha_cierre"].max()
+    _esc = sim_dia.filter(
+        (pl.col("escenario") == escenario_red.value)
+        & (pl.col("tipo_material") == _tipo)
+        & (pl.col("fecha") == _cierre)
+    )
+    _flujos = flujos_sem.filter((pl.col("tipo_material") == _tipo) & (pl.col("semana") == _semana))
+    _salidas = dict(
+        _flujos.filter(pl.col("destino") == "cliente").select("planta", "contenedores").iter_rows()
+    )
+    _vac_esc = dict(_esc.select("planta", "vacios").iter_rows())
+    _desechable = dict(
+        sim_dia.filter(
+            (pl.col("escenario") == escenario_red.value)
+            & (pl.col("tipo_material") == _tipo)
+            & pl.col("fecha").is_between(_semana, _cierre)
+        )
+        .group_by("planta")
+        .agg(pl.col("faltante").sum())
+        .iter_rows()
+    )
+
+    # Anillo de la planta: flujos y stock de la traza; vacíos, del escenario.
+    _p = planta_red.value
+    _fila = _f.filter(pl.col("planta") == _p)
+    _stock = _fila.row(0, named=True) if _fila.height else {}
+    _e = _esc.filter(pl.col("planta") == _p)
+    _notas = {}
+    _alerta = False
+    if _e.height:
+        _r = _e.row(0, named=True)
+        _stock = dict(_stock) | {"vacios": _r["vacios"]}
+        _cob = dibujos.cobertura(_r["vacios"], _salidas.get(_p, 0))
+        _des = _desechable.get(_p, 0)
+        _alerta = dibujos.en_alerta(_r["vacios"], _salidas.get(_p, 0), _des, politica[_tipo])
+        _notas["vacios"] = (
+            f"traza {_r['vacios_replay']:,}"
+            + (f" · {_cob:.1f} días" if _cob is not None else "")
+            + (f" · desechable {_des:,}" if _des else "")
+        )
+        if _r["cola_lavado"]:
+            _notas["sucios"] = f"cola de lavado {_r['cola_lavado']:,}"
+        if _r["cola_reparacion"]:
+            _notas["reparacion"] = f"cola {_r['cola_reparacion']:,}"
+    _todos_flujos = flujos_sem.filter((pl.col("tipo_material") == _tipo) & (pl.col("planta") == _p))
+    svg_anillo = dibujos.anillo(
+        _stock,
+        {
+            (o, d): v
+            for o, d, v in _flujos.filter(pl.col("planta") == _p)
+            .select("origen", "destino", "contenedores")
+            .iter_rows()
+        },
+        escala=float(_todos_flujos["contenedores"].max() or 0),
+        alerta=_alerta,
+        notas=_notas,
+        titulo=f"{_p} · {_tipo} · semana del {_semana:%d.%m.%Y}",
+    )
+
+    # Red: rutas planta × cliente de la semana; planta en rojo con la misma
+    # regla que vacíos en el anillo.
+    _rutas = red_sem.filter((pl.col("tipo_material") == _tipo) & (pl.col("semana") == _semana))
+    _plantas = []
+    for _pl in sorted(flota_sem["planta"].drop_nulls().unique().to_list()):
+        _alerta_pl = dibujos.en_alerta(
+            _vac_esc.get(_pl, 0), _salidas.get(_pl, 0), _desechable.get(_pl, 0), politica[_tipo]
+        )
+        _plantas.append((_pl, pais.get(_pl, "—"), _alerta_pl))
+    svg_red = dibujos.red(
+        _plantas,
+        sorted(
+            red_sem.filter(pl.col("tipo_material") == _tipo)["cliente"]
+            .drop_nulls()
+            .unique()
+            .to_list()
+        ),
+        list(_rutas.select("planta", "cliente", "salidas").iter_rows()),
+        escala=float(red_sem.filter(pl.col("tipo_material") == _tipo)["salidas"].max() or 0),
+        resalta=_p,
+        titulo=f"Salidas a cliente, {_tipo}, semana del {_semana:%d.%m.%Y}",
+    )
+    return svg_anillo, svg_red
+
+
+@app.cell
+def _(
+    a_imagen,
+    escenario_red,
+    np,
+    pl,
+    planta_red,
+    plt,
+    semana_red,
+    semanas,
+    sim_cap,
+    sim_dia,
+    tipo_red,
+):
+    _d = sim_dia.filter(
+        (pl.col("escenario") == escenario_red.value)
+        & (pl.col("planta") == planta_red.value)
+        & (pl.col("tipo_material") == tipo_red.value)
+    ).sort("fecha")
+    _c = sim_cap.filter(
+        (pl.col("escenario") == escenario_red.value)
+        & (pl.col("planta") == planta_red.value)
+        & (pl.col("tipo_material") == tipo_red.value)
+    )
+    gemelo_fila = _c.row(0, named=True) if _c.height else None
+
+    def _grafica():
+        _fig, (_a1, _a2) = plt.subplots(
+            2, 1, figsize=(10, 4.2), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+        )
+        _x = _d["fecha"].to_list()
+        _a1.plot(_x, _d["vacios_replay"] / 1e3, color="#7f8c8d", lw=1, label="traza del MB51")
+        _a1.plot(_x, _d["vacios"] / 1e3, color="#2c7fb8", lw=1.2, label="escenario")
+        _a1.set_ylabel("vacíos, miles")
+        _a2.fill_between(_x, _d["cola_lavado"], color="#c0392b", alpha=0.5, step="mid")
+        _a2.set_ylabel("cola de lavado")
+        if gemelo_fila and gemelo_fila["inicio_peor"] is not None:
+            _ini = np.datetime64(gemelo_fila["inicio_peor"], "D")
+            _fin = np.busday_offset(_ini, gemelo_fila["paro_dias"], roll="forward")
+            for _ax in (_a1, _a2):
+                _ax.axvspan(_ini, _fin, color="#f39c12", alpha=0.2, lw=0)
+        for _ax in (_a1, _a2):
+            _ax.axvline(semanas[semana_red.value], color="#2c3e50", lw=0.8, ls=":")
+            _ax.spines[["top", "right"]].set_visible(False)
+        _a1.legend(frameon=False, fontsize=8)
+        _fig.tight_layout()
+        return a_imagen(_fig)
+
+    grafica_gemelo = _grafica() if _d.height else None
+    return gemelo_fila, grafica_gemelo
+
+
+@app.cell
+def _(
+    escenario_red,
+    gemelo_fila,
+    grafica_gemelo,
+    mo,
+    planta_red,
+    reproducir,
+    semana_red,
+    sim_cap,
+    svg_anillo,
+    svg_red,
+    tic,
+    tipo_red,
+):
+    def _stats():
+        if gemelo_fila is None:
+            return mo.md("Sin escenario para esta planta y tipo.")
+        _r = gemelo_fila
+        _rep = sim_cap.filter(
+            (sim_cap["escenario"] == "replay")
+            & (sim_cap["planta"] == _r["planta"])
+            & (sim_cap["tipo_material"] == _r["tipo_material"])
+        )
+        _sobra_rep = _rep["flota_sobra"][0] if _rep.height else _r["flota_sobra"]
+        _cap = _r["capacidad_lavado"]
+        return mo.hstack(
+            [
+                mo.stat(
+                    label="Capacidad de lavado",
+                    value="sin límite" if _cap is None else f"{_cap:,.0f} por día",
+                    caption=f"salida media {_r['salida_media_lavado']:,.0f}",
+                ),
+                mo.stat(label="Espera en lavado", value=f"{_r['espera_lavado_dias']:.2f} días"),
+                mo.stat(
+                    label="Desechable",
+                    value=f"{_r['faltante']:,}",
+                    caption=f"${_r['faltante_usd']:,.0f}",
+                ),
+                mo.stat(
+                    label="Flota que sobra",
+                    value=f"{_r['flota_sobra']:,}",
+                    caption=f"{_r['flota_sobra'] - _sobra_rep:+,} contra la traza",
+                ),
+            ]
+        )
+
+    vista_red = mo.vstack(
+        [
+            mo.md("""
+        ## Gemelo de la red RPL
+
+        El gemelo corre sobre la traza del MB51: las salidas de sucios y de
+        reparación dicen cuándo quedó listo cada contenedor, y con capacidad
+        por día lo que no cabe espera su turno. Sin límite reproduce el MB51.
+        Vacíos y planta en rojo: en la semana algún material salió en
+        desechable, o vacíos cubre menos días de salidas a cliente que la
+        política de `parametros_flota`.
+        """),
+            mo.hstack([planta_red, tipo_red, escenario_red, reproducir], justify="start"),
+            semana_red,
+            tic if tic is not None else mo.md(""),
+            mo.md("### La planta: ciclo del empaque en la semana"),
+            mo.Html(svg_anillo),
+            mo.md(
+                "Flujos y stock de la traza; vacíos, sucios y reparación muestran "
+                "el escenario. Faltante y baja son salidas definitivas de la flota."
+            ),
+            mo.md("### Lavado de empaques día por día"),
+            _stats(),
+            grafica_gemelo if grafica_gemelo is not None else mo.md("Sin serie diaria."),
+            mo.md(
+                "Naranja: el peor paro del escenario en esta planta. La línea "
+                "punteada es la semana del anillo."
+            ),
+            mo.md("### La red: salidas a cliente en la semana"),
+            mo.Html(svg_red),
+        ]
+    )
+    return (vista_red,)
+
+
+@app.cell
 def _(
     aviso_sin_plan,
     mo,
@@ -889,6 +1238,7 @@ def _(
     vista_calidad,
     vista_fase1,
     vista_necesidad,
+    vista_red,
     vista_tco,
 ):
     mo.ui.tabs(
@@ -898,6 +1248,7 @@ def _(
             "Necesidad de flota": aviso_sin_plan
             if sin_plan
             else publica(vista_necesidad, ["necesidad", "brecha", "ocioso", "flota"]),
+            "Red RPL": publica(vista_red, ["flota", "saldo_cliente", "capacidad"]),
             # Sin bloqueo: es la vista que explica los bloqueos.
             "Calidad de datos": vista_calidad,
         }
