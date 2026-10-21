@@ -716,3 +716,34 @@ def test_gemelo_fase5(con, readme):
     assert f"diez días, {k(g['paro_lavado_10']['falta_usd'])}, {veces:.1f} veces" in readme
     # La reparación al 100% no manda contenedores a desechable.
     assert g["reparacion_100"]["falta_klt"] == g["reparacion_100"]["falta_rack"] == 0
+
+
+def test_red_fase5b(con, readme):
+    """La cobertura de vacíos de la pestaña de la red (ADR-039)."""
+    filas = con.execute(
+        """
+        WITH cierre AS (
+            SELECT planta, tipo_material, semana, ANY_VALUE(fecha_cierre) AS fecha
+            FROM mart_flota_semanal GROUP BY ALL
+        ),
+        salidas AS (
+            SELECT planta, tipo_material, semana, contenedores AS salidas
+            FROM mart_flujos_semanales WHERE destino = 'cliente'
+        )
+        SELECT d.escenario,
+               MIN(d.vacios / (s.salidas / 7.0))                                AS minimo,
+               COUNT(*) FILTER (WHERE d.vacios / (s.salidas / 7.0) < p.dias_cobertura) AS bajo
+        FROM cierre c
+        JOIN mart_sim_vacios_diario d
+            ON d.planta = c.planta AND d.tipo_material = c.tipo_material AND d.fecha = c.fecha
+        JOIN salidas s
+            ON s.planta = c.planta AND s.tipo_material = c.tipo_material AND s.semana = c.semana
+        JOIN parametros_flota p ON p.tipo_material = c.tipo_material
+        WHERE s.salidas > 0
+        GROUP BY d.escenario
+        """
+    ).fetchall()
+    cobertura = {e: (m, b) for e, m, b in filas}
+    assert all(b == 0 for _, b in cobertura.values())
+    assert min(cobertura, key=lambda e: cobertura[e][0]) == "paro_lavado_10"
+    assert f"todavía cubre {cobertura['paro_lavado_10'][0]:.1f} días" in readme
