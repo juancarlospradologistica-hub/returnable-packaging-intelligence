@@ -235,3 +235,40 @@ seeds:
     columns:
       - name: cifra
         tests: [not_null, unique]
+
+  - name: escenarios_capacidad
+    description: >
+      Escenarios del gemelo de la red RPL (ADR-038). Una fila por escenario y
+      estación (lavado o reparacion); un escenario con varias filas limita
+      varias estaciones. tipo_material y planta vacíos aplican a todos; la fila
+      de planta gana a la general y la de tipo a la que aplica a los dos. La
+      capacidad sale de utilizacion (salida media de la ventana estable entre
+      utilizacion) o de contenedores_dia; sin ninguna de las dos la estación no
+      tiene límite y el escenario es el replay del MB51. paro_dias detiene la
+      estación esos días hábiles desde cada lunes posible. Una estación que el
+      escenario no nombra no tiene límite.
+    config:
+      column_types:
+        escenario: varchar
+        estacion: varchar
+        tipo_material: varchar
+        planta: varchar
+        utilizacion: double
+        contenedores_dia: double
+        paro_dias: integer
+    columns:
+      - name: escenario
+        tests: [not_null]
+      - name: estacion
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['lavado', 'reparacion']
+      - name: tipo_material
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['KLT', 'RACK']
+      - name: paro_dias
+        tests: [not_null]
