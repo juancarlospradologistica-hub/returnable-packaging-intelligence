@@ -16,11 +16,11 @@ Pipeline analítico para la flota de contenedores retornables de una operación 
 ![Dashboard: rotación y pérdidas](docs/img/dashboard_rotacion.png)
 
 - 14 plantas en México, Estados Unidos y Nicaragua, 1,200 materiales de empaque y 20,981,396 movimientos sintéticos, con la lógica de stock especial V de SAP: salida 621, recogida 622 y faltante 702 en conciliación.
-- Polars, DuckDB y dbt: 55 modelos, 329 tests de datos y 31 unit tests. En cada push, CI corre el pipeline de punta a punta sobre un dataset reducido de 2 plantas, más una ventana que abre con stock en cliente y un extracto sin plan.
+- Polars, DuckDB y dbt: 57 modelos, 333 tests de datos y 31 unit tests. En cada push, CI corre el pipeline de punta a punta sobre un dataset reducido de 2 plantas, más una ventana que abre con stock en cliente y un extracto sin plan.
 - Un extracto bajado de SAP (MB51, MARD, MSKU y maestro de materiales) entra con `rpi.extracto` y corre de punta a punta sin el generador.
 - Ninguna cifra se publica si una regla de calidad que bloquea tiene violaciones sobre ella.
 
-Las decisiones de diseño, con sus alternativas descartadas, están en 38 ADRs en `PROYECTO.md`.
+Las decisiones de diseño, con sus alternativas descartadas, están en 39 ADRs en `PROYECTO.md`.
 
 ## Disclaimer
 
@@ -133,6 +133,8 @@ flowchart LR
     speor --> mcap[mart_sim_capacidad]
     speor --> sdiario[int_sim_diario, Python]
     sdiario --> mvac[mart_sim_vacios_diario]
+    stg --> mflu[mart_flujos_semanales]
+    stg --> mred[mart_red_semanal]
 ```
 
 Ciclo de un contenedor retornable, dentro de la planta y con el cliente:
@@ -217,7 +219,7 @@ uv run python -c "from rpi.db import ingest; ingest()"
 ```
 > Si generaste el dataset con `--output` en un directorio distinto a `data/raw`, pasa el argumento correspondiente: `from rpi.db import ingest; ingest(raw_dir="data/custom")`.
 
-Construir modelos y correr los tests de dbt (55 modelos, 11 seeds, 329 tests de datos y 31 unit tests):
+Construir modelos y correr los tests de dbt (57 modelos, 11 seeds, 333 tests de datos y 31 unit tests):
 
 ```bash
 uv run dbt build --profiles-dir .
@@ -402,7 +404,9 @@ returnable-packaging-intelligence/
 │       ├── mart_impacto_defectos.sql  # impacto de cada defecto por cifra, tasa y techo
 │       ├── mart_deteccion_ciegos.sql  # detección de los ciegos antes y después de su regla
 │       ├── mart_sim_capacidad.sql   # gemelo: desechable, flota y cola por escenario
-│       └── mart_sim_vacios_diario.sql # gemelo: vacíos y cola por día contra la traza
+│       ├── mart_sim_vacios_diario.sql # gemelo: vacíos y cola por día contra la traza
+│       ├── mart_flujos_semanales.sql # contenedores por tramo del ciclo y semana
+│       └── mart_red_semanal.sql     # salidas, recogidas y faltante por planta y cliente
 ├── seeds/                      # catálogos SAP, unidades de un extracto, plantas, política, escenarios, reglas de calidad y cifras publicadas
 ├── notebooks/
 │   ├── 00_sanity_check.ipynb
@@ -422,9 +426,10 @@ returnable-packaging-intelligence/
 │   ├── huella.py               # Huella de 621, 622 y 702 para detectar cambios de cifras
 │   ├── publicacion.py          # Bloqueo de cifras con una regla de calidad que bloquea
 │   ├── recorte.py              # Ventana recortada: el limpio desde una fecha, con la foto al corte
+│   ├── red.py                  # SVG del anillo de la planta y de la red para el dashboard
 │   ├── schema.py               # Schemas Pandera: MB51, foto, plan y maestro
 │   └── simulador.py            # Gemelo de la red RPL: cola con capacidad y vacíos sobre la traza
-├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, extracto sin plan, gemelo, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
+├── tests/                      # pytest: generador, defectos, arnés, extracto, ventana recortada, extracto sin plan, gemelo, dibujos de la red, ciclo interno, plan, huella, schema, marts, bloqueo, dashboard y cuadre del README
 ├── tests_dbt/                  # tests singulares de dbt y el genérico de severidad
 ├── dbt_project.yml
 ├── profiles.yml                # DuckDB con rutas relativas para CI
@@ -691,11 +696,19 @@ La flota que sobra es lo más bajo que llegó vacíos de cada material en 18 mes
 - **Paro.** Cinco días hábiles de lavado parado, en el peor lunes de cada planta, cuestan $83k de desechable; diez días, $700k, 2.2 veces la brecha de flota de Fase 3.
 - **Reparación.** Ni al 100% de utilización manda contenedores a desechable: entra el 2% de los KLT recogidos y el 5.5% de los Rack.
 
-Sigue la pestaña de la red en el dashboard (5b) y la lista de acciones priorizada en USD (5c).
+### La red en el dashboard
+
+![Dashboard: anillo de una planta durante el peor paro de lavado de 5 días](docs/img/dashboard_red.png)
+
+La pestaña "Red RPL" tiene tres niveles. El anillo de una planta dibuja el ciclo del empaque en la semana: el grosor de cada tramo es lo que pasó por él y el número de cada estado, lo que había al cierre. Vacíos muestra el escenario elegido junto a la traza. Abajo, el lavado de empaques día por día con su cola, y la red de plantas y clientes con las salidas de la semana. Un interruptor avanza la semana sola (ADR-039).
+
+Vacíos y la planta se pintan de rojo si en la semana algún material salió en desechable, o si vacíos cubre menos días de salidas que la política. La cobertura sola nunca se prende: en el peor escenario, el paro de 10 días, la planta más corta todavía cubre 6.7 días. Lo que falta, falta material por material.
+
+Sigue la lista de acciones priorizada en USD (5c).
 
 ## Estado
 
-Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 55 modelos dbt y 11 seeds con 329 tests de datos y 31 unit tests → notebooks → dashboard Marimo con cuatro pestañas.
+Fase 1 (ciclo y pérdidas) y Fase 2 (TCO retornable vs desechable) cerradas sobre la base corregida de ADR-011: ciclo con 621/622/702, saldo por cuenta con antigüedad FIFO y generador reproducible. Pipeline de punta a punta: generador sintético → DuckDB → 57 modelos dbt y 11 seeds con 333 tests de datos y 31 unit tests → notebooks → dashboard Marimo con cinco pestañas.
 
 Fase 3a cerrada: ciclo del empaque dentro de la planta en el generador (traslados entre vacíos, línea, llenos y sucios, reparación, scrap con baja mensual y foto de stock inicial) y modelos dbt de stock por almacén y flota semanal con conservación validada. Las cifras de Fase 1 y 2 no cambian: una huella de los movimientos 621, 622 y 702 lo verifica en cada corrida.
 
@@ -707,7 +720,7 @@ Fase 4c cerrada: defectos ciegos (ADR-033, ADR-034). Cuatro defectos de un extra
 
 Fase 4d cerrada: extracto real. MB51, maestro y foto de SAP al contrato, cada uno con ida y vuelta exacta (ADR-035, ADR-037). La foto trae el stock en cliente con el que abre un extracto real y una ventana recortada da lo mismo que la completa (ADR-036). El plan de producción es opcional: sin él la necesidad no se calcula y todo lo demás sale igual. Un extracto armado como lo baja SAP corre de punta a punta sin el generador.
 
-Fase 5 en curso: gemelo de la red RPL (ADR-038). 5a cerrada: lavado de empaques y reparación con capacidad finita sobre la traza del MB51, escenarios de utilización y paro, y la prueba de que con capacidad sin límite el gemelo reproduce el MB51.
+Fase 5 en curso: gemelo de la red RPL (ADR-038). 5a cerrada: lavado de empaques y reparación con capacidad finita sobre la traza del MB51, escenarios de utilización y paro, y la prueba de que con capacidad sin límite el gemelo reproduce el MB51. 5b cerrada: pestaña de la red en el dashboard, con el anillo de la planta, el lavado día por día y la red de plantas y clientes (ADR-039).
 
 Roadmap completo por semanas en `PROYECTO.md` sección 5.
 

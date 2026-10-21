@@ -24,6 +24,11 @@ def test_dashboard_corre_sin_errores(tmp_path):
     try:
         c = duckdb.connect(str(RAIZ / DB), read_only=True)
         c.execute("SELECT 1 FROM mart_impacto_defectos LIMIT 1")
+        n_cifras = c.execute("SELECT COUNT(*) FROM cifras").fetchone()[0]
+        sucia = c.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_name = 'raw_bitacora_defectos'"
+        ).fetchone()[0]
         plantas, meses, corte = c.execute(
             """
             SELECT COUNT(DISTINCT planta), COUNT(DISTINCT strftime(fecha_contab, '%Y-%m')),
@@ -57,3 +62,14 @@ def test_dashboard_corre_sin_errores(tmp_path):
     )
     assert encabezado, "el encabezado no salió en el HTML"
     assert encabezado.groups() == (str(meses), str(plantas), f"{corte:%d.%m.%Y}")
+
+    # La pestaña de calidad decía "de 9" fijo; con la cifra capacidad son diez.
+    i = texto.find("Cifras bloqueadas")
+    assert i >= 0 and re.search(rf"\d+ de {n_cifras}\b", texto[max(i - 400, 0) : i + 400]), (
+        "el total de cifras no sale del seed"
+    )
+    # La pestaña de la red dibuja el anillo de una planta y la red (ADR-039).
+    # Con los defectos encendidos flota y capacidad están bloqueadas: en su
+    # lugar va el aviso con las reglas.
+    dibuja = all(re.search(rf'class=\\?"{c}', texto) for c in ("rpi-anillo", "rpi-red"))
+    assert dibuja != bool(sucia), "la pestaña de la red no respeta el bloqueo"

@@ -1504,6 +1504,47 @@ La economía por viaje casi no cambia (Rack +10%, KLT +14%). Lo que se mueve es 
   - Roadmap: Semanas 23 a 27, una por sub-bloque y una de holgura.
   - Alcance OUT: Monte Carlo hacia adelante sobre el plan; animación por contenedor con JavaScript; gemelo minuto a minuto de patio o almacén.
 
+### ADR-039 · Pestaña "Red RPL": flujos por tramo, anillo y red en SVG
+
+- **Fecha:** 2026-10-20
+- **Estado:** Accepted. Precisa ADR-038, punto 11 (pestaña del gemelo). Cierra 5b.
+- **Contexto:** Antes de dibujar medí sobre el completo (14 plantas, 18 meses, seed 42):
+  - mart_flota_semanal trae el stock por estado al cierre de cada semana, pero no los flujos: con él no se sabe cuánto pasó de sucios a vacíos ni de llenos a cliente. int_mov_stock tiene cada movimiento por ubicación, sin la pareja de origen y destino.
+  - En el MB51 un traslado son dos posiciones del mismo documento, la que sale y la que entra. Con el cliente no hay pareja: 621, 622 y 702 son una sola posición.
+  - 35 clientes con salidas y 14 plantas en tres países. Las plantas del sintético no tienen ubicación: un mapa pondría coordenadas inventadas.
+  - Con la regla de cobertura sola (vacíos entre las salidas de la semana, contra los días de cobertura de parametros_flota), ninguna planta-semana queda en rojo en ningún escenario: lo mínimo es 6.7 días, en el paro de 10 días. Y en ese mismo paro hay 203 planta-semanas con algún material en desechable. El total de vacíos de una planta cubre días mientras un material se queda en cero.
+  - La pestaña de calidad decía "de 9" fijo en las cifras bloqueadas. Con la cifra capacidad de ADR-038 son diez: era una cifra sin test.
+  - marimo 0.24 tiene mo.ui.refresh y mo.state: con los dos, un interruptor avanza la semana sola. Probado en el navegador con marimo run: 4 semanas en 4.5 s.
+- **Alternativas evaluadas:**
+  - Flujos desde int_mov_stock: no dice de dónde viene lo que entra.
+  - Diagrama de Sankey (plotly o altair): una dependencia más y un Sankey no tiene ciclos; el ciclo es lo que distingue al empaque retornable.
+  - Layout de grafo con networkx o graphviz: una dependencia más para 14 plantas y 35 clientes que caben en dos columnas fijas.
+  - Mapa: sin coordenadas reales, inventaría geografía.
+  - Animación con JavaScript propio: queda en Alcance OUT por ADR-038.
+  - Escala de grosor por semana: cada cuadro de la animación se reescalaría y una semana floja se vería igual que una pico.
+  - Alerta solo por cobertura: no se prende nunca; esconde justo lo que el gemelo mide.
+- **Decisión:**
+  1. mart_flujos_semanales: planta, tipo, semana, origen, destino y contenedores. Los traslados se emparejan por documento y material; 621 va de llenos a cliente, 622 de cliente a sucios, 702 de cliente a faltante y 555 de scrap a baja. Estados y eventos salen de los seeds.
+  2. mart_red_semanal: salidas, recogidas y faltante por planta, cliente, tipo y semana.
+  3. src/rpi/red.py con funciones puras que devuelven SVG como texto: anillo, red, grosor, cobertura y en_alerta. Sin dependencias nuevas; el dashboard solo les pasa cifras.
+  4. Anillo de una planta y una semana: flujos y stock de la traza; vacíos, del escenario, con la traza, la cobertura, el desechable de la semana y la cola de lavado y de reparación como notas. Grosor de cada tramo contra el flujo semanal más alto de esa planta y tipo en la ventana.
+  5. Alerta en rojo, en el anillo y en la red: en la semana algún material salió en desechable, o vacíos cubre menos días que dias_cobertura de parametros_flota.
+  6. Red: plantas por país a la izquierda, clientes a la derecha y una ruta por planta y cliente con grosor por salidas de la semana, contra la ruta-semana más alta del tipo. La planta elegida va en azul y las demás en gris.
+  7. Controles: planta, tipo, escenario, semana y Reproducir (una semana por segundo). Arranca en el paro de 5 días, la primera planta, KLT y la semana del peor inicio, que es donde se ve algo.
+  8. La pestaña completa se bloquea con flota, saldo_cliente o capacidad (ADR-031, punto 8). Las cifras bloqueadas de la pestaña de calidad se cuentan contra el seed cifras.
+  9. Tests: assert_flujos_conservan (lo que cambia cada estado en la semana es lo que entró menos lo que salió, contra mart_flota_semanal, que no pasa por los flujos); assert_red_cuadra (la red suma los tramos con el cliente); unique en los dos marts; tests/test_red.py; test_dashboard exige el total de cifras del seed y el anillo y la red dibujados en una base limpia, y el aviso en lugar de los dos con los defectos.
+  10. Captura en docs/img/dashboard_red.png.
+- **Supuestos:** ninguno de dominio nuevo. La cobertura usa los días de parametros_flota (ADR-016).
+- **Consecuencias:**
+  - mart_flujos_semanales con 17,935 filas y mart_red_semanal con 11,076 en el completo. Cifras de Fase 1 a 5a sin cambio: los dos marts solo leen.
+  - Planta-semanas en rojo por escenario, todas por desechable: paro de 10 días 203, de 5 días 89, de 3 días 46, lavado al 100% 53; la traza y los demás, ninguna.
+  - dbt build: 57 modelos, 11 seeds, 333 tests de datos y 31 unit tests; 432/432 en el completo y en el reducido, en las tres ventanas. El dashboard exporta en ~5 s en el completo.
+  - Con los defectos encendidos, un 621 sin cliente tumbaba la pestaña al ordenar los clientes. Lo encontró test_dashboard en la base con defectos; la red ignora rutas sin planta o sin cliente.
+  - 21 mutaciones, una por comportamiento: 11 de red.py, 7 de los marts y 3 del dashboard. El primer test del resaltado pasaba con el resaltado roto: la planta elegida ya quedaba al final por orden alfabético. Ahora resalta la primera.
+  - Límite: el anillo dibuja los flujos de la traza aunque el escenario los retrase; solo vacíos, sucios y reparación muestran el escenario.
+  - Límite: el HTML exportado es estático, sin Reproducir. La animación corre con marimo run.
+  - Límite: la red en dos columnas aguanta unos 60 clientes; más, y hace falta agrupar.
+
 ---
 
 ## 4. Diccionario de datos (MB51 sintético)
@@ -1614,7 +1655,7 @@ Marcar con `[x]` al cerrar.
 - [x] **Semana 21** · Fase 4d: extracto real. MB51 de SAP al contrato con ida y vuelta exacta sobre el completo (4d.1, ADR-035); stock en cliente al abrir la ventana y ventana recortada igual a la completa (4d.2, ADR-036); adaptadores de maestro y foto, plan opcional y extracto de punta a punta (4d.3, ADR-037). Fase 4d cerrada.
 - [x] **Semana 22** · Publicación en GitHub: README de entrada con cifras headline cuadradas por test, capturas del dashboard y revisión de links y comandos en Windows.
 - [x] **Semana 23** · Fase 5a: gemelo de la red RPL. Lavado de empaques y reparación con capacidad finita sobre la traza del MB51, escenarios de utilización y paro, y replay exacto como test principal (ADR-038).
-- [ ] **Semana 24** · Fase 5b: pestaña "Red RPL" en el dashboard: red de plantas y clientes, anillo del ciclo de la planta y cola del lavado día por día.
+- [x] **Semana 24** · Fase 5b: pestaña "Red RPL" en el dashboard: anillo del ciclo de la planta, lavado de empaques día por día y red de plantas y clientes, con reproducción por semana (ADR-039).
 - [ ] **Semana 25** · Fase 5c: lista de acciones priorizada en USD (mart_acciones).
 - [ ] **Semana 26** · Fase 5d: notebook 06, README, revisión de runner y actions y cierre de Fase 5.
 - [ ] **Semana 27** · Holgura para la medición del completo y lo que salga de 5b y 5c.
@@ -1622,6 +1663,31 @@ Marcar con `[x]` al cerrar.
 ---
 
 ## 6. Worklog
+
+### 2026-10-20 · Sesión 59 — Semana 24
+
+- **Duración:** ~3 h
+- **Hecho:**
+  - PR #25 (fase-5a) mergeado. dbt build 426/426 en Windows en 4:15: el primer modelo Python del proyecto corre igual que en CI.
+  - mart_flujos_semanales y mart_red_semanal: contenedores por tramo del ciclo y por planta y cliente, por semana.
+  - src/rpi/red.py: SVG del anillo de la planta y de la red, sin dependencias nuevas.
+  - Pestaña "Red RPL" en el dashboard: anillo con la traza y vacíos del escenario, lavado de empaques día por día y red de plantas y clientes, con planta, tipo, escenario, semana y Reproducir.
+  - fix: la pestaña de calidad decía "de 9" fijo en las cifras bloqueadas; con capacidad son diez. Sale del seed.
+  - Captura de la pestaña en docs/img/dashboard_red.png y sección en el README.
+  - Tests: assert_flujos_conservan, assert_red_cuadra, tests/test_red.py, test_dashboard con el total de cifras y el bloqueo de la pestaña, y test_readme con la cobertura.
+  - Verificados rompiendo: 21 mutaciones, una por comportamiento.
+  - Completo: dbt build 432/432 en las tres ventanas, pytest 217 y 2 saltados. Reducido: 432/432 en las tres ventanas, pytest 204 y 15 saltados, y el paso sucio en verde.
+- **Decisiones tomadas:** ADR-039.
+- **Bloqueos:**
+  - La primera alerta era solo por cobertura de vacíos y no se prendía nunca: en el paro de 10 días la planta más corta cubre 6.7 días mientras 203 planta-semanas mandan algún material a desechable. La alerta suma el desechable de la semana.
+  - Con los defectos encendidos, un 621 sin cliente tumbaba la pestaña al ordenar los clientes. Lo encontró test_dashboard sobre la base con defectos.
+  - Las puntas de flecha crecían con el grosor del tramo y tapaban los nodos; van en tamaño fijo.
+  - El test del resaltado de la red pasaba con el resaltado roto: la planta elegida ya quedaba al final por orden alfabético.
+- **Notas de la sesión:**
+  - Un número escrito a mano en un tablero es una cifra sin test. "de 9" sobrevivió una fase porque nada lo contaba.
+  - Un total que cubre días puede esconder un material en cero. La alerta tiene que estar al grano del problema.
+  - Una prueba visual se hace en el navegador: el HTML exportado no corre Reproducir.
+- **Próximo paso:** PR de fase-5b con CI verde y merge. Después 5c: lista de acciones priorizada en USD.
 
 ### 2026-10-20 · Sesión 58 — Semana 23
 
@@ -2767,6 +2833,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Lavado de empaques** — Estación donde el empaque sucio que regresa del cliente se lava o se inspecciona antes de volver a vacíos. En el MB51, las salidas de SUCI.
 - **Utilización** — Flujo medio de una estación entre su capacidad. Arriba de 90% la cola crece rápido; al 100% no queda margen para un día pico.
 - **Paro** — Días hábiles en que una estación no procesa nada, por una falla o un mantenimiento correctivo.
+- **Cobertura de vacíos** — Días de salidas a cliente que cubre lo que hay en vacíos: vacíos entre las salidas de la semana por 7.
+- **Anillo del ciclo** — Dibujo de los estados del empaque en una planta (vacíos, línea, llenos, cliente, sucios, reparación, scrap) con el flujo de cada tramo y el stock de cada estado (ADR-039).
 - **Flota que sobra** — Lo más bajo que llegó vacíos de cada material en la ventana, sumado. Es la flota que nunca se usó; una cota, no una recomendación de baja.
 - **Red de préstamos** — Contenedores que una planta con sobrante presta a otra con déficit del mismo material. Dentro del país va primero por flete y trámite; entre países paga aduana e importación temporal.
 
@@ -2831,6 +2899,8 @@ Bitácora cronológica. Entrada más reciente al principio. **Nunca cerrar VS Co
 - **Recursión de Lindley** — Saldo de hoy = máximo entre cero y el de ayer más el cambio del día. Lo que habría quedado negativo es el faltante. Tiene forma cerrada con el mínimo acumulado.
 - **Cola FIFO con capacidad** — Lo que llega espera en orden de llegada y sale a lo más la capacidad del día.
 - **Modelo Python (dbt)** — Modelo de dbt escrito en Python en lugar de SQL. Recibe tablas del DAG y devuelve un DataFrame; dbt-duckdb lo guarda como tabla.
+- **SVG** — Formato de imagen vectorial en texto. Aquí lo genera Python y el dashboard lo muestra; se puede revisar con un parser de XML en un test.
+- **Estado reactivo (marimo)** — Valor que una celda cambia y que vuelve a correr las celdas que lo leen. Con un refresco cada segundo, avanza la semana de la animación.
 - **Prueba de mutación** — Romper el código a propósito, un comportamiento a la vez, y exigir que algún test falle. Si ninguno falla, falta un test o el código sobra.
 
 ---
